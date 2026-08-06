@@ -643,9 +643,12 @@ fRunSuite(){
 	cat > "${gh}/bin/gh" <<'GHEOF'
 #!/usr/bin/env bash
 ## Test stub: deterministic gh, no network. Behavior driven by FAKE_GH_* env.
-[[ -n "${FAKE_GH_LOG:-}" ]] && echo "$*" >> "${FAKE_GH_LOG}"
+## GH_TOKEN is logged too: that is how a check sees which account the run picked for the remote.
+[[ -n "${FAKE_GH_LOG:-}" ]] && echo "$* [GH_TOKEN=${GH_TOKEN:-}]" >> "${FAKE_GH_LOG}"
 case "$1 $2" in
 	"api user")    echo "${FAKE_GH_LOGIN:-ghuser}" ;;  ## whose token gh is holding
+	"auth token")  ## accounts gh holds, space separated; exit 1 for anyone else, like the real thing
+	               case " ${FAKE_GH_ACCOUNTS:-} " in *" $4 "*) echo "tok_$4" ;; *) exit 1 ;; esac ;;
 	"repo view")   case "${FAKE_GH_VIEW:-}" in notfound) exit 1 ;; empty) echo true ;; nonempty) echo false ;; esac ;;
 	"config get")  echo "${FAKE_GH_PROTO:-https}" ;;
 	"pr list")     echo "${FAKE_GH_EXISTING:-}" ;;  ## an already-open PR number for this branch, or nothing
@@ -676,8 +679,25 @@ GHEOF
 	## the same login the fake gh reports, so these checks see a match and carry on.
 	cat > "${gh}/bin/ssh" <<-'EOF'
 		#!/usr/bin/env bash
-		[[ "$1" == "-G" ]] && { printf 'user git\nhostname github.com\n'; exit 0; }
-		[[ "$1" == "-T" ]] && { echo "Hi ${FAKE_SSH_LOGIN:-${FAKE_GH_LOGIN:-ghuser}}! You've successfully authenticated, but GitHub does not provide shell access."; exit 1; }
+		## Scan rather than index $1: the probe now prefixes git's own core.sshCommand arguments,
+		## so -T is not necessarily first. A keyed probe answers as that key's owner, which is how
+		## a check proves the configured key was the one used.
+		mode=""; key=""
+		while [[ $# -gt 0 ]]; do
+			case "$1" in
+				-G) mode=G ;;
+				-T) mode=T ;;
+				-i) key="$2"; shift ;;
+			esac
+			shift
+		done
+		[[ "${mode}" == "G" ]] && { printf 'user git\nhostname github.com\n'; exit 0; }
+		if [[ "${mode}" == "T" ]]; then
+			login="${FAKE_SSH_LOGIN:-${FAKE_GH_LOGIN:-ghuser}}"
+			[[ -n "${key}" ]] && login="$(basename "${key}")"
+			echo "Hi ${login}! You've successfully authenticated, but GitHub does not provide shell access."
+			exit 1
+		fi
 		exit 0
 	EOF
 	chmod +x "${gh}/bin/ssh"
@@ -795,6 +815,53 @@ GHEOF
 		git checkout --quiet -b pnfeat2 && echo more > more.txt && git add --all && git commit --quiet -m "Commit subject"
 	)
 	fAssert "pr create takes an explicit title"  bash -c "cd '${pnc}' && PATH='${ghp}' FAKE_GH_LOG='${gh}/prnew2.log' '${gitsby}' -q pr create 'Explicit title' && grep -q -- '--title Explicit title' '${gh}/prnew2.log'"
+
+	## Identity: which account a remote-touching command acts as. gh keeps one active account for the
+	## whole host, so against a remote owned by somebody else it acts as the wrong one.
+	## The origin really is a github.com url here, because the owner is parsed from what
+	## 'git remote get-url' returns and that applies url.*.insteadOf - pointing it at a local bare to
+	## stay offline would hand gitsby a local path and test nothing. --no-fetch keeps it off the
+	## network instead: gh is stubbed, and a read never probes ssh, so nothing reaches github.com.
+	local idn="${gh}/ident"
+	mkdir -p "${idn}"
+	git init --quiet --bare -b main "${idn}/backing.git"
+	git clone --quiet "${idn}/backing.git" "${idn}/c" 2>/dev/null
+	(
+		cd "${idn}/c" || exit 1
+		echo i > i.txt && git add --all && git commit --quiet -m init && git push --quiet -u origin main
+		git remote set-url origin git@github.com:acme/proj.git
+	)
+	local idEnv="PATH='${ghp}' FAKE_GH_LOGIN=someoneelse"
+	fAssert "gh acts as the remote's owner when it holds that account" \
+		bash -c "cd '${idn}/c' && ${idEnv} FAKE_GH_ACCOUNTS='someoneelse acme' FAKE_GH_LOG='${idn}/held.log' '${gitsby}' -q -NoFetch pr && grep -q 'GH_TOKEN=tok_acme' '${idn}/held.log'"
+	## A fork or an org we have no account for is ordinary - it must not be touched, and must not refuse.
+	fAssert "gh is left alone when it has no account for the owner" \
+		bash -c "cd '${idn}/c' && ${idEnv} FAKE_GH_ACCOUNTS='someoneelse' FAKE_GH_LOG='${idn}/unheld.log' '${gitsby}' -q -NoFetch pr && grep -q 'GH_TOKEN=\]' '${idn}/unheld.log'"
+	## -NoFetch is spelled the same to both ports (bash normalises it), so these need no branch.
+	if [[ "$1" == "bash" ]]; then  ## the identity flag IS spelled per implementation
+		fAssert "--any-identity leaves gh's active account alone" \
+			bash -c "cd '${idn}/c' && ${idEnv} FAKE_GH_ACCOUNTS='someoneelse acme' FAKE_GH_LOG='${idn}/any.log' '${gitsby}' -q -NoFetch --any-identity pr && grep -q 'GH_TOKEN=\]' '${idn}/any.log'"
+	else
+		fAssert "-AnyIdentity leaves gh's active account alone" \
+			bash -c "cd '${idn}/c' && ${idEnv} FAKE_GH_ACCOUNTS='someoneelse acme' FAKE_GH_LOG='${idn}/any.log' '${gitsby}' -q -NoFetch -AnyIdentity pr && grep -q 'GH_TOKEN=\]' '${idn}/any.log'"
+	fi
+	## A remote we can't name an owner for gets no opinion at all.
+	git clone --quiet "${idn}/backing.git" "${idn}/local" 2>/dev/null
+	fAssert "a non-GitHub remote picks no account" \
+		bash -c "cd '${idn}/local' && ${idEnv} FAKE_GH_ACCOUNTS='someoneelse acme' FAKE_GH_LOG='${idn}/plain.log' '${gitsby}' -q -NoFetch pr && grep -q 'GH_TOKEN=\]' '${idn}/plain.log'"
+	## The probe must ask as the key git would push with, not as ssh's default: a per-repo
+	## core.sshCommand is exactly how two accounts are kept apart on one machine, and a probe that
+	## ignores it reports the wrong account confidently. The fake ssh answers as the key's basename.
+	git clone --quiet "${idn}/backing.git" "${idn}/keyed" 2>/dev/null
+	(
+		cd "${idn}/keyed" || exit 1
+		git remote set-url origin git@github.com:acme/proj.git
+		git config core.sshCommand 'ssh -i /keys/keyowner -o IdentitiesOnly=yes'
+	)
+	fAssertOut "the ssh probe asks as the key git pushes with" 'SSH \.+: keyowner' \
+		bash -c "cd '${idn}/keyed' && ${idEnv} '${gitsby}' -NoFetch status"
+	fAssertOut "and the key it names is that one, not ssh's default" 'key /keys/keyowner' \
+		bash -c "cd '${idn}/keyed' && ${idEnv} '${gitsby}' -NoFetch status"
 
 	## Hotfix branches target the default branch instead of dev, because they correct what is
 	## already published. Landing one must also carry it back to dev, or the next release undoes it.

@@ -93,6 +93,7 @@ $script:connectMode = ''; $script:connectUrl = ''; $script:ghTarget = ''  ## res
 $script:isGhCommand = $false   ## command goes through gh at all -> show whose account that is
 $script:isGhWrite = $false     ## command WRITES through gh -> also compare against the ssh key
 $script:ghLoginCache = ''; $script:sshLoginCache = ''; $script:ghProtocolCache = ''  ## per-run, each costs a round trip
+$script:ghSwitchedFrom = ''    ## gh's active account, when this run picked a different one for the remote
 $script:identityProbeUrl = ''  ## url the ssh identity is read from (existing origin, or the one about to be set)
 $script:pruneLocal = @(); $script:pruneRemote = @(); $script:pruneKeep = @(); $script:pruneTargetRefs = @(); $script:pruneCurrentMerged = ''  ## resolved by the br prune validation
 
@@ -171,7 +172,7 @@ function Show-Syntax {
     Write-PlainLine '  -m, -Message MSG .....: Commit or merge message (or give it positionally).'
     Write-PlainLine '  -q, -Quiet, -y .......: Assume yes - no prompts; if committing with no message, one is generated.'
     Write-PlainLine '  -Public / -Private ...: Visibility for the repo ''repo create'' makes (default: private).'
-    Write-PlainLine '  -AnyIdentity .........: Proceed when gh''s account differs from the remote''s ssh key.'
+    Write-PlainLine '  -AnyIdentity .........: Act as gh''s active account, and proceed when it differs from the remote''s ssh key.'
     Write-PlainLine '  -NoFetch .............: Skip the pre-command fetch, and the pull. (Pushes still go out.)'
     Write-PlainLine '  -h, -Help  /  -v, -Version'
     Write-PlainLine ''
@@ -451,6 +452,89 @@ function Get-SshConnectTarget {
     return $sshHost
 }
 
+function Get-GitSshCommand {
+    ## The ssh command git itself would run, so the probe below asks as the key git actually pushes
+    ## with. Without this a per-repo 'core.sshCommand' (the usual way to hold two GitHub accounts on
+    ## one box) is invisible here: the probe answers with the default key's account while git pushes
+    ## as someone else - and two wrong halves that happen to agree read as a clean bill of health.
+    ## Precedence is git's own: GIT_SSH_COMMAND beats core.sshCommand. Split, never re-shelled - a
+    ## config value is not a place to run code - so a quoted path degrades to a plain 'ssh' probe
+    ## (which answers for the default key, and a wrong '?' is safer than a wrong name) rather than misparse.
+    $cmd = $env:GIT_SSH_COMMAND
+    if (-not $cmd) {
+        $out = @()
+        try { $out = @(git config --get core.sshCommand 2>$null) } catch { $out = @() }
+        if ($out.Count -gt 0) { $cmd = ([string]$out[0]).Trim() }
+    }
+    if (-not $cmd -or $cmd -match '["'']') { return @('ssh') }
+    return @($cmd -split '\s+' | Where-Object { $_ })
+}
+
+function Resolve-SshHost {
+    ## Real hostname behind an ssh_config alias ('github_work' -> 'github.com'), so an aliased
+    ## remote can still be recognised as GitHub. The alias itself when ssh can't say.
+    param([string]$HostAlias)
+    if (-not $HostAlias -or -not (Get-Command -Name ssh -ErrorAction SilentlyContinue)) { return $HostAlias }
+    ## --: an option-shaped host must not parse as an ssh option
+    foreach ($line in @(ssh -G -- "$HostAlias" 2>$null)) {
+        if ($line -match '^hostname\s+(\S+)') { return $Matches[1] }
+    }
+    return $HostAlias
+}
+
+function Get-RemoteOwner {
+    ## The GitHub account a remote belongs to, or '' when that cannot be said. Only github.com
+    ## counts, and an alias is resolved first - 'git@github_work:me/repo.git' names no host worth
+    ## comparing. '' for other forges, local paths, or anything that doesn't parse: the caller
+    ## treats empty as "no opinion", so a remote we don't understand can never trigger a refusal.
+    param([string]$Url)
+    if (-not $Url) { return '' }
+    if ($Url -match '^[A-Za-z]:[\\/]') { return '' }  ## Windows drive path, not a remote host
+    $gitHost = ''; $path = ''                          ## not $host - that is an automatic variable
+    if ($Url -match '^[a-z][a-z0-9+.-]*://(?:[^@/]+@)?([^:/]+)(?::\d+)?/(.+)$') { $gitHost = $Matches[1]; $path = $Matches[2] }
+    elseif ($Url -match '^(?:[^@/]+@)?([^/:]+):(.+)$')                          { $gitHost = $Matches[1]; $path = $Matches[2] }
+    else { return '' }
+    $path = $path -replace '^/+', ''
+    if ($path -notmatch '/') { return '' }
+    if ($gitHost -ne 'github.com') { $gitHost = Resolve-SshHost -HostAlias $gitHost }
+    if ($gitHost -ne 'github.com') { return '' }
+    return ($path -split '/')[0]
+}
+
+function Get-GhTokenFor {
+    ## The stored token for an account gh already holds, or ''. Reads gh's own credential store -
+    ## no network, no prompt - so it doubles as the "does gh have this account" test.
+    param([string]$Who)
+    if (-not $Who) { return '' }
+    if (-not (Get-Command -Name gh -ErrorAction SilentlyContinue)) { return '' }
+    $out = @()
+    ## "$Who" quoted: an unquoted user value is wildcard-expanded against the cwd before gh sees it.
+    try { $out = @(gh auth token --user "$Who" 2>$null) } catch { $out = @() }
+    if ($LASTEXITCODE -eq 0 -and $out.Count -gt 0) { return ([string]$out[0]).Trim() }
+    return ''
+}
+
+function Select-GhAccount {
+    ## gh keeps ONE active account per host, so against a remote owned by somebody else it will act
+    ## as whoever you last switched to - and 'gh auth switch' is global state you have to remember to
+    ## set and to put back. When the remote's owner is an account gh already holds, point just this
+    ## run at it via GH_TOKEN, which outranks the stored credentials and leaves nothing behind.
+    ## Only when we can name the owner AND hold their token: an org or a fork we have no account for
+    ## is ordinary, and stays untouched. Never silent - Show-Identity names the switch in the preview.
+    param([string]$Url)
+    $owner = Get-RemoteOwner -Url $Url
+    if (-not $owner) { return }
+    $active = Get-GhLogin
+    if ($active -eq '?' -or $active -eq $owner) { return }
+    $token = Get-GhTokenFor -Who $owner
+    if (-not $token) { return }
+    $env:GH_TOKEN = $token
+    ## The token came out of gh's store keyed by that login, so it is that account - no round trip
+    ## needed to confirm it, and this stays correct offline.
+    $script:ghSwitchedFrom = $active
+    $script:ghLoginCache = $owner
+}
+
 function Get-GhLogin {
     ## The account gh's token belongs to. gh talks to the API over https and never consults
     ## ssh config, so this is who every gh-backed command acts as - regardless of which key
@@ -498,7 +582,24 @@ function Get-SshLogin {
         $target = Get-SshConnectTarget -Url $RemoteUrl
         if ($target -and (Get-Command -Name ssh -ErrorAction SilentlyContinue)) {
             $greeting = ''
-            try { $greeting = (ssh -T -o BatchMode=yes -o ConnectTimeout=3 -- "$target" 2>&1 | Out-String) } catch { $greeting = '' }
+            ## ArgumentList, not a splat: git's ssh command is user config, and a splatted element
+            ## can't be quoted against wildcard expansion. ssh tilde-expands its own -i argument,
+            ## so an unexpanded '~/.ssh/key' out of config still resolves.
+            $sshCmd = Get-GitSshCommand
+            $sshArgs = @()
+            if ($sshCmd.Count -gt 1) { $sshArgs += $sshCmd[1..($sshCmd.Count - 1)] }
+            $sshArgs += @('-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=3', '--', $target)
+            try {
+                $psi = [System.Diagnostics.ProcessStartInfo]::new($sshCmd[0])
+                $psi.UseShellExecute = $false
+                $psi.RedirectStandardOutput = $true
+                $psi.RedirectStandardError = $true
+                foreach ($sshArg in $sshArgs) { [void]$psi.ArgumentList.Add($sshArg) }
+                $proc = [System.Diagnostics.Process]::Start($psi)
+                ## The greeting is on stderr and is a couple of lines, so a sequential read cannot deadlock.
+                $greeting = $proc.StandardOutput.ReadToEnd() + $proc.StandardError.ReadToEnd()
+                $proc.WaitForExit()
+            } catch { $greeting = '' }
             ## Anchored per line ((?m)), because the greeting is not necessarily the first one: we
             ## capture stderr too, and ssh puts 'Warning: Permanently added ...' or 'Warning:
             ## Identity file ... not accessible' ahead of it. Unanchored would match mid-line text.
@@ -710,6 +811,14 @@ function Show-Identity {
                 }
             }
         }
+        ## An '-i' in git's own ssh command outranks whatever ssh -G nominated: that is the key git
+        ## hands ssh, and with IdentitiesOnly set ssh_config's candidates never get a look in. Without
+        ## this the line can name the right account beside the wrong key file, which is worse than
+        ## either alone - it invites you to trust the half that happens to be wrong.
+        $gitSshCmd = Get-GitSshCommand
+        for ($i = 0; $i -lt $gitSshCmd.Count - 1; $i++) {
+            if ($gitSshCmd[$i] -eq '-i') { $keyFile = $gitSshCmd[$i + 1]; break }
+        }
         if ($sshHost) {
             $sshLine = '{0}@{1}' -f $(if ($sshUser) { $sshUser } else { '?' }), $sshHost
             if ($sshHostAlias -ne $sshHost) { $sshLine += " via alias '${sshHostAlias}'" }
@@ -732,6 +841,9 @@ function Show-Identity {
         $ghLogin = Get-GhLogin
         $ghLine = $ghLogin
         if ($ghLogin -eq '?') { $ghLine = '(unknown - gh not logged in, or offline)' }
+        ## An account we picked for this remote is still a change of who you act as. Say it here,
+        ## in the block you read before confirming, rather than let it look like it was already active.
+        if ($script:ghSwitchedFrom) { $ghLine += " (selected for this remote; active account is '$($script:ghSwitchedFrom)')" }
         ## Only a write can act as the wrong account, so only a write gets the comparison. The
         ## round trip behind it is the same one the SSH line above already made.
         if ($script:isGhWrite) {
@@ -1763,6 +1875,15 @@ try {
     ## mistake waiting to happen, and it is outward-facing. Refuse it unattended (nobody is there
     ## to read a warning); warn interactively, right before the prompt. -AnyIdentity means
     ## the difference is intended.
+    ## Before anything reads gh's identity, point the run at the remote's own account when we hold
+    ## it. Reads need this as much as writes: 'pr' against a private repo the active account cannot
+    ## see fails the same way a write does. -AnyIdentity means hands off.
+    if ($script:isGhCommand -and -not $AnyIdentity) {
+        $ghOwnerUrl = $script:identityProbeUrl
+        if (-not $ghOwnerUrl) { $ghOwnerUrl = [string](@(git remote get-url origin 2>$null) | Select-Object -First 1) }
+        Select-GhAccount -Url $ghOwnerUrl
+    }
+
     $identityMismatch = ''
     if ($script:isGhWrite -and -not $AnyIdentity) {
         $identityMismatch = Get-IdentityMismatch -GhLogin (Get-GhLogin) -SshLogin (Get-SshLogin -RemoteUrl $script:identityProbeUrl)

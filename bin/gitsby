@@ -94,7 +94,7 @@ fSyntax(){ { ((doQuietly)) || ((wasShown_Syntax)); } && return; wasShown_Syntax=
 	fEcho_Clean "  -m, --message MSG ....: Commit or merge message (or give it positionally)."
 	fEcho_Clean "  -q, --quiet, -y ......: Assume yes - no prompts; if committing with no message, one is generated."
 	fEcho_Clean "  --public / --private .: Visibility for the repo 'repo create' makes (default: private)."
-	fEcho_Clean "  --any-identity .......: Proceed when gh's account differs from the remote's ssh key."
+	fEcho_Clean "  --any-identity .......: Act as gh's active account, and proceed when it differs from the remote's ssh key."
 	fEcho_Clean "  --no-fetch ...........: Skip the pre-command fetch, and the pull. (Pushes still go out.)"
 	fEcho_Clean "  -h, --help  /  -v, --version"
 	fEcho_Clean "" ;:;}
@@ -495,7 +495,17 @@ fMain(){
 	## Prime the probe caches here, in this shell: every use below sits inside a command
 	## substitution, so a cache filled in one of those is discarded and the next call re-probes.
 	## That was two 'gh api user' calls and two 'ssh -T' round trips per command, not one each.
-	if ((isGhCommand)); then fpGhLogin >/dev/null; fi
+	if ((isGhCommand)); then
+		fpGhLogin >/dev/null
+		## Before anything reads gh's identity, point the run at the remote's own account when we
+		## hold it. Reads need this as much as writes: 'pr' against a private repo the active
+		## account can't see fails the same way a write does. --any-identity means hands off.
+		if ((! anyIdentity)); then
+			local ghOwnerUrl="${identityProbeUrl}"
+			[[ -n "${ghOwnerUrl}" ]] || ghOwnerUrl="$(git remote get-url origin 2>/dev/null || true)"
+			fpSelectGhAccount "${ghOwnerUrl}"
+		fi
+	fi
 	if ((isGhWrite));   then fpSshLogin "${identityProbeUrl}" >/dev/null; fi
 
 	local identityMismatch=""
@@ -1095,6 +1105,71 @@ fSshConnectTarget(){
 	[[ -n "${user}" ]] && echo "${user}@${host}" || echo "${host}"
 :;}
 
+fpResolveSshHost(){
+	## Real hostname behind an ssh_config alias ('github_work' -> 'github.com'), so an aliased
+	## remote can still be recognised as GitHub. The alias itself when ssh can't say.
+	local -r hostAlias="${1:-}"
+	if [[ -z "${hostAlias}" ]] || ! command -v ssh &>/dev/null; then echo "${hostAlias}"; return 0; fi
+	local key="" value="" host=""
+	while read -r key value; do
+		[[ "${key}" == "hostname" ]] || continue
+		host="${value}"; break
+	done < <(ssh -G -- "${hostAlias}" 2>/dev/null || true)  ## --: an option-shaped host must not parse as an ssh option
+	echo "${host:-${hostAlias}}"
+:;}
+
+fpRemoteOwner(){
+	## The GitHub account a remote belongs to, or nothing when that cannot be said. Only github.com
+	## counts, and an alias is resolved first - 'git@github_work:me/repo.git' names no host worth
+	## comparing. Nothing for other forges, local paths, or anything that doesn't parse: the caller
+	## treats empty as "no opinion", so a remote we don't understand can never trigger a refusal.
+	local -r url="${1:-}"
+	local host="" path=""
+	case "${url}" in
+		ssh://*)             path="${url#ssh://}" ;;
+		[A-Za-z]*://*)       path="${url#*://}" ;;
+		*@*:*|?*:*)          host="${url%%:*}"; host="${host##*@}"; path="${url#*:}" ;;
+		*)                   return 0 ;;
+	esac
+	if [[ -z "${host}" ]]; then
+		host="${path%%/*}"; host="${host##*@}"; host="${host%%:*}"; path="${path#*/}"
+	fi
+	path="${path#/}"
+	[[ -n "${host}" && "${path}" == */* ]] || return 0
+	[[ "${host}" == "github.com" ]] || host="$(fpResolveSshHost "${host}")"
+	[[ "${host}" == "github.com" ]] || return 0
+	echo "${path%%/*}"
+:;}
+
+fpGhTokenFor(){
+	## The stored token for an account gh already holds, or nothing. Reads gh's own credential
+	## store - no network, no prompt - so it doubles as the "does gh have this account" test.
+	local -r who="${1:-}"
+	[[ -n "${who}" ]] || return 0
+	command -v gh &>/dev/null || return 0
+	gh auth token --user "${who}" 2>/dev/null || true
+:;}
+
+fpSelectGhAccount(){
+	## gh keeps ONE active account per host, so against a remote owned by somebody else it will act
+	## as whoever you last switched to - and 'gh auth switch' is global state you have to remember to
+	## set and to put back. When the remote's owner is an account gh already holds, point just this
+	## run at it via GH_TOKEN, which outranks the stored credentials and leaves nothing behind.
+	## Only when we can name the owner AND hold their token: an org or a fork we have no account for
+	## is ordinary, and stays untouched. Never silent - fpShowIdentity names the switch in the preview.
+	local -r url="${1:-}"
+	local -r owner="$(fpRemoteOwner "${url}")"
+	[[ -n "${owner}" ]] || return 0
+	local -r active="$(fpGhLogin)"
+	[[ "${active}" != "?" && "${active}" != "${owner}" ]] || return 0
+	local token=""; token="$(fpGhTokenFor "${owner}")"
+	[[ -n "${token}" ]] || return 0
+	export GH_TOKEN="${token}"
+	## The token came out of gh's store keyed by that login, so it is that account - no round trip
+	## needed to confirm it, and this stays correct offline.
+	ghSwitchedFrom="${active}"; ghLoginCache="${owner}"
+:;}
+
 fpGhLogin(){
 	## The account gh's token belongs to. gh talks to the API over https and never consults
 	## ssh config, so this is who every gh-backed command acts as - regardless of which key
@@ -1122,6 +1197,20 @@ fpGhProtocol(){
 	echo "${ghProtocolCache}"
 :;}
 
+fpGitSshCommand(){
+	## The ssh command git itself would run, so the probe below asks as the key git actually pushes
+	## with. Without this a per-repo 'core.sshCommand' (the usual way to hold two GitHub accounts on
+	## one box) is invisible here: the probe answers with the default key's account while git pushes
+	## as someone else - and two wrong halves that happen to agree read as a clean bill of health.
+	## Precedence is git's own: GIT_SSH_COMMAND beats core.sshCommand. Split, never eval'd - a config
+	## value is not a place to run shell - so a quoted path degrades to a plain 'ssh' probe (which
+	## answers for the default key, and a wrong '?' is safer than a wrong name) rather than misparse.
+	local cmd="${GIT_SSH_COMMAND:-}"
+	[[ -n "${cmd}" ]] || cmd="$(git config --get core.sshCommand 2>/dev/null || true)"
+	[[ -n "${cmd}" && "${cmd}" != *[\"\']* ]] || cmd="ssh"
+	echo "${cmd}"
+:;}
+
 fpSshLogin(){
 	## The account this remote's ssh key authenticates as. GitHub answers 'Hi <user>!' and always
 	## exits 1, so parse the greeting, not the status. BatchMode + a connect timeout: never prompt,
@@ -1131,8 +1220,10 @@ fpSshLogin(){
 	if [[ -z "${sshLoginCache:-}" ]]; then
 		sshLoginCache="?"
 		if [[ -n "${target}" ]] && command -v ssh &>/dev/null; then
+			## ssh tilde-expands its own -i argument, so an unexpanded '~/.ssh/key' from config works.
+			local -a sshCmd=(); read -ra sshCmd <<< "$(fpGitSshCommand)"
 			local greeting=""
-			greeting="$(ssh -T -o BatchMode=yes -o ConnectTimeout=3 -- "${target}" 2>&1 || true)"
+			greeting="$("${sshCmd[@]}" -T -o BatchMode=yes -o ConnectTimeout=3 -- "${target}" 2>&1 || true)"
 			## Per line, because the greeting is not necessarily the first one: we capture stderr
 			## too, and ssh puts 'Warning: Permanently added ...' (StrictHostKeyChecking=accept-new)
 			## or 'Warning: Identity file ... not accessible' ahead of it. Anchoring to the whole
@@ -1162,7 +1253,10 @@ fpProbeRemote(){
 	## otherwise stop and ask for credentials mid-run.
 	local -r url="${1:-}"
 	local -a probeEnv=(GIT_TERMINAL_PROMPT=0)
-	[[ -z "${GIT_SSH_COMMAND:-}" ]] && probeEnv+=(GIT_SSH_COMMAND="ssh -o ConnectTimeout=3")
+	## Compose the timeout onto git's own ssh command, don't replace it: GIT_SSH_COMMAND outranks
+	## core.sshCommand, so a bare 'ssh' here would silently probe as the default key on the very
+	## setups that configure a per-repo one - and a private repo only that key can read reads as offline.
+	[[ -z "${GIT_SSH_COMMAND:-}" ]] && probeEnv+=(GIT_SSH_COMMAND="$(fpGitSshCommand) -o ConnectTimeout=3")
 	local out=""; local -i rc=0
 	out="$(env "${probeEnv[@]}" git ls-remote "${url}" 2>/dev/null)" || rc=$?
 	if ((rc)); then echo "missing"
@@ -1179,7 +1273,7 @@ fpFetchRemote(){
 	## No auth prompts, same as fpProbeRemote: this runs before any of our own checks, so an
 	## https remote we can't authenticate to would stop and ask for a username mid-command.
 	local -a fetchEnv=(GIT_TERMINAL_PROMPT=0)
-	[[ -z "${GIT_SSH_COMMAND:-}" ]] && fetchEnv+=(GIT_SSH_COMMAND="ssh -o ConnectTimeout=3")
+	[[ -z "${GIT_SSH_COMMAND:-}" ]] && fetchEnv+=(GIT_SSH_COMMAND="$(fpGitSshCommand) -o ConnectTimeout=3")
 	if env "${fetchEnv[@]}" git fetch --quiet --prune 2>/dev/null; then
 		env "${fetchEnv[@]}" git remote set-head origin --auto >/dev/null 2>&1 || true
 	else
@@ -1417,6 +1511,16 @@ fpShowIdentity(){
 				identityfile) [[ -n "${keyFile}" ]] || { [[ -r "${value/#\~/${HOME}}" ]] && keyFile="${value}"; } ;;
 			esac
 		done < <(ssh -G -- "${sshProbeTarget}" 2>/dev/null || true)  ## --: an option-shaped 'host' from .git/config must not parse as an ssh option
+		## An '-i' in git's own ssh command outranks whatever ssh -G nominated: that is the key git
+		## hands ssh, and with IdentitiesOnly set ssh_config's candidates never get a look in. Without
+		## this the line can name the right account beside the wrong key file, which is worse than
+		## either alone - it invites you to trust the half that happens to be wrong.
+		local -a gitSshCmd=(); read -ra gitSshCmd <<< "$(fpGitSshCommand)"
+		local arg=""; local -i wantKey=0
+		for arg in "${gitSshCmd[@]}"; do
+			((wantKey)) && { keyFile="${arg}"; wantKey=0; continue; }
+			[[ "${arg}" == "-i" ]] && wantKey=1
+		done
 		if [[ -n "${sshHost}" ]]; then
 			local sshLine="${sshUser:-?}@${sshHost}"
 			[[ "${sshHostAlias}" != "${sshHost}" ]] && sshLine="${sshLine} via alias '${sshHostAlias}'"
@@ -1439,6 +1543,9 @@ fpShowIdentity(){
 		local ghLogin=""; ghLogin="$(fpGhLogin)"
 		local ghLine="${ghLogin}"
 		[[ "${ghLogin}" == "?" ]] && ghLine="(unknown - gh not logged in, or offline)"
+		## An account we picked for this remote is still a change of who you act as. Say it here,
+		## in the block you read before confirming, rather than let it look like it was already active.
+		[[ -n "${ghSwitchedFrom:-}" ]] && ghLine="${ghLine} (selected for this remote; active account is '${ghSwitchedFrom}')"
 		## Only a write can act as the wrong account, so only a write gets the comparison. The
 		## round trip behind it is the same one the SSH line above already made.
 		if ((isGhWrite)); then

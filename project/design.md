@@ -125,6 +125,21 @@ The two files are ports of each other. A change to one nearly always belongs in 
 	- `--any-identity` says the difference is intended. It suppresses the error and the warning but not the identity line, so an override still leaves the mismatch visible on screen.
 	- The remote these commands leave behind keeps gh's canonical URL. Gitsby will not guess which of your host aliases serves that account: it would have to infer your setup from `~/.ssh/config` and probe each candidate, and a wrong guess silently points a repo at the wrong key. Reporting the identity and leaving the URL alone is the honest version. Anyone who wants an alias can pass a full URL to `repo connect`, which never involves gh at all.
 
+- The ssh identity is probed with the command git itself would run, not a bare `ssh`.
+	- `core.sshCommand` is the usual way to keep two accounts apart on one machine: set per repo (often through `includeIf` on the path), it picks the key without any host alias, so every remote stays a plain `git@github.com` URL.
+	- A bare probe cannot see that. It answers for ssh's default key while git pushes as somebody else, and the two wrong halves agree often enough to read as a clean bill of health - the check passed most confidently in exactly the setup it exists for.
+	- `GIT_SSH_COMMAND` beats `core.sshCommand`, which is git's own precedence. The value is split, never re-shelled: config is not a place to run code, so a quoted path falls back to a plain probe instead of misparsing. Answering "unknown" is safe; answering with the wrong name is not.
+	- The same command backs the fetch and the remote probe. Both used to force a bare `ssh` for the connect timeout, and because `GIT_SSH_COMMAND` outranks `core.sshCommand` that silently overrode the repo's key - a private repo only that key can read looked like being offline.
+	- The key named in the identity line comes from the same place, so the line cannot report the right account beside the wrong key file. Half-right is worse than either half alone: it invites you to trust whichever half happens to be wrong.
+
+- gh acts as the remote's own account when we already hold it, chosen per run.
+	- gh keeps one active account per host. Against a remote owned by somebody else it acts as whoever you last switched to, and `gh auth switch` is global state you have to remember to set and to put back.
+	- The owner is read off the remote URL and the token comes from `gh auth token --user`, which reads gh's own store. `GH_TOKEN` outranks the stored credentials for that run only, so nothing is left behind and no global state moves.
+	- We decided against a config file mapping paths to accounts. Both facts are already knowable - the remote names the owner, gh knows which accounts it holds - and a mapping would be one more thing to keep in step with reality. It also means the feature is inert until it applies, so a single-account setup never notices it.
+	- Only when the owner can be named *and* their token is held. An org or a fork we have no account for is ordinary, and is left alone rather than refused: `owner != your login` is the normal case for contributing to anyone else's repo, so asserting on it would fire constantly and wrongly.
+	- Reads get this as well as writes. A `pr` listing against a private repo the active account cannot see fails the same way a write does.
+	- The switch is named in the identity block, not silent. Picking an account is still a change of who you act as, and this is a tool that shows its plan before acting. `--any-identity` turns it off along with the mismatch check.
+
 - Commands that hand a branch to someone else's deletion must park work first.
 	- `gh pr merge --delete-branch` removes the branch local and remote. Anything not pushed is outside the pull request, so merging it would drop that work from the branch it lived on.
 	- We decided `pr ok` refuses rather than auto-pushing. Pushing and immediately merging would land commits nobody reviewed, which defeats the point of proposing a change for review.
