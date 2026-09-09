@@ -3,7 +3,7 @@
 // dotted spelling 'account.<name>.<key>: value' - the old flat lines with the '='
 // swapped for ':' - is read too, since that is how a file gets converted by hand.
 
-// Copyright © 2026 Jim Collier (CryptogID: ѳ6ᴚ℈𐀘𐇦ɛ𐊁¥Mﾏb϶Δ𐌞)
+// Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
 // Licensed under The MIT License (MIT). Full text at:
 //	https://mit-license.org/
 // SPDX-License-Identifier: MIT
@@ -26,7 +26,7 @@ const shclBanner = "#\n" +
 	"# \"Simple Hierarchical Config Language\"\n" +
 	"#    Home     https://github.com/jim-collier/shcl\n" +
 	"#    Syntax   https://github.com/jim-collier/shcl/blob/main/project/spec.md\n" +
-	"#    Legal    SHCL is Copyright © 2026 Jim Collier. License: MIT. No warranty.\n" +
+	"#    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n" +
 	"#\n"
 
 // configHeader opens a file 'account set' creates. The keys are listed here

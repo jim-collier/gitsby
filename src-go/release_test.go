@@ -2,7 +2,7 @@
 // version is what follows it, and calling that an invented version would let the
 // "nothing new to release" guard refuse a deliberate promotion.
 
-// Copyright © 2026 Jim Collier (CryptogID: ѳ6ᴚ℈𐀘𐇦ɛ𐊁¥Mﾏb϶Δ𐌞)
+// Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
 // Licensed under The MIT License (MIT). Full text at:
 //	https://mit-license.org/
 // SPDX-License-Identifier: MIT
