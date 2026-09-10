@@ -118,6 +118,7 @@ fi
 
 ## Everything the resource says, in one place. Written to a temp file rather than committed as a
 ## versioninfo.json, so the version in it cannot go stale against the one being generated for.
+## No ID marker in LegalCopyright, on purpose: Explorer shows it on the Properties tab.
 fpWriteJson(){
 	cat > "$1" <<-JSON
 		{
@@ -135,7 +136,7 @@ fpWriteJson(){
 				"FileDescription": "A simple, safe, opinionated Git wrapper for everyday work",
 				"FileVersion": "${verStr}",
 				"InternalName": "${EXE_NAME}",
-				"LegalCopyright": "Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. Licensed under the MIT License.",
+				"LegalCopyright": "Copyright © 2026 Jim Collier. Licensed under the MIT License.",
 				"OriginalFilename": "${EXE_NAME}.exe",
 				"ProductName": "${APP_NAME}",
 				"ProductVersion": "${verStr}"
