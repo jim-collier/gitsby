@@ -34,6 +34,8 @@ A round of work stays together as one bullet with its items nested under it, rat
 
 Every item carries an `Opened:` and, once finished, a `Closed:` date, as `YYYYmmDD-HHMMSS`. `Opened: n/a` means it was raised and settled in the same sitting. Older dates were recovered from git history and working notes, so treat them as close rather than exact.
 
+Code-review items carry more than dates, and the pipeline checks the first of these. `Origin:` names the commit or round that introduced the defect, whether an earlier round saw it, and `Confirmed` (reproduced) or `Plausible` (read only). A Plausible item is not fixed until it has a repro or a check that fails on the current tree. A review leaves no list of things seen and not filed: each observation is an item, a ✋ item with the trigger that reopens it, or a `Decided against:` line with the reason. A fix to one site of a class names the sibling sites it checked before the item closes. A suite check deleted on a branch is named here, with the decision it encoded and why that changed, or stage 1 stops (`cicd/utility/backlog-check.bash`).
+
 To make using these icons easier, add them to a clipboard or key macro manager. (These are temporary anyway until we switch over to nano-git-db for the minor stuff, and GitHub Issues for the bigger stuff.)
 
 | Icon | Status
@@ -50,24 +52,30 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 - 🛠️ Code review 20260909 - a pass against the standing directives, aimed at the work since the last round. Twenty defects, twelve enhancements.
 	- Opened: 20260909-184419
+	- Fix order: by class, each class across all its sites in one group of commits. 5 with 11 (unknown is listed, unknown is not missing); 9 with 19 (preview follows command, one spawn per run); 3 and 8 without moving the decisions they sit on; 12 and 20 only once reproduced. 15 and 16 early, since the pipeline is what proves the rest.
+	- Note: about twelve of the twenty sit in code that rounds 20260819b, c, d and 20260821 declared clean. Those rounds read the Go and grepped the rest.
 
 	- 🔘 Code Review 20260909 item 1: a folder rule typed as `.` binds every repo under the home directory to that account.
 		- Reproduced: `account set work path .` is accepted and stored as typed. `account list` shows the folder with no warning, because `.` always exists relative to wherever you are standing. gitsby itself then ignores the rule and reports no account for that very folder.
 		- Cause: `account apply` turns it into an includeIf rule spelled `./`, and git resolves a leading `./` against the folder holding the config file, which is the home directory. Every repo under home then commits as that account and offers its login to the credential helper.
 		- Note: this is the wrong-account commit the whole feature exists to stop, and nothing on screen says it happened. A bare `.` is the natural thing to type from the folder you mean to bind.
 		- Probable fix: refuse a `path` that is not absolute, list one as ignored when read, and test the folder's existence against the resolved value rather than against the current directory.
+		- Origin: `canonPath` since f48f89d (the port); no round has handled a relative value. Confirmed.
 
 	- 🔘 Code Review 20260909 item 2: `br prune --no-fetch` deletes a branch on origin that origin has moved past.
 		- Reproduced: with a branch merged locally and one further commit pushed to origin from a second clone, prune deleted it on origin and the pushed commit became unreachable.
 		- Cause: the remote half of the plan reads the local mirror of origin, and the delete-time re-check surveys local branches only, so origin is never asked again. `--no-fetch` leaves the mirror as stale as it was.
 		- Note: the plan line asserts each branch was re-checked at delete time. With the fetch left on, the same case is handled correctly, so the flag is the trigger, and its help text gives no hint that it makes this command unsafe.
 		- Probable fix: ask origin about each remote candidate before the delete push, or send the delete with a lease so git refuses on stale information.
+		- Origin: bb60cc5 (the port). The remote half has always read the local mirror, and the plan line from 0a3ef88 has overclaimed since. Not fallout from the 20260821 re-check rework. Confirmed.
 
 	- 🔘 Code Review 20260909 item 3: a config file that exists but cannot be read is replaced instead of refused.
 		- Reproduced: with the accounts file mode 0200, `account set` printed a plan saying "create", truncated the file and wrote a fresh one. The login and token path that were in it are gone.
 		- Cause: a candidate that fails the readable test is skipped, so an empty answer means both "no file anywhere" and "a file that could not be read".
 		- Note: mode 0000 fails cleanly, so the window is a file that is writable and not readable.
 		- Probable fix: keep the two cases apart and refuse the second by name. Open the create so it cannot truncate.
+		- Origin: 8203670 (shcl) meets the older decision that a discovered unreadable file is skipped, not refused. Confirmed.
+		- Keep: reads still skip an unreadable candidate. Only the create path refuses when a candidate exists and cannot be read.
 
 	- ✅ Code Review 20260909 item 4: the pipeline cannot finish, because the committed Windows resources no longer match their generator.
 		- Reproduced: the resource check fails for both architectures, and stage 1 stops the run.
@@ -80,42 +88,55 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- Reproduced: an `sshkey` written one tab further in than the keys around it does not apply, and `account list` reports only the unknown key beside it.
 		- Note: over-indent the key that picks the ssh key or the token file and the account applies without it, silently. The listing that always says, says nothing.
 		- Probable fix: walk the children of each key as well as the children of each block, and add whatever turns up to the ignored list.
+		- Origin: 8203670 (the shcl parser). Third instance of malformed input dropped silently, after 20260819d item 3 and the 20260821 fuzz find. The flat parser has ignored-list tests; this path has none. Confirmed.
+		- Sweep: every level the shcl loader walks, with a test per level.
 
 	- 🔘 Code Review 20260909 item 6: a whitespace-only ssh command crashes the program.
 		- Cause: an ssh command taken from the environment or from git config is passed through whenever it is not empty and carries no quotes, so a single space survives. Splitting it yields nothing, and the first element is read anyway.
 		- Note: it fires while printing the identity block, so every mutating command dies ahead of its plan.
 		- Probable fix: split first, and fall back to plain `ssh` when the split comes back empty.
+		- Origin: ae16451 (the port). Plausible: read, not run.
 
 	- 🔘 Code Review 20260909 item 7: `release` invents version 0.1.0 in a repo whose tags carry no leading `v`.
 		- Cause: the tag scan matches a `v` followed by a digit, so a tag like `1.0.0` is invisible and the next version starts from nothing. The duplicate-tag guard below it does see those tags, so the two halves of one command disagree about which tags exist.
 		- Note: unattended there is no prompt, and the invented tag is pushed.
 		- Probable fix: rank all tags with the leading `v` optional, or refuse to invent a version when the newest tag does not parse.
+		- Origin: f669f14 (the port); `legacy/bin/gitsby:2232` has the same scan. Confirmed.
 
 	- 🔘 Code Review 20260909 item 8: three flaws in `account set`.
 		- The refusals are decided inside the preview, so the refusal prints as the plan and it still asks you to confirm. Answering yes fails with the same sentence. Every other command settles its refusals before the plan.
 		- A save rewrites the file into the canonical layout, which is the settled decision, but the plan calls it an edit of one line. Space indentation, mixed-case keys, line endings and duplicate blocks are all reshaped with no word.
 		- `protocol` takes any value at all. The two it honors are documented in the header of the file it writes, and anything else is quietly ignored later.
 		- Probable fix: settle the refusals ahead of the preview, add a reformat line to the plan when the file is not already canonical, and validate `protocol` the way the other closed-set keys are validated.
+		- Origin: 9282c09 for the refusals. The plan text is left over from the byte-for-byte decision that 8203670 reversed. Confirmed.
+		- Keep: saves stay canonical. The plan says so; nothing goes back to byte-for-byte.
 
 	- 🔘 Code Review 20260909 item 9: `repo url` previews a github.com address on every host.
 		- Reproduced: against a Gitea remote the plan named a github.com URL, and the command then set the Gitea one.
 		- Cause: the preview builds its line with the GitHub-only helper while the command uses the host-aware one. The read-only half was widened and the preview was left behind.
 		- Probable fix: build the preview line the way the command does.
+		- Origin: 4573f4c moved the command to `forgeURL` and left the preview on `githubURL`. Confirmed.
+		- Sweep: every preview line against the command it previews, not just this one.
 
 	- 🔘 Code Review 20260909 item 10: a conflicted `br merge` leaves the merge in progress and says nothing useful.
 		- Reproduced: a conflicting merge onto the protected branch ended on a bare step failure, with the tree in conflict and the merge still open.
 		- Note: the back-merge path in the same file handles the same failure the other way. It aborts, says what got through, and names the command to finish by hand.
 		- Probable fix: give the forward merge the same treatment.
+		- Origin: 0a3ef88; the frozen bash has the same asymmetry. Confirmed.
 
 	- 🔘 Code Review 20260909 item 11: being offline reads as "that repo doesn't exist".
 		- Cause: the remote probe answers missing for any failure. A comment a few lines above it says unknown must not collapse into missing, and the GitHub-side probe honors that by reading the error text.
 		- Note: offline, `repo connect` says a repo that exists does not, and points at the command that would create a second one.
 		- Probable fix: read the error text, keep "could not tell" as its own answer, and give it its own message.
+		- Origin: 0a3ef88. The same bug was fixed in `ghRepoState` (20260818 item 7), same file, and this sibling was missed. Confirmed.
+		- Sweep: every caller that turns a tool failure into an answer.
 
 	- 🔘 Code Review 20260909 item 12: install.ps1 fails on Windows PowerShell 5.1 in the default lookup.
 		- Cause: the release lookup reads a header through a property that exists on version 7's object and not on 5.1's. Strict mode turns that into an error inside the handler, so the fallback below is never reached.
 		- Note: 5.1 is the shell Windows ships and the documented one-liner path. Read rather than reproduced on 5.1 itself, though the two object shapes were checked.
 		- Probable fix: read the header by name through the indexer, and let a failure there fall through to the list lookup.
+		- Origin: 200310a; 20260819a item 33 added 5.1 support and missed this line. Plausible: read, not run on 5.1.
+		- Not fixed until reproduced on 5.1, or pinned by a check that fails on the current file.
 
 	- 🔘 Code Review 20260909 item 13: five more flaws in install.ps1.
 		- A system install promises write access it never checks, does not elevate, and fails after the download with a raw error. The bash one checks, and says up front that it will use sudo.
@@ -123,6 +144,7 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- The joined `--target=value` form is refused, though the bash one takes it and the documented spelling uses it.
 		- The checksum compare works only because the operator is case-insensitive by default. A case-sensitive one would fail every good install.
 		- The message for a binary that will not run is unreachable in the common case, because a launch failure is a terminating error and the outer handler prints raw text instead.
+		- Origin: 200310a. Four of the five were in the 20260819a notes as seen and not filed. The parameter help is fallout from 20260821 item 2, which bound the help to a script that has no parameters. Confirmed against a local mock.
 
 	- 🔘 Code Review 20260909 item 14: six flaws in install.bash, or shared by both installers.
 		- An uppercase hash in the checksums file makes it report the asset as absent and then name nothing. The PowerShell one accepts the same file.
@@ -131,11 +153,13 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- Several exit paths skip the blank line framing: the "publishes no binary for this platform" block, the declined prompt, the pre-release notice, and every error the PowerShell one raises.
 		- Neither plan says it will overwrite an existing install.
 		- Nothing is said when the installed binary will not run. The run simply ends.
+		- Origin: 200310a. Five of the six were in the 20260819a notes as seen and not filed. Confirmed against a local mock.
 
 	- 🔘 Code Review 20260909 item 15: there is no fast gate and no pre-push hook.
 		- The standing directive asks for a quick mode that checks formatting, lints with warnings as errors and runs the unit tests, registered as a pre-push hook, so nothing reaches dev or main unverified outside a full run.
 		- Nothing like it exists, and the hooks directory holds only the stock samples.
 		- Note: the full pipeline is the only gate today, it takes minutes, and it is currently red.
+		- Origin: new requirement from the 2026-09-07 directives. Not a regression.
 
 	- 🔘 Code Review 20260909 item 16: the demo gif is rebuilt and recommitted on nearly every commit.
 		- Cause: every command prints the version and build number above its output, and the first scene captures one. The version moves with every commit, so the render always differs and an eleven megabyte file is replaced.
@@ -143,6 +167,7 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- The run also lasts about two minutes against a twenty to thirty second budget, and its closing black is two seconds where three was asked for.
 		- The quiet flag reaches every other child of the pipeline and not the demo generator.
 		- Probable fix: stamp a fixed version for the demo build, or keep the banner out of the demo run.
+		- Origin: 3b16d8d (build number) put a per-commit banner on `status`, which the demo captures. Confirmed.
 
 	- 🔘 Code Review 20260909 item 17: pipeline housekeeping.
 		- The two "have I seen this yet" markers live inside the working tree. A clean checkout loses them.
@@ -153,6 +178,8 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- The generator writes copyright 2026 while the program prints 2014-2026.
 		- A dev or dogfood build is stamped with the parent commit's version, because the stamp is read before the commit that holds the source.
 		- The version banner puts the copyright on the same line, where a separate line was asked for.
+		- Origin: mixed. The lint match is e014c29 and this is its second false positive after 20260819a item 17, which added an exclude instead of narrowing the match. `git-auto-msg.bash` has had no caller since e014c29. The banner has always been one line. Confirmed.
+		- Keep: narrow the positive match to the tools' own output formats. No third exclude.
 
 	- 🔘 Code Review 20260909 item 18: public documents contradict the code.
 		- The recipe for checking a published binary against its checksum leaves out the build stamp, so it can never produce the published bytes. That is the one section whose whole point is that nobody has to take our word for it.
@@ -169,16 +196,20 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- Two British spellings in the code of conduct, in lines that match neither upstream nor `main`.
 		- contributing.md and the code of conduct both advertise being produced by a generator.
 		- trademark.md holds the only hard-wrapped paragraph in a first-party document, and writes its contact address with a circled letter A in place of the at sign.
+		- Origin: mixed. Recipe from cb367a4, outdated by 3b16d8d. design.md:494 outdated by 20260819a item 12. design.md:356 is the cfgloc heading (5ef5201) whose sub-bullets a38eda1 reversed the same day. Code of conduct spellings are from 0d94ec6 and were fixed on `main` only (f2a0b9a). Confirmed.
 
 	- 🔘 Code Review 20260909 item 19: `account list` runs one `gh` per configured account.
 		- The token lookup sits inside the listing loop. One account costs one process and twenty cost twenty, and `account set` pays the same bill before its edit, because it prints the listing first.
 		- Note: this is the only per-item process spawn left in the program, and the style guide states the rule it breaks.
 		- Probable fix: remember the answer per login for the length of the run.
+		- Origin: 0a3ef88; 7abe3f7 widened the listing two days after the 20260818 memoization round. Confirmed, measured.
 
 	- 🔘 Code Review 20260909 item 20: the hotfix warning about changing shipped code can never fire in anyone else's repo.
 		- The path it watches is this project's own source folder. In any other repo the check matches nothing and stays quiet.
 		- Note: read rather than reproduced. The comment above it records that it used to watch a folder that had been renamed away, so this is the second turn of the same trap.
 		- Also, the check cannot tell "nothing changed" from "the comparison could not run".
+		- Origin: 75c2c7c. Fourth patch to this path (`bin/` -> `src-go/` -> `:(top)src-go/`). Plausible: read, not run.
+		- Keep: decide what the warning means in a repo that is not this one before the constant changes again.
 
 ### Features and enhancements
 
@@ -191,23 +222,31 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- Kept out. The Properties tab shows the plain copyright, and the source headers keep the ID.
 
 	- 🔘 Code Review 20260909 enhancement 2: there is no `account unset`. Setting a key to an empty value prints the syntax block, so the only way back is the hand edit that `account set` exists to avoid.
+		- Origin: new. Confirmed.
 
 	- 🔘 Code Review 20260909 enhancement 3: `--about`, `--donate` and `--version` are honored only as the first word, while `--help` works at any position. The help screen lists all four on one line.
+		- Origin: new. Confirmed.
 
 	- 🔘 Code Review 20260909 enhancement 4: two of the six README badges are shields the repo grants itself and assert nothing outside the README. The language badge names no version.
+		- Origin: new.
 
 	- 🔘 Code Review 20260909 enhancement 5: three things the README leaves out.
 		- The build number, which every command prints and which comes from the commit rather than the clock.
 		- How to ask for a pre-release, which is what the first Go publication will be.
 		- The real check counts. "Several hundred" rounds down from eight hundred and ten, plus the fuzz and comparison suites.
+		- Origin: new.
 
 	- 🔘 Code Review 20260909 enhancement 6: record that goreleaser is not being adopted, and why, so the question stops coming back. The hand-rolled build is already byte-identical from one flag set, goreleaser would have to be talked out of its own stamps, and packaging is the only thing it would add.
+		- Origin: the 2026-09-07 directives ask for the decision to be recorded.
 
 	- 🔘 Code Review 20260909 enhancement 7: `--quick` still runs the two slowest harnesses in full. Neither takes a flag to shorten itself.
+		- Origin: the 2026-09-07 directives.
 
 	- 🔘 Code Review 20260909 enhancement 8: tool pinning covers the four Go tools and silently skips the one that is not on the path. Six other tools that shape results are pinned nowhere.
+		- Origin: the 2026-09-07 directives.
 
 	- 🔘 Code Review 20260909 enhancement 9: the release's final build compiles the working tree rather than a checkout of the tag. The two match in the ordinary case, and the comment above it claims the stronger thing.
+		- Origin: new. Plausible: read.
 
 	- 🔘 Code Review 20260909 enhancement 10: smaller points in the installers.
 		- No writability check for a user-scope install, so it fails after the download the way the system scope does.
@@ -215,10 +254,14 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- The two scripts leave the installed file in different modes, and the PowerShell one takes the umask.
 		- The PowerShell plan does not mention creating the destination folder, or clearing its own leftovers.
 		- The README does not say how to pass a flag to the bash one-liner, though the script knows the answer in a comment nobody sees.
+		- The two release sorters have no tie-break between two pre-releases of one version. Unreachable today, since the full-release pass runs first; wants a comment, not code.
+		- Origin: the writability and sudo bullets were in the 20260819a notes as seen and not filed; the tie-break was the 20260909 round's own deferral. Plausible: read.
 
 	- 🔘 Code Review 20260909 enhancement 11: preallocate the slices whose size is already known, about fourteen of them. The style guide could also use a Go performance section, and its package-variable rule needs widening: five variables that Go cannot express as constants currently read as standing violations.
+		- Origin: new. The five package variables were flagged by 20260819a items 21-25 and left as the ones Go cannot make constants.
 
 	- 🔘 Code Review 20260909 enhancement 12: `.gitignore` covers the pipeline's own output and nothing a contributor's machine drops.
+		- Origin: the 2026-09-07 directives.
 
 - ✋ The repo's blurb, homepage and topics still describe the Bash and PowerShell product.
 	- Opened: 20260819-142046
