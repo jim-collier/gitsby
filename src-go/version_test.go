@@ -1,7 +1,7 @@
 // The build number. What matters is that it never invents one from a clock and
 // never quietly reports zero for a stamp it could not read.
 
-// Copyright © 2026 Jim Collier (CryptogID: ѳ6ᴚ℈𐀘𐇦ɛ𐊁¥Mﾏb϶Δ𐌞)
+// Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
 // Licensed under The MIT License (MIT). Full text at:
 //	https://mit-license.org/
 // SPDX-License-Identifier: MIT

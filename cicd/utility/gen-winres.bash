@@ -27,7 +27,7 @@
 ##		  between versions, so the .ico is a committed asset rather than a reproducible one.
 ##	History: At bottom of script.
 
-##	Copyright © 2026 Jim Collier (CryptogID: ѳ6ᴚ℈𐀘𐇦ɛ𐊁¥Mﾏb϶Δ𐌞)
+##	Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
 ##	Licensed under The MIT License (MIT). Full text at:
 ##		https://mit-license.org/
 ##	SPDX-License-Identifier: MIT
@@ -135,7 +135,7 @@ fpWriteJson(){
 				"FileDescription": "A simple, safe, opinionated Git wrapper for everyday work",
 				"FileVersion": "${verStr}",
 				"InternalName": "${EXE_NAME}",
-				"LegalCopyright": "Copyright © 2026 Jim Collier. Licensed under the MIT License.",
+				"LegalCopyright": "Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. Licensed under the MIT License.",
 				"OriginalFilename": "${EXE_NAME}.exe",
 				"ProductName": "${APP_NAME}",
 				"ProductVersion": "${verStr}"

@@ -314,7 +314,7 @@ Gitsby is free, and built and maintained in spare time. If it helps but code and
 
 ## Legal stuff
 
-> Copyright © 2014-2026 Jim Collier (CryptogID: ѳ6ᴚ℈𐀘𐇦ɛ𐊁¥Mﾏb϶Δ𐌞)<br />
+> Copyright © 2014-2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]<br />
 > Licensed under the [MIT License](https://mit-license.org/)<br />
 > SPDX-License-Identifier: `MIT`.<br />
 > No warranty.<br />

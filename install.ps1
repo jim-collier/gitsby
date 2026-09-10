@@ -23,7 +23,7 @@
 .PARAMETER Help
     Show the options and exit. '--help' is accepted too.
 .NOTES
-    Copyright © 2026 Jim Collier (CryptogID: ѳ6ᴚ℈𐀘𐇦ɛ𐊁¥Mﾏb϶Δ𐌞)
+    Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
     Licensed under The MIT License (MIT). Full text at: https://mit-license.org/
     SPDX-License-Identifier: MIT
     History: at bottom of script.
