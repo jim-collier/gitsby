@@ -48,7 +48,7 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 ### Bugs
 
-- 🔘 Code review 20260909 - a pass against the standing directives, aimed at the work since the last round. Twenty defects, twelve enhancements. Nothing fixed yet.
+- 🛠️ Code review 20260909 - a pass against the standing directives, aimed at the work since the last round. Twenty defects, twelve enhancements.
 	- Opened: 20260909-184419
 
 	- 🔘 Code Review 20260909 item 1: a folder rule typed as `.` binds every repo under the home directory to that account.
@@ -69,11 +69,12 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- Note: mode 0000 fails cleanly, so the window is a file that is writable and not readable.
 		- Probable fix: keep the two cases apart and refuse the second by name. Open the create so it cannot truncate.
 
-	- 🔘 Code Review 20260909 item 4: the pipeline cannot finish, because the committed Windows resources no longer match their generator.
+	- ✅ Code Review 20260909 item 4: the pipeline cannot finish, because the committed Windows resources no longer match their generator.
 		- Reproduced: the resource check fails for both architectures, and stage 1 stops the run.
 		- Cause: the copyright change edited the string the generator writes, and the two resource files were not regenerated.
 		- Note: a release still passes its first phase, which tolerates a stale resource by design, so only ordinary runs are stopped.
 		- Note: regenerating publishes whichever marker is in the generator into the Windows file properties, where a user reads it. See enhancement 1, which has to be settled first.
+		- Fixed: the generator writes the plain copyright again, which is what both resource files already held. The check passes, and nothing needed regenerating.
 
 	- 🔘 Code Review 20260909 item 5: a key indented one level too deep is dropped, and the line listing what was ignored does not mention it.
 		- Reproduced: an `sshkey` written one tab further in than the keys around it does not apply, and `account list` reports only the unknown key beside it.
@@ -181,12 +182,13 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 ### Features and enhancements
 
-- 🔘 Code review 20260909 - enhancements from the same pass. Twelve items, none of them urgent.
+- 🛠️ Code review 20260909 - enhancements from the same pass. Twelve items, none of them urgent.
 	- Opened: 20260909-184419
 
-	- 🔘 Code Review 20260909 enhancement 1: decide whether the identity marker belongs in the Windows file properties.
+	- ✅ Code Review 20260909 enhancement 1: decide whether the identity marker belongs in the Windows file properties.
 		- The copyright change put it into the string Windows shows on the Properties tab of the executable, which is a product-facing string rather than a source header. The standing rules exempt two other projects' Windows version strings and keep the plain form there.
 		- Bug item 4 waits on this: regenerating the resource files publishes whichever answer is given.
+		- Kept out. The Properties tab shows the plain copyright, and the source headers keep the ID.
 
 	- 🔘 Code Review 20260909 enhancement 2: there is no `account unset`. Setting a key to an empty value prints the syntax block, so the only way back is the hand edit that `account set` exists to avoid.
 
