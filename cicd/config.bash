@@ -102,6 +102,10 @@ PS_LINT_GLOBS=(
 ## Probe-gated on goversioninfo; release.bash regenerates it with the version bump.
 WINRES_CMD=(cicd/utility/gen-winres.bash)
 
+## Stage 1: backlog rules. Open review items carry an "Origin:" line, and a suite check
+## removed on the branch is named in the backlog. See the script's header for why.
+BACKLOG_CHECK_CMD=(cicd/utility/backlog-check.bash)
+
 ## Stage 2: build + regression tests. The suite runs against the compiled binary and gates.
 TEST_CMD=(cicd/test.bash)
 
@@ -209,3 +213,4 @@ PUBLISH_AUTO_MESSAGE=""
 ##		- 2026-08-19 JC: WINRES_CMD: the Windows resource check joins stage 1, and release.bash regenerates the resource with the version bump.
 ##		- 2026-08-19 JC: GO_TOOL_VERSIONS: the lint and audit tools ran at whatever version the box had, so a finding could appear or vanish with no change to the tree. Recorded and compared in stage 1, as a warning.
 ##		- 2026-08-19 JC: The installer is back at the repo root, so its two files are linted again - the root install.bash under shellcheck, install.ps1 under a restored PSScriptAnalyzer glob. FreeBSD joins the release matrix, since it cross-builds for free and the installer would otherwise have nothing to offer a BSD.
+##		- 2026-09-10 JC: BACKLOG_CHECK_CMD joins stage 1.
