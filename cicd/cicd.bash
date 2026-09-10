@@ -393,6 +393,11 @@ else
 		3) fEcho "WARNING: windows resource check skipped (not installed: go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.5.0)" ;;
 		*) fDie "windows resource is stale" ;;
 	esac
+	## Two backlog rules the review rounds kept leaking through: every open review item
+	## names where it came from, and a suite check removed on this branch is named in the
+	## backlog. Both were broken by hand before, and neither showed anywhere.
+	"${BACKLOG_CHECK_CMD[@]}" -q || fDie "backlog check failed (see above)"
+	fEcho "OK: backlog check"
 fi
 
 ## Stage 2: build, then the regression suite against what was just built. The build is
@@ -575,3 +580,4 @@ fEcho_Clean
 ##		- 2026-08-19 JC: PSScriptAnalyzer also checks the installer against Windows PowerShell 5.1 syntax. The installer supports 5.1 now, and nothing gated that.
 ##		- 2026-08-19 JC: Stage 1 checks the committed Windows resource against the newest tag. The .exe carries an icon and version details now, and the resource that gives it them is a checked-in file that nothing else would notice going stale.
 ##		- 2026-08-19 JC: --quick narrows dogfood to the native target, which is the slow part it was supposed to be skipping. Every build site shares one set of flags (-buildvcs=false above all, without which the published assets can never be rebuilt to their published checksums) and half the cores. Stage 3 gained govulncheck and the spawn counts; the three harnesses take -q from the engine.
+##		- 2026-09-10 JC: Stage 1 runs backlog-check.bash: open review items carry an Origin line, and a suite check removed on the branch has to be named in the backlog. Two decisions had been reversed by deleting the check that encoded them, with nothing written down.
