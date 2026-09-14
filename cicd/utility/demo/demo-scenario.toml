@@ -26,8 +26,9 @@
 # scroll redraws the whole text block each frame, so the cost tracks how far the
 # view has to travel, and a scrollback that never accumulates halves it.
 #
-# Keep every commit message and edit fixed: the builder pins the git dates, so a
-# fixed scenario means identical commit hashes, identical output, identical gif
+# Keep every commit message and edit fixed: the builder pins the git dates, and
+# cicd stamps the demo's build with the newest release rather than the commit, so
+# a fixed scenario means identical commit hashes, identical output, identical gif
 # bytes - and cicd only rewrites assets/demo.gif when the demo really changed.
 # Don't demo a bare `update`/`commit` (no message): the auto-generated message is
 # a timestamp, which would make the gif differ on every run.
@@ -37,7 +38,7 @@ prog  = "gitsby"
 seed  = 11
 font  = ["Monaspace Argon SemiBold"]
 end_hold  = 1.6
-end_black = 2.0
+end_black = 3.0
 
 [[step]]
 clear = true

@@ -178,7 +178,8 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- Fixed: `cicd/cicd.bash --gate` runs every lint check and the unit tests, and nothing else. `--install-hook` installs a pre-push hook that runs it on each commit pushed to a branch, as committed, never on the working tree. A push from a subdirectory with a relative `--work-tree` is gated too.
 		- Verified: 42 new checks, 810 -> 852. 41 of them fail on `gover`; the full-run check is a regression guard. The relative `--work-tree` check fails against the hook as it was, and each of the five later checks fails with the path it covers broken. The pipeline is green at 852/0, with parity 27/0 and fuzz 269/0. The real gate passes in 11.6 s. In a scratch clone the hook passes a good push, 11.6 s cold and 10.3 s warm, and refuses a gofmt violation. A failing commit is refused through 22 push forms. Nothing is installed in this repo. Linux only: Windows, macOS and the BSDs are untested.
 
-	- 🔘 Code Review 20260909 item 16: the demo gif is rebuilt and recommitted on nearly every commit.
+	- ✅ Code Review 20260909 item 16: the demo gif is rebuilt and recommitted on nearly every commit.
+		- Closed: 20260914-144550
 		- Cause: every command prints the version and build number above its output, and the first scene captures one. The version moves with every commit, so the render always differs and an eleven megabyte file is replaced.
 		- Note: three places state the opposite, that an unchanged binary and scenario reproduce the same bytes.
 		- The run also lasts about two minutes against a twenty to thirty second budget, and its closing black is two seconds where three was asked for.
@@ -186,6 +187,8 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- Probable fix: stamp a fixed version for the demo build, or keep the banner out of the demo run.
 		- Origin: 3b16d8d (build number) put a per-commit banner on `status`, which the demo captures. Confirmed.
 		- Note: the length half of the third bullet is filed as its own bug at the top of this section. This item covers the rebuild on every commit, the closing black and the quiet flag.
+		- Fixed: the demo renders from a build of its own, stamped with the newest release tag and that tag's commit time rather than the commit. The banner on camera now reads `gitsby v2.1.0 build db8ey` and stays put until the next release. `-q` reaches the generator, and the loop ends on three seconds of black. The committed gif is the new render, and the three comments and the design.md sentence name the release stamp.
+		- Verified: two builds of one source, stamped like two consecutive commits, rendered to gifs that differ. 11 new checks, 852 -> 863. Nine fail on `gover`, and the other two, `-y` alone and the repeat render, are regression guards. The two build-site pins now count four sites and fail on `gover`. With `versionsort.suffix` taken out, the release-candidate check fails. The render is 960x540 and 12412356 bytes, loops in 124.84 s on the 20 ms grid, and ends on 3 s of black. A pipeline run regenerated the gif in 47 s. The next run, on the commit holding the gif, left it unchanged in 87 s, with the suite at 863/0 and parity 27/0. Linux only: Windows, macOS and the BSDs are untested.
 
 	- 🔘 Code Review 20260909 item 17: pipeline housekeeping.
 		- The two "have I seen this yet" markers live inside the working tree. A clean checkout loses them.

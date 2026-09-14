@@ -12,13 +12,13 @@
 ##		cheap frame, not a bloaty fade. Frames share one exact master palette,
 ##		so nothing is ever re-dithered. Project-agnostic - point it at any scenario.
 ##	Syntax:
-##		gen-demo-gif.py --scenario FILE --out FILE [--bin PATH] [--seed N]
+##		gen-demo-gif.py --scenario FILE --out FILE [--bin PATH] [--seed N] [-q]
 ##		  --scenario FILE  TOML scenario (see fLoadScenario for the format)
 ##		  --out FILE       GIF to write (required)
 ##		  --bin PATH       program under demo; substituted for {bin} in run=
 ##		  --seed N         RNG seed; fixed default so reruns are byte-stable
 ##		  --font NAME      override the scenario's font preference list
-##		  --quiet          only errors
+##		  -q, --quiet      only errors
 ##	Exit: 0 wrote the GIF, 2 non-fatal skip (no Pillow, bad scenario, cmd failed).
 ##	History: At bottom of script.
 
@@ -515,7 +515,7 @@ def fMain():
 	ap.add_argument("--bin", default="")
 	ap.add_argument("--seed", type=int, default=None)
 	ap.add_argument("--font", default="")
-	ap.add_argument("--quiet", action="store_true")
+	ap.add_argument("-q", "--quiet", action="store_true")
 	args = ap.parse_args()
 
 	sc = fLoadScenario(args.scenario)
@@ -687,6 +687,8 @@ if __name__ == "__main__":
 
 
 ##	History:
+##		- 20260914: -q is accepted as well as --quiet. The pipeline hands the
+##			same flag to everything it runs.
 ##		- 20260727: Every frame duration now snaps to the FRAME_MS grid, so the
 ##			loop really is 50 fps end to end (it had been drifting onto 30/50/
 ##			90ms frames off GIF's own centisecond rounding). Cursor glide runs

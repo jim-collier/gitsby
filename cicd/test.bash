@@ -161,21 +161,28 @@ fMakeGateFixture(){
 	mkdir -p "${gateDir}/cicd/utility/include" "${gateDir}/cicd/utility/demo" "${gateDir}/bin" "${gateDir}/home" "${gateDir}/src-go" "${gateFail}"
 	cp "${root}/cicd/cicd.bash" "${root}/cicd/config.bash" "${gateDir}/cicd/"
 	cp "${root}/cicd/utility/include/gfs-rotate.bash" "${root}/cicd/utility/include/gh-account.bash" "${gateDir}/cicd/utility/include/"
-	## Empty, so the lint globs and PY_LINT_FILES resolve.
+	## Empty, so the lint globs and PY_LINT_FILES resolve, and stage 6 finds a scenario.
 	: > "${gateDir}/install.bash"; : > "${gateDir}/install.ps1"; : > "${gateDir}/cicd/utility/demo/gen-demo-gif.py"
+	: > "${gateDir}/cicd/utility/demo/demo-scenario.toml"
 	echo "# Fixture" > "${gateDir}/README.md"
 	for s in test fuzz parity; do fGateStub "${gateDir}/cicd/${s}.bash" "${s}"; done
 	for s in gen-winres backlog-check spawn-count; do fGateStub "${gateDir}/cicd/utility/${s}.bash" "${s}"; done
 	fGateStub "${gateDir}/cicd/utility/n8git_backup-and-publish" n8git_backup-and-publish
-	for s in markdownlint python3 staticcheck golangci-lint govulncheck; do fGateStub "${gateDir}/bin/${s}" "${s}"; done
+	for s in markdownlint staticcheck golangci-lint govulncheck; do fGateStub "${gateDir}/bin/${s}" "${s}"; done
+	## The demo generator writes a gif header to its --out, and the optimizer, called as
+	## 'gifsicle -O3 IN -o OUT', copies IN to OUT, so stage 6 has a file to compare. py_compile
+	## passes no --out.
+	fGateStub "${gateDir}/bin/python3" python3 "o=''; for a in \"\$@\"; do [[ \"\${o}\" != 1 ]] || printf GIF89a > \"\${a}\"; o=''; [[ \"\${a}\" != --out ]] || o=1; done"
+	fGateStub "${gateDir}/bin/gifsicle" gifsicle "cp -f -- \"\${2:-}\" \"\${4:-}\""
 	## The probes answer yes whatever the marker says, so a failure is the tool's finding and
 	## not "not installed".
 	fGateStub "${gateDir}/bin/shellcheck" shellcheck "[[ \"\${1:-}\" != --version ]] || exit 0"
 	fGateStub "${gateDir}/bin/pwsh" pwsh "[[ \"\$*\" != *Get-Command* ]] || exit 0"
 	## gofmt reports by listing files, exiting 0 either way; the engine reads the list.
 	fGateStub "${gateDir}/bin/gofmt" gofmt "if [[ -e '${gateFail}/gofmt' ]]; then echo main.go; fi; exit 0"
-	## go fails by subcommand (go-vet, go-test, go-build), and 'version -m' names no module.
-	fGateStub "${gateDir}/bin/go" "go-\${1:-}" "[[ \"\${1:-}\" != version ]] || exit 0"
+	## go fails by subcommand (go-vet, go-test, go-build), and 'version -m' names no module. A
+	## passing build leaves its -o file behind, so the demo stage has a build to remove.
+	fGateStub "${gateDir}/bin/go" "go-\${1:-}" "[[ \"\${1:-}\" != version ]] || exit 0; if [[ ! -e \"${gateFail}/go-\${1:-}\" ]]; then o=''; for a in \"\$@\"; do [[ \"\${o}\" != 1 ]] || : > \"\${a}\"; o=''; [[ \"\${a}\" != -o ]] || o=1; done; fi"
 }
 ## The fixture's engine with the stubs first on PATH. HOME is the fixture's as well: the engine
 ## puts ~/.local/bin ahead of PATH, and a real markdownlint there would answer for the stub.
@@ -205,6 +212,29 @@ fGateInstallHook(){
 		&& grep -qxF '## gitsby pre-push gate - installed by cicd/cicd.bash --install-hook' "${gateDir}/.git/hooks/pre-push" \
 		&& ! grep -qE '[0-9]/[0-9]  ' "${gateOut}"
 }
+## Stage 6 on its own against the fixture, run with $1 (-y or -q). True when it exits 0.
+fGateDemoRun(){ fGateStatus 0 "$1" --no-sync --no-lint --no-test --no-fuzz --no-parity --no-dogfood --no-publish ;}
+## The last run's calls-log line for the demo's build, and for its generator. Empty when absent.
+fGateDemoBuild(){ grep -E -- "^go build .* -o ${gateDir}/src-go/gitsby-demo( |\$)" "${gateCalls}" || true ;}
+fGateDemoGen(){ grep -E -- '^python3 cicd/utility/demo/gen-demo-gif\.py ' "${gateCalls}" || true ;}
+## A commit in the demo fixture dated $1, changing one file.
+fGateDemoCommit(){
+	echo "$1" >> "${gateDir}/commits.txt"
+	git -C "${gateDir}" add commits.txt
+	GIT_AUTHOR_DATE="$1" GIT_COMMITTER_DATE="$1" git -C "${gateDir}" commit --quiet -m "$1"
+}
+## Stage 6 with -y: the demo build line holds the text $1, the generator line the text $2, and
+## the output matches the extended regex $3. $2 and $3 may be left out.
+fGateDemoStamp(){
+	fGateDemoRun -y && [[ "$(fGateDemoBuild)" == *"$1"* && "$(fGateDemoGen)" == *"${2:-}"* ]] \
+		&& { [[ -z "${3:-}" ]] || grep -qE -- "$3" "${gateOut}" ;}
+}
+## Stage 6 with -y: the demo build line is exactly $1, which is not empty, and the gif was left alone.
+fGateDemoSame(){ fGateDemoRun -y && [[ -n "$1" && "$(fGateDemoBuild)" == "$1" ]] && grep -qF 'OK: demo gif unchanged' "${gateOut}" ;}
+## Stage 6 run with $1: the generator ran, and $2 of its lines (1 or 0) carry -q.
+fGateDemoQuiet(){ local gen=""; fGateDemoRun "$1" && gen="$(fGateDemoGen)" && [[ -n "${gen}" && "$(grep -cE -- ' -q( |$)' <<< "${gen}")" == "$2" ]] ;}
+## Stage 6 with -y while the build fails: the run warns, and the generator never runs.
+fGateDemoBuildFails(){ fGateDemoRun -y && grep -qF 'WARNING: demo build failed' "${gateOut}" && [[ -z "$(fGateDemoGen)" ]] ;}
 ## A push from $1, the rest being its arguments. Output lands in ${hookOut}; the gate log starts empty.
 fHookPush(){ local dir="$1"; shift; : > "${hookLog}"; git -C "${dir}" push "$@" >"${hookOut}" 2>&1 ;}
 ## One digest of every file under $1, names and contents, to show a directory was left as it was.
@@ -2566,7 +2596,7 @@ GHEOF
 	## Taken from the commit rather than the clock, or a published asset could never be rebuilt
 	## to its published checksum - the same reason -buildvcs=false is above.
 	fAssert "every build site stamps a build number" \
-		bash -c "[[ \"\$(grep -c 'main.buildEpoch=' '${root}/cicd/cicd.bash' '${root}/cicd/release.bash' | awk -F: '{t+=\$2} END{print t}')\" == 3 ]]"
+		bash -c "[[ \"\$(grep -c 'main.buildEpoch=' '${root}/cicd/cicd.bash' '${root}/cicd/release.bash' | awk -F: '{t+=\$2} END{print t}')\" == 4 ]]"
 	fAssert "the build number comes from the commit, not the clock" \
 		bash -c "grep -q 'log -1 --format=%ct' '${root}/cicd/cicd.bash' '${root}/cicd/release.bash'"
 	## Phase 1 proves every target still compiles; phase 3 rebuilds them once the tag exists, and
@@ -2577,7 +2607,7 @@ GHEOF
 	fAssert "and the release notes carry the build number" \
 		bash -c "grep -q 'buildLine' '${root}/cicd/release.bash'"
 	fAssert "every build site shares one set of flags" \
-		bash -c "[[ \"\$(grep -c 'GO_BUILD_FLAGS\[@\]' '${root}/cicd/cicd.bash' '${root}/cicd/release.bash' | awk -F: '{t+=\$2} END{print t}')\" == 3 ]]"
+		bash -c "[[ \"\$(grep -c 'GO_BUILD_FLAGS\[@\]' '${root}/cicd/cicd.bash' '${root}/cicd/release.bash' | awk -F: '{t+=\$2} END{print t}')\" == 4 ]]"
 	## The compiler takes every core by default, in every build and in the eight-target
 	## release loop, which makes the machine unusable for the duration.
 	fAssert "no build step takes every core"  bash -c "grep -q 'BUILD_JOBS=' '${root}/cicd/config.bash'"
@@ -2639,6 +2669,31 @@ GHEOF
 		grep -q 'chmod 600' "${root}/cicd/utility/demo/demo-repo.bash"
 	fAssert "and the demo answers gh itself, so no real login reaches the frame" \
 		bash -c "grep -q 'bin/gh' '${root}/cicd/utility/demo/demo-repo.bash' && grep -q \"export PATH='\\\${root}/bin'\" '${root}/cicd/utility/demo/demo-repo.bash'"
+	## The renderer itself, on a scenario small enough to render in about a second. It needs
+	## Pillow and a font lookup, which a box that never renders the demo may not have.
+	if python3 -c 'import PIL' >/dev/null 2>&1 && command -v fc-match >/dev/null 2>&1; then
+		cat > "${work}/tiny-demo.toml" <<'EOF'
+title = "demo"
+prog  = "demo"
+end_hold  = 0
+end_black = 0.1
+[[step]]
+show  = "echo hi"
+pause = 0.2
+EOF
+		## -q is what the pipeline hands every child when it runs quiet.
+		fAssert "gen-demo-gif.py takes -q, and then prints nothing" \
+			bash -c "cd '${work}' && out=\$(python3 '${root}/cicd/utility/demo/gen-demo-gif.py' -q --scenario '${work}/tiny-demo.toml' --out '${work}/tiny1.gif') && [[ -z \"\${out}\" && -s '${work}/tiny1.gif' ]]"
+		## Regression guard. The pipeline's compare, and design.md's byte-for-byte sentence, rest on it.
+		fAssert "and renders one scenario to the same bytes twice" \
+			bash -c "cd '${work}' && python3 '${root}/cicd/utility/demo/gen-demo-gif.py' --quiet --scenario '${work}/tiny-demo.toml' --out '${work}/tiny2.gif' && python3 '${root}/cicd/utility/demo/gen-demo-gif.py' --quiet --scenario '${work}/tiny-demo.toml' --out '${work}/tiny3.gif' && cmp -s '${work}/tiny2.gif' '${work}/tiny3.gif'"
+		## The directive asks for three seconds of black at the loop boundary, and the committed
+		## file is the one a reader sees.
+		fAssert "the committed demo gif ends on three seconds of black" \
+			python3 -c 'import sys; from PIL import Image; im = Image.open(sys.argv[1]); im.seek(im.n_frames - 1); sys.exit(0 if im.info.get("duration") == 3000 and im.convert("RGB").getextrema() == ((0, 0), (0, 0), (0, 0)) else 1)' "${root}/assets/demo.gif"
+	else
+		echo "  skip: demo renderer checks (need python3 with Pillow, and fc-match)"
+	fi
 
 	## The Windows resource. Built here rather than pinned in the source, because the failure
 	## mode is the linker quietly ignoring a .syso whose name does not match the target: the
@@ -2754,6 +2809,42 @@ GHEOF
 		git init --quiet "${gateDir}"
 		cp "${root}/cicd/utility/pre-push.bash" "${gateDir}/cicd/utility/" 2>/dev/null || true
 		fAssert "cicd.bash --install-hook installs the hook and runs no stage"  fGateInstallHook
+
+		## The demo stage, on a fixture of its own that is a git repo with tags. Only stage 6 runs,
+		## and its build, generator and optimizer are stubs, so what is checked is the stamp each
+		## commit hands the demo build and what the stage does with the result.
+		gateDir="${work}/gate-demo"
+		fMakeGateFixture
+		git init --quiet -b main "${gateDir}"
+		local demoEpoch="" demoBuildLine=""
+		fGateDemoCommit 2026-01-01T00:00:00Z
+		fAssert "with no release tag the demo is built as 0.0.0 with no build number" \
+			fGateDemoStamp '-X main.version=0.0.0 -X main.buildEpoch= -o '
+		git -C "${gateDir}" tag vnext
+		fAssert "a v tag that is not a version stamps nothing into the demo, and says so" \
+			fGateDemoStamp '-X main.version=0.0.0 -X main.buildEpoch= -o ' '' "WARNING: .*'vnext' is not a version"
+		git -C "${gateDir}" tag -d vnext >/dev/null
+		## A release candidate sorts below its release only through versionsort.suffix. Without it
+		## the candidate would stamp the demo.
+		git -C "${gateDir}" tag v9.8.7-rc.1
+		fGateDemoCommit 2026-02-01T00:00:00Z
+		git -C "${gateDir}" tag v9.8.7
+		fGateDemoCommit 2026-03-01T00:00:00Z
+		demoEpoch="$(git -C "${gateDir}" log -1 --format=%ct 'v9.8.7^{commit}')"
+		fAssert "the demo renders from its own build, stamped with the newest release" \
+			fGateDemoStamp "-X main.version=9.8.7 -X main.buildEpoch=${demoEpoch} -o ${gateDir}/src-go/gitsby-demo" "--bin ${gateDir}/src-go/gitsby-demo"
+		demoBuildLine="$(fGateDemoBuild)"
+		fAssert "and removes that build afterwards" \
+			bash -c "[[ -n '${demoBuildLine}' && ! -e '${gateDir}/src-go/gitsby-demo' ]]"
+		fGateDemoCommit 2026-04-01T00:00:00Z
+		fAssert "a later commit builds the demo identically, so the gif is left alone"  fGateDemoSame "${demoBuildLine}"
+		fAssert "-q reaches the demo generator"  fGateDemoQuiet -q 1
+		## Regression guard: -y is unattended, not quiet.
+		fAssert "and -y alone does not quiet it"  fGateDemoQuiet -y 0
+		: > "${gateFail}/go-build"
+		fAssert "a failed demo build warns, renders nothing and the run goes on"  fGateDemoBuildFails
+		rm -f -- "${gateFail:?}/go-build"
+		gateDir="${work}/gate"
 
 		## The hook. Its stub cicd.bash logs where it ran, what it was given, the marker file it saw
 		## and two variables git sets for hooks, and fails when the marker reads "fail". Physical
@@ -3562,3 +3653,4 @@ echo "passed: ${pass}, failed: ${fail}"
 ##		- 20260819 JC: A config file's discovery inputs are now neutralized in one place. Faking HOME never covered XDG_CONFIG_HOME (tried first) or APPDATA (tried last), so every block that tests discovery read the accounts of whoever was running the suite - thirty checks went red the day this machine had a config of its own. Plus four checks for the two defects found with it: an account named through GITSBY_ACCOUNT that carries no GitHub login, and a config file with a byte-order mark on it.
 ##		- 20260914 JC: The pre-push gate. cicd.bash --gate against a copy of the engine whose every tool is a stub: what it runs, what it leaves out, a failure per tool, and its refusals. Then the hook in a throwaway clone: the install and its three refusals, the pushed commit gated as committed, a failing push refused, deletes and tags left alone, one gate per commit, commits and checkouts from before the gate, git's own variables kept from the gate, a missing worktree, and the lock. Linux only. 35 of the 36 fail against the tree before them; the full-run check is a regression guard. 810 -> 846.
 ##		- 20260914 JC: More on the pre-push gate: a push from a subdirectory with a relative --work-tree, --install-hook run through cicd.bash, an older hook of ours replaced, a gate worktree left dirty or missing its .git file, and a push off Linux. 846 -> 852.
+##		- 20260914 JC: The demo stage renders from its own build, stamped with the newest release rather than the commit: no tag, a tag that is not a version, a release candidate beside its release, the build removed, a later commit left alone, and a failed build. -q reaches the generator, which renders one scenario to the same bytes twice, and the committed gif ends on three seconds of black. The two build-site pins count four sites. The fixture checks are Linux only, and the renderer checks need Pillow. Nine of the eleven fail against the tree before them; two are regression guards. 852 -> 863.

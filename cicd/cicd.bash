@@ -552,9 +552,10 @@ fi
 ((df_did)) || fEcho_Clean "dogfood: nothing installed"
 
 ## Stage 6: demo gif. Types the scenario into a fake terminal, runs each command
-## against the build from stage 2, renders the animated loop. A failure is a
-## warning, never a stop. When the render differs from the committed copy, a
-## timestamped original is kept (GFS-pruned) out of tree, then landed in-repo.
+## against a build of its own, stamped with the newest release, renders the
+## animated loop. A failure is a warning, never a stop. When the render differs
+## from the committed copy, a timestamped original is kept (GFS-pruned) out of
+## tree, then landed in-repo.
 fSection "6/7  Demo gif"
 if ((! DO_DEMOGIF)); then
 	fEcho_Clean "demo gif skipped$( ((quick)) && echo ' (--quick)')"
@@ -564,7 +565,24 @@ else
 	demogif_out="${root}/${DEMOGIF_OUT}"
 	demogif_tmp="${demogif_out}.new"
 	mkdir -p "$(dirname "${demogif_out}")"
-	if (cd "${root}" && python3 "${DEMOGIF_CMD[@]}" --out "${demogif_tmp}" --bin "${root}/${GO_MODULE_DIR}/${EXE_NAME}"); then
+	## Every command prints a banner naming its build, and a build stamped with the commit put a
+	## new one on camera at every commit, so the whole gif was replaced on every run. The demo's
+	## own build carries the newest release instead - the version and build number that release's
+	## published binary prints - so the gif changes only when what it shows does.
+	demo_version="0.0.0"; demo_build_epoch=""
+	demo_tags="$(git -c versionsort.suffix=- tag --sort=-v:refname --list 'v*' 2>/dev/null || true)"
+	demo_tag="${demo_tags%%$'\n'*}"
+	if [[ "${demo_tag}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([A-Za-z0-9.-]+)?$ ]]; then
+		demo_version="${demo_tag#v}"
+		demo_build_epoch="$(git log -1 --format=%ct "${demo_tag}^{commit}" 2>/dev/null || true)"
+	elif [[ -n "${demo_tag}" ]]; then
+		fEcho "WARNING: the newest v* tag '${demo_tag}' is not a version, so the demo build is stamped 0.0.0"
+	fi
+	demogif_bin="${root}/${GO_MODULE_DIR}/${EXE_NAME}-demo"
+	if ! (cd "${root}/${GO_MODULE_DIR}" && CGO_ENABLED=0 \
+		go build "${GO_BUILD_FLAGS[@]}" -p "${BUILD_JOBS}" -ldflags "${GO_LDFLAGS_COMMON} -X main.version=${demo_version} -X main.buildEpoch=${demo_build_epoch}" -o "${demogif_bin}" .); then
+		fEcho "WARNING: demo build failed, so no demo gif was rendered (continuing)"
+	elif (cd "${root}" && python3 "${DEMOGIF_CMD[@]}" ${harness_quiet[@]+"${harness_quiet[@]}"} --out "${demogif_tmp}" --bin "${demogif_bin}"); then
 		if [[ -n "${DEMOGIF_OPT_CMD[*]:-}" ]] && command -v "${DEMOGIF_OPT_CMD[0]}" >/dev/null 2>&1; then
 			demogif_was=$(stat -c%s "${demogif_tmp}")
 			if "${DEMOGIF_OPT_CMD[@]}" "${demogif_tmp}" -o "${demogif_tmp}.opt" 2>/dev/null; then
@@ -590,6 +608,7 @@ else
 		rm -f -- "${demogif_tmp:?}"
 		fEcho "WARNING: demo gif generation failed (continuing)"
 	fi
+	rm -f -- "${demogif_bin:?}"
 fi
 
 ## Stage 7: backup + publish.
@@ -626,3 +645,4 @@ fEcho_Clean
 ##		- 2026-08-19 JC: --quick narrows dogfood to the native target, which is the slow part it was supposed to be skipping. Every build site shares one set of flags (-buildvcs=false above all, without which the published assets can never be rebuilt to their published checksums) and half the cores. Stage 3 gained govulncheck and the spawn counts; the three harnesses take -q from the engine.
 ##		- 2026-09-10 JC: Stage 1 runs backlog-check.bash: open review items carry an Origin line, and a suite check removed on the branch has to be named in the backlog. Two decisions had been reversed by deleting the check that encoded them, with nothing written down.
 ##		- 2026-09-14 JC: --gate runs every lint check and the unit tests and nothing else, for the pre-push hook that --install-hook puts in place. Stage 1 and the unit tests became functions, so the gate and a full run share one copy of each.
+##		- 2026-09-14 JC: The demo gif renders from a build of its own, stamped with the newest release rather than the commit, and -q reaches its generator. The banner every command prints had put a new version on camera at every commit, so the gif was replaced on nearly every run.
