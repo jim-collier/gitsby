@@ -198,8 +198,17 @@ fGateFullRun(){
 	fGateSays 0 'CI/CD: done\.' -y --quick --no-sync --no-publish --no-dogfood \
 		&& fGateCalled '^go vet' '^go build' '^go test -race' '^test\.bash' '^parity\.bash'
 }
+## --install-hook hands over to the installer: the hook is in place, and no stage or gate header
+## was printed on the way.
+fGateInstallHook(){
+	fGateSays 0 '^pre-push: installed ' --install-hook \
+		&& grep -qxF '## gitsby pre-push gate - installed by cicd/cicd.bash --install-hook' "${gateDir}/.git/hooks/pre-push" \
+		&& ! grep -qE '[0-9]/[0-9]  ' "${gateOut}"
+}
 ## A push from $1, the rest being its arguments. Output lands in ${hookOut}; the gate log starts empty.
 fHookPush(){ local dir="$1"; shift; : > "${hookLog}"; git -C "${dir}" push "$@" >"${hookOut}" 2>&1 ;}
+## One digest of every file under $1, names and contents, to show a directory was left as it was.
+fTreeDigest(){ (cd "$1" && find . -type f -exec sha256sum {} + | LC_ALL=C sort | sha256sum) ;}
 
 ## The whole suite, against whatever ${gitsby} points at.
 fRunSuite(){
@@ -2740,6 +2749,11 @@ GHEOF
 		fAssert "cicd.bash --help lists --gate and --install-hook" \
 			bash -c "out=\$('${gateDir}/cicd/cicd.bash' --help) && grep -qE -- '^ +--gate ' <<< \"\$out\" && grep -qE -- '^ +--install-hook ' <<< \"\$out\""
 		fAssert "and contributing.md names --install-hook"  grep -qF -- '--install-hook' "${root}/contributing.md"
+		## Last on this fixture, since it makes it a git repo. Every tool is still a stub, so an
+		## --install-hook that fell through into a full run would reach nothing outside it.
+		git init --quiet "${gateDir}"
+		cp "${root}/cicd/utility/pre-push.bash" "${gateDir}/cicd/utility/" 2>/dev/null || true
+		fAssert "cicd.bash --install-hook installs the hook and runs no stage"  fGateInstallHook
 
 		## The hook. Its stub cicd.bash logs where it ran, what it was given, the marker file it saw
 		## and two variables git sets for hooks, and fails when the marker reads "fail". Physical
@@ -2758,7 +2772,7 @@ GHEOF
 		fStub "${hookRepo}/cicd/cicd.bash" <<-EOF
 			#!/usr/bin/env bash
 			case "\${1:-}" in --gate) ;; esac
-			printf '%s|%s|%s|GIT_PREFIX=%s|GIT_DIR=%s\n' "\$(pwd -P)" "\$*" "\$(cat marker.txt)" "\${GIT_PREFIX-unset}" "\${GIT_DIR-unset}" >> '${hookLog}'
+			printf '%s|%s|%s|GIT_PREFIX=%s|GIT_DIR=%s|status=%s\n' "\$(pwd -P)" "\$*" "\$(cat marker.txt)" "\${GIT_PREFIX-unset}" "\${GIT_DIR-unset}" "\$(git status --porcelain --untracked-files=all | wc -l)" >> '${hookLog}'
 			[[ "\$(cat marker.txt)" != fail ]]
 		EOF
 		git -C "${hookRepo}" add --all
@@ -2770,6 +2784,12 @@ GHEOF
 		hookSum="$(sha256sum "${hookFile}" 2>/dev/null || true) $(stat -c %i "${hookFile}" 2>/dev/null || true)"
 		fAssert "and a second install changes nothing" \
 			bash -c "'${hookRepo}/cicd/utility/pre-push.bash' --install && [[ \"\$(sha256sum '${hookFile}') \$(stat -c %i '${hookFile}')\" == '${hookSum}' ]]"
+		## A hook from an earlier version of this script: the marker line, other text beneath it.
+		# shellcheck disable=SC2016  ## written as text, for the hook to expand.
+		printf '%s\n' '#!/usr/bin/env bash' '## gitsby pre-push gate - installed by cicd/cicd.bash --install-hook' \
+			'exec "$(git rev-parse --show-toplevel)/cicd/utility/pre-push.bash" "$@"' > "${hookFile}"
+		fAssert "and an older hook of ours is replaced" \
+			bash -c "out=\$('${hookRepo}/cicd/utility/pre-push.bash' --install) && grep -qxF 'pre-push: updated ${hookFile}' <<< \"\$out\" && out=\$('${hookRepo}/cicd/utility/pre-push.bash' --install) && grep -qF 'already installed' <<< \"\$out\""
 		## Fresh clones for the refusals, so none of them depends on the install above.
 		local hookRepo3="${hookDir}/repo3" hookRepo4="${hookDir}/repo4" hookRepo5="${hookDir}/repo5"
 		local hookElsewhere="${hookDir}/hooks-elsewhere" hookUname="${hookDir}/uname-bin" hookForeign=""
@@ -2882,6 +2902,25 @@ GHEOF
 		wait "${hookLockPid}" 2>/dev/null || true
 		fAssert "a second gate waits for the one running" \
 			bash -c "[[ '${hookRc}' == 0 ]] && grep -qF 'waiting for it' '${hookOut}' && (( ${hookT1} - ${hookT0} >= 2000000000 ))"
+		## Leftovers from an earlier gate, one tracked and one untracked. checkout --force alone
+		## would keep the untracked one.
+		if [[ -d "${hookSnap}" ]]; then echo fail > "${hookSnap}/marker.txt"; echo left > "${hookSnap}/leftover.txt"; fi
+		hookRc=0; fHookPush "${hookRepo}" origin main~1:refs/heads/dirty || hookRc=$?
+		fAssert "a gate worktree left dirty is rebuilt before the gate runs" \
+			bash -c "[[ '${hookRc}' == 0 ]] && grep -qF '${hookSnap}|--gate|good2|GIT_PREFIX=unset|GIT_DIR=unset|status=0' '${hookLog}'"
+		hookRc=0; PATH="${hookUname}:${PATH}" fHookPush "${hookRepo}" origin main~1:refs/heads/darwin || hookRc=$?
+		fAssert "a push off Linux goes out ungated with a note" \
+			bash -c "[[ '${hookRc}' == 0 && ! -s '${hookLog}' ]] && grep -qF 'Linux only' '${hookOut}' && [[ -n \"\$(git -C '${hookRepo}' ls-remote origin refs/heads/darwin)\" ]]"
+		## Without its .git file the directory is still registered, but git inside it answers for the
+		## main repo. Nothing there may be forced or removed.
+		local hookSnapSum="" hookSnapAfter=""
+		if [[ -f "${hookSnap}/.git" ]]; then mv "${hookSnap}/.git" "${hookDir}/gate-dotgit-aside"; fi
+		hookSnapSum="$(fTreeDigest "${hookSnap}" || true)"
+		hookRc=0; fHookPush "${hookRepo}" origin main~1:refs/heads/nodotgit || hookRc=$?
+		hookSnapAfter="$(fTreeDigest "${hookSnap}" || true)"
+		fAssert "a gate worktree without its .git file is refused and left as it was" \
+			bash -c "[[ '${hookRc}' != 0 && -n '${hookSnapSum}' && '${hookSnapSum}' == '${hookSnapAfter}' && ! -s '${hookLog}' ]] && grep -qE 'is not this repo.s gate worktree' '${hookOut}'"
+		if [[ -f "${hookDir}/gate-dotgit-aside" && ! -e "${hookSnap}/.git" ]]; then mv "${hookDir}/gate-dotgit-aside" "${hookSnap}/.git"; fi
 	fi
 
 	## Go-only: the renamed commands, the aliases that keep every 2.1.0 spelling working, and
@@ -3522,3 +3561,4 @@ echo "passed: ${pass}, failed: ${fail}"
 ##		- 20260819 JC: The second adversarial pass. A folder rule spelled through a symlink, checked both by the account line and by which entry 'account list' marks; the shipped-code warning run from a subdirectory, where the pathspec had been reading from the wrong place; and a repo-local commit name or email on its own, each of which the account had been overriding. Five checks, all five failing against the build before them.
 ##		- 20260819 JC: A config file's discovery inputs are now neutralized in one place. Faking HOME never covered XDG_CONFIG_HOME (tried first) or APPDATA (tried last), so every block that tests discovery read the accounts of whoever was running the suite - thirty checks went red the day this machine had a config of its own. Plus four checks for the two defects found with it: an account named through GITSBY_ACCOUNT that carries no GitHub login, and a config file with a byte-order mark on it.
 ##		- 20260914 JC: The pre-push gate. cicd.bash --gate against a copy of the engine whose every tool is a stub: what it runs, what it leaves out, a failure per tool, and its refusals. Then the hook in a throwaway clone: the install and its three refusals, the pushed commit gated as committed, a failing push refused, deletes and tags left alone, one gate per commit, commits and checkouts from before the gate, git's own variables kept from the gate, a missing worktree, and the lock. Linux only. 35 of the 36 fail against the tree before them; the full-run check is a regression guard. 810 -> 846.
+##		- 20260914 JC: More on the pre-push gate: a push from a subdirectory with a relative --work-tree, --install-hook run through cicd.bash, an older hook of ours replaced, a gate worktree left dirty or missing its .git file, and a push off Linux. 846 -> 852.
