@@ -44,6 +44,8 @@
 ##	   --no-demogif        skip regenerating the demo gif
 ##	   --no-publish        skip the git backup + publish stage
 ##	   --quick             skip the slow stages (fuzz, demo gif)
+##	   --gate              fast pre-push gate: every lint check and go test; no sync, build, suites, prompt or log
+##	   --install-hook      install the git pre-push hook that runs --gate on each pushed commit
 ##	   -h, --help          show this help
 ##	- If neither -q/-y nor -m is given, the run prompts once for a commit message
 ##	  (blank = git editor; Ctrl+C aborts the whole run), then finishes unattended.
@@ -79,26 +81,43 @@ go_build_epoch="$(git log -1 --format=%ct 2>/dev/null || echo 0)"
 
 ## Parse options.
 assume_yes=0; quiet=0; quick=0; do_sync=1; do_lint=1; do_test=1; do_fuzz=1; do_parity=1; cli_message=""
+gate=0; install_hook=0; stage_opts=()
 while (($#)); do case "$1" in
 	-q|--quiet)               quiet=1; assume_yes=1; shift ;;   ## quiet + unattended; publish runs quiet too
 	-y|--yes)                 assume_yes=1; shift ;;
-	--no-sync)                do_sync=0; shift ;;
-	--no-lint)                do_lint=0; shift ;;
-	--no-test)                do_test=0; shift ;;
-	--no-fuzz)                do_fuzz=0; shift ;;
-	--no-parity)              do_parity=0; shift ;;
-	--no-dogfood)             DOGFOOD_TARGETS=(); shift ;;
-	--no-demogif)             DO_DEMOGIF=0; shift ;;
-	--no-publish)             GIT_PUBLISH=(); shift ;;
+	--no-sync)                do_sync=0; stage_opts+=("$1"); shift ;;
+	--no-lint)                do_lint=0; stage_opts+=("$1"); shift ;;
+	--no-test)                do_test=0; stage_opts+=("$1"); shift ;;
+	--no-fuzz)                do_fuzz=0; stage_opts+=("$1"); shift ;;
+	--no-parity)              do_parity=0; stage_opts+=("$1"); shift ;;
+	--no-dogfood)             DOGFOOD_TARGETS=(); stage_opts+=("$1"); shift ;;
+	--no-demogif)             DO_DEMOGIF=0; stage_opts+=("$1"); shift ;;
+	--no-publish)             GIT_PUBLISH=(); stage_opts+=("$1"); shift ;;
 	## Cross-building three platforms is the slow part of a run, not the fuzz and the gif -
 	## so the flag whose job is skipping the slow parts has to skip that too. The native
 	## target stays, since the dogfooded binary is what the next hand-run uses.
-	--quick)                  quick=1; do_fuzz=0; DO_DEMOGIF=0; DOGFOOD_TARGETS=("${DOGFOOD_NATIVE_TARGET}"); shift ;;
-	--message=*|--msg=*|-m=*) cli_message="${1#*=}"; shift ;;
-	-m|--message|--msg)       cli_message="${2-}"; shift; (($#)) && shift ;;
+	--quick)                  quick=1; do_fuzz=0; DO_DEMOGIF=0; DOGFOOD_TARGETS=("${DOGFOOD_NATIVE_TARGET}"); stage_opts+=("$1"); shift ;;
+	--message=*|--msg=*|-m=*) cli_message="${1#*=}"; stage_opts+=("${1%%=*}"); shift ;;
+	-m|--message|--msg)       cli_message="${2-}"; stage_opts+=("$1"); shift; (($#)) && shift ;;
+	## pre-push.bash looks for this arm's literal text to tell a commit that has a gate from
+	## one cut before it existed, so keep the spelling.
+	--gate)                   gate=1; assume_yes=1; shift ;;
+	--install-hook)           install_hook=1; shift ;;
 	-h|--help)                sed -n '/^##	- Purpose:/,/^##	History:/p' "${BASH_SOURCE[0]}" | sed '$d; s/^##	\{0,1\}//'; exit 0 ;;
 	*) echo "unknown option: $1 (try --help)" >&2; exit 2 ;;
 esac; done
+
+## Both run a fixed thing, so a stage option beside either would read as taking effect when it
+## cannot. Refused rather than ignored.
+if ((gate && install_hook)); then echo "--gate and --install-hook are separate runs; give one." >&2; exit 2; fi
+if ((${#stage_opts[@]})); then
+	if ((gate)); then
+		echo "--gate runs a fixed set of checks and takes no stage options (got: ${stage_opts[*]})" >&2; exit 2
+	elif ((install_hook)); then
+		echo "--install-hook installs the hook and takes no stage options (got: ${stage_opts[*]})" >&2; exit 2
+	fi
+fi
+if ((install_hook)); then exec "${here}/utility/pre-push.bash" --install; fi
 
 ## Brief beat after each stage header so the cheap fast stages stay readable.
 ## Off for unattended runs (-q/-y) where nobody is watching.
@@ -141,6 +160,125 @@ for g in "${SHELL_LINT_GLOBS[@]}"; do for f in $g; do [[ -f "$f" ]] && shell_fil
 for g in "${SHELL_LINT_WARN_GLOBS[@]:-}"; do for f in $g; do [[ -f "$f" ]] && shell_warn_files+=("$f"); done; done
 ((_ng)) || shopt -u nullglob
 
+## Stage 1's body and stage 2's unit tests, as functions so that --gate runs the same code a
+## full run does. Two copies would drift, and the hook would pass what the pipeline stops.
+fStageLint(){
+	local f g _ng n md_files ps_files toolDrift toolSpec toolName toolWant toolPath toolHave unformatted winres_status
+	((${#shell_files[@]})) || fDie "no shell files matched SHELL_LINT_GLOBS"
+	for f in "${shell_files[@]}"; do
+		bash -n "$f" || fDie "syntax error: $f"
+	done
+	fEcho "OK: bash -n (${#shell_files[@]} file(s))"
+	shellcheck --version >/dev/null 2>&1 || fDie "shellcheck not installed"
+	shellcheck "${shell_files[@]}"
+	fEcho "OK: shellcheck clean"
+	## Legacy files: report findings without gating (the refactor retires this list).
+	if ((${#shell_warn_files[@]})); then
+		for f in "${shell_warn_files[@]}"; do
+			bash -n "$f" || fDie "syntax error: $f"
+			n="$(shellcheck "$f" 2>/dev/null | grep -c "^In " || true)"
+			if ((n)); then fEcho "WARNING: ${n} shellcheck finding(s) in legacy ${f} (report-only until the refactor)"
+			else fEcho "OK: legacy ${f} clean"; fi
+		done
+	fi
+	if ((${#MD_LINT_GLOBS[@]})); then
+		md_files=()
+		_ng=0; shopt -q nullglob && _ng=1; shopt -s nullglob
+		for g in "${MD_LINT_GLOBS[@]}"; do for f in $g; do [[ -f "$f" ]] && md_files+=("$f"); done; done
+		((_ng)) || shopt -u nullglob
+		if command -v markdownlint >/dev/null 2>&1; then
+			markdownlint "${md_files[@]}"
+			fEcho "OK: markdownlint clean (${#md_files[@]} file(s))"
+		elif npx --no-install markdownlint --version >/dev/null 2>&1; then
+			npx --no-install markdownlint "${md_files[@]}"
+			fEcho "OK: markdownlint clean (${#md_files[@]} file(s))"
+		else
+			fEcho "WARNING: markdownlint skipped (not installed: npm install -g markdownlint-cli)"
+		fi
+	fi
+	if [[ -n "${PY_LINT_FILES+x}" ]] && ((${#PY_LINT_FILES[@]})); then
+		python3 -m py_compile "${PY_LINT_FILES[@]}" && rm -rf -- "${root:?}/cicd/utility/__pycache__"
+		fEcho "OK: py_compile (${#PY_LINT_FILES[@]} file(s))"
+	fi
+	if [[ -n "${PS_LINT_GLOBS+x}" ]] && ((${#PS_LINT_GLOBS[@]})); then
+		ps_files=()
+		_ng=0; shopt -q nullglob && _ng=1; shopt -s nullglob
+		for g in "${PS_LINT_GLOBS[@]}"; do for f in $g; do [[ -f "$f" ]] && ps_files+=("$f"); done; done
+		((_ng)) || shopt -u nullglob
+		if ((${#ps_files[@]})); then
+			if pwsh -NoProfile -Command "Get-Command Invoke-ScriptAnalyzer" >/dev/null 2>&1; then
+				for f in "${ps_files[@]}"; do
+					pwsh -NoProfile -Command "\$r = Invoke-ScriptAnalyzer -Path '${f}' -Severity Error,Warning,Information; \$r | Format-Table -AutoSize | Out-String -Width 200 | Write-Host; exit @(\$r).Count" || fDie "PSScriptAnalyzer findings in ${f}"
+					## The installer has to run on Windows PowerShell 5.1 - that is what a fresh
+					## Windows box has, and the box most likely to be installing this for the first
+					## time. Nothing else here checks the syntax against it.
+					pwsh -NoProfile -Command "\$s = @{Rules=@{PSUseCompatibleSyntax=@{Enable=\$true;TargetVersions=@('5.1','7.0')}}}; \$r = Invoke-ScriptAnalyzer -Path '${f}' -IncludeRule PSUseCompatibleSyntax -Settings \$s; \$r | Format-Table -AutoSize | Out-String -Width 200 | Write-Host; exit @(\$r).Count" || fDie "PowerShell 5.1 syntax findings in ${f}"
+				done
+				fEcho "OK: PSScriptAnalyzer clean, 5.1-compatible (${#ps_files[@]} file(s))"
+			else
+				fEcho "WARNING: PSScriptAnalyzer skipped (pwsh + PSScriptAnalyzer module not both installed)"
+			fi
+		fi
+	fi
+	## gofmt is the arbiter of format, vet gates, staticcheck gates when installed.
+	## Keyed off the module, not a glob - the tools walk it themselves. A missing
+	## toolchain is fatal now rather than a warning: it is what builds the product.
+	command -v go >/dev/null 2>&1 || fDie "go toolchain not installed - nothing in this pipeline can run without it"
+	## Which version of each tool is about to gate this run. A tool that moved on its own is
+	## the usual reason a finding appears - or stops appearing - on a tree nobody touched.
+	## Warned about only: this pipeline installs nothing, and a version skew is a thing to
+	## know rather than a reason to refuse to build.
+	toolDrift=()
+	for toolSpec in "${GO_TOOL_VERSIONS[@]}"; do
+		toolName="${toolSpec%%=*}"; toolWant="${toolSpec#*=}"
+		toolPath="$( command -v "${toolName}" 2>/dev/null || true )"
+		[[ -n "${toolPath}" ]] || continue
+		toolHave="$( go version -m "${toolPath}" 2>/dev/null | awk '$1=="mod"{print $3; exit}' )"
+		[[ "${toolHave}" == "${toolWant}" ]] || toolDrift+=( "${toolName} ${toolHave:-unknown} (recorded ${toolWant})" )
+	done
+	((${#toolDrift[@]} == 0)) || fEcho "WARNING: lint tool versions differ from the recorded set: ${toolDrift[*]}"
+	unformatted="$(cd "${root}/${GO_MODULE_DIR}" && gofmt -l .)"
+	[[ -z "${unformatted}" ]] || fDie "gofmt wants to reformat: ${unformatted}"
+	## Same core budget as the builds: BUILD_JOBS caps the go tool's workers, and
+	## GOMAXPROCS caps the analysis threads inside each one.
+	(cd "${root}/${GO_MODULE_DIR}" && GOMAXPROCS="${BUILD_JOBS}" go vet -p "${BUILD_JOBS}" ./...) || fDie "go vet findings"
+	fEcho "OK: gofmt + go vet clean"
+	if command -v staticcheck >/dev/null 2>&1; then
+		(cd "${root}/${GO_MODULE_DIR}" && GOMAXPROCS="${BUILD_JOBS}" staticcheck ./...) || fDie "staticcheck findings"
+		fEcho "OK: staticcheck clean"
+	else
+		fEcho "WARNING: staticcheck skipped (not installed: go install honnef.co/go/tools/cmd/staticcheck@latest)"
+	fi
+	## The rest of the set - dropped errors, shadowed builtins, naming - configured in
+	## src-go/.golangci.yml. Gates when installed, like staticcheck above.
+	if command -v golangci-lint >/dev/null 2>&1; then
+		(cd "${root}/${GO_MODULE_DIR}" && golangci-lint run --concurrency "${BUILD_JOBS}" ./...) || fDie "golangci-lint findings"
+		fEcho "OK: golangci-lint clean"
+	else
+		fEcho "WARNING: golangci-lint skipped (not installed: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest)"
+	fi
+	## The committed Windows resource, against what the newest tag would generate. It is linked
+	## into published bytes, so an edited icon or description that nobody regenerated would ship
+	## silently. Probe-gated like the two above.
+	winres_status=0
+	"${WINRES_CMD[@]}" --check -q || winres_status=$?
+	case "${winres_status}" in
+		0) fEcho "OK: windows resource current" ;;
+		3) fEcho "WARNING: windows resource check skipped (not installed: go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.5.0)" ;;
+		*) fDie "windows resource is stale" ;;
+	esac
+	## Two backlog rules the review rounds kept leaking through: every open review item
+	## names where it came from, and a suite check removed on this branch is named in the
+	## backlog. Both were broken by hand before, and neither showed anywhere.
+	"${BACKLOG_CHECK_CMD[@]}" -q || fDie "backlog check failed (see above)"
+	fEcho "OK: backlog check"
+}
+fUnitTests(){
+	## -race costs little on a tree with no goroutines and pays the day one appears.
+	(cd "${root}/${GO_MODULE_DIR}" && GOMAXPROCS="${BUILD_JOBS}" go test -race -p "${BUILD_JOBS}" ./...) || fDie "go test failures"
+	fEcho "OK: go test"
+}
+
 ## Dogfood destinations, resolved once. Per target, the first configured dir that exists and
 ## is writable; empty means the stage will skip that target with a warning. The dest array is
 ## found by name (DOGFOOD_DESTS_<GOOS>_<GOARCH>, upper-cased), so adding a target is a config
@@ -170,6 +308,21 @@ done
 ## lines every value up on the same column as the fixed labels below.
 fPlanOS(){ case "${1%%/*}" in darwin) echo macos ;; *) echo "${1%%/*}" ;; esac ;}
 fPlanLine(){ local -r _dots="........................"; local -i n=$(( 20 - ${#1} )); ((n < 0)) && n=0; fEcho_Clean "${1} ${_dots:0:n}: ${2}" ;}
+
+## --gate: what the pre-push hook runs against the commit being pushed. The stages it leaves
+## out are the slow ones, and the ones that change something: a fetch, a build, an install, a push.
+if ((gate)); then
+	fEcho_Clean
+	fEcho_Clean "${APP_NAME} gate: every lint check, then the unit tests"
+	fEcho_Clean "Repo root ...........: ${root}"
+	fSection "Gate 1/2  Lint"
+	fStageLint
+	fSection "Gate 2/2  Unit tests"
+	fUnitTests
+	fSection "${APP_NAME} gate: passed."
+	fEcho_Clean
+	exit 0
+fi
 
 ## Preflight: show the plan with resolved paths, then confirm.
 
@@ -290,114 +443,7 @@ fSection "1/7  Lint"
 if ((! do_lint)); then
 	fEcho_Clean "lint skipped"
 else
-	((${#shell_files[@]})) || fDie "no shell files matched SHELL_LINT_GLOBS"
-	for f in "${shell_files[@]}"; do
-		bash -n "$f" || fDie "syntax error: $f"
-	done
-	fEcho "OK: bash -n (${#shell_files[@]} file(s))"
-	shellcheck --version >/dev/null 2>&1 || fDie "shellcheck not installed"
-	shellcheck "${shell_files[@]}"
-	fEcho "OK: shellcheck clean"
-	## Legacy files: report findings without gating (the refactor retires this list).
-	if ((${#shell_warn_files[@]})); then
-		for f in "${shell_warn_files[@]}"; do
-			bash -n "$f" || fDie "syntax error: $f"
-			n="$(shellcheck "$f" 2>/dev/null | grep -c "^In " || true)"
-			if ((n)); then fEcho "WARNING: ${n} shellcheck finding(s) in legacy ${f} (report-only until the refactor)"
-			else fEcho "OK: legacy ${f} clean"; fi
-		done
-	fi
-	if ((${#MD_LINT_GLOBS[@]})); then
-		md_files=()
-		_ng=0; shopt -q nullglob && _ng=1; shopt -s nullglob
-		for g in "${MD_LINT_GLOBS[@]}"; do for f in $g; do [[ -f "$f" ]] && md_files+=("$f"); done; done
-		((_ng)) || shopt -u nullglob
-		if command -v markdownlint >/dev/null 2>&1; then
-			markdownlint "${md_files[@]}"
-			fEcho "OK: markdownlint clean (${#md_files[@]} file(s))"
-		elif npx --no-install markdownlint --version >/dev/null 2>&1; then
-			npx --no-install markdownlint "${md_files[@]}"
-			fEcho "OK: markdownlint clean (${#md_files[@]} file(s))"
-		else
-			fEcho "WARNING: markdownlint skipped (not installed: npm install -g markdownlint-cli)"
-		fi
-	fi
-	if [[ -n "${PY_LINT_FILES+x}" ]] && ((${#PY_LINT_FILES[@]})); then
-		python3 -m py_compile "${PY_LINT_FILES[@]}" && rm -rf -- "${root:?}/cicd/utility/__pycache__"
-		fEcho "OK: py_compile (${#PY_LINT_FILES[@]} file(s))"
-	fi
-	if [[ -n "${PS_LINT_GLOBS+x}" ]] && ((${#PS_LINT_GLOBS[@]})); then
-		ps_files=()
-		_ng=0; shopt -q nullglob && _ng=1; shopt -s nullglob
-		for g in "${PS_LINT_GLOBS[@]}"; do for f in $g; do [[ -f "$f" ]] && ps_files+=("$f"); done; done
-		((_ng)) || shopt -u nullglob
-		if ((${#ps_files[@]})); then
-			if pwsh -NoProfile -Command "Get-Command Invoke-ScriptAnalyzer" >/dev/null 2>&1; then
-				for f in "${ps_files[@]}"; do
-					pwsh -NoProfile -Command "\$r = Invoke-ScriptAnalyzer -Path '${f}' -Severity Error,Warning,Information; \$r | Format-Table -AutoSize | Out-String -Width 200 | Write-Host; exit @(\$r).Count" || fDie "PSScriptAnalyzer findings in ${f}"
-					## The installer has to run on Windows PowerShell 5.1 - that is what a fresh
-					## Windows box has, and the box most likely to be installing this for the first
-					## time. Nothing else here checks the syntax against it.
-					pwsh -NoProfile -Command "\$s = @{Rules=@{PSUseCompatibleSyntax=@{Enable=\$true;TargetVersions=@('5.1','7.0')}}}; \$r = Invoke-ScriptAnalyzer -Path '${f}' -IncludeRule PSUseCompatibleSyntax -Settings \$s; \$r | Format-Table -AutoSize | Out-String -Width 200 | Write-Host; exit @(\$r).Count" || fDie "PowerShell 5.1 syntax findings in ${f}"
-				done
-				fEcho "OK: PSScriptAnalyzer clean, 5.1-compatible (${#ps_files[@]} file(s))"
-			else
-				fEcho "WARNING: PSScriptAnalyzer skipped (pwsh + PSScriptAnalyzer module not both installed)"
-			fi
-		fi
-	fi
-	## gofmt is the arbiter of format, vet gates, staticcheck gates when installed.
-	## Keyed off the module, not a glob - the tools walk it themselves. A missing
-	## toolchain is fatal now rather than a warning: it is what builds the product.
-	command -v go >/dev/null 2>&1 || fDie "go toolchain not installed - nothing in this pipeline can run without it"
-	## Which version of each tool is about to gate this run. A tool that moved on its own is
-	## the usual reason a finding appears - or stops appearing - on a tree nobody touched.
-	## Warned about only: this pipeline installs nothing, and a version skew is a thing to
-	## know rather than a reason to refuse to build.
-	toolDrift=()
-	for toolSpec in "${GO_TOOL_VERSIONS[@]}"; do
-		toolName="${toolSpec%%=*}"; toolWant="${toolSpec#*=}"
-		toolPath="$( command -v "${toolName}" 2>/dev/null || true )"
-		[[ -n "${toolPath}" ]] || continue
-		toolHave="$( go version -m "${toolPath}" 2>/dev/null | awk '$1=="mod"{print $3; exit}' )"
-		[[ "${toolHave}" == "${toolWant}" ]] || toolDrift+=( "${toolName} ${toolHave:-unknown} (recorded ${toolWant})" )
-	done
-	((${#toolDrift[@]} == 0)) || fEcho "WARNING: lint tool versions differ from the recorded set: ${toolDrift[*]}"
-	unformatted="$(cd "${root}/${GO_MODULE_DIR}" && gofmt -l .)"
-	[[ -z "${unformatted}" ]] || fDie "gofmt wants to reformat: ${unformatted}"
-	## Same core budget as the builds: BUILD_JOBS caps the go tool's workers, and
-	## GOMAXPROCS caps the analysis threads inside each one.
-	(cd "${root}/${GO_MODULE_DIR}" && GOMAXPROCS="${BUILD_JOBS}" go vet -p "${BUILD_JOBS}" ./...) || fDie "go vet findings"
-	fEcho "OK: gofmt + go vet clean"
-	if command -v staticcheck >/dev/null 2>&1; then
-		(cd "${root}/${GO_MODULE_DIR}" && GOMAXPROCS="${BUILD_JOBS}" staticcheck ./...) || fDie "staticcheck findings"
-		fEcho "OK: staticcheck clean"
-	else
-		fEcho "WARNING: staticcheck skipped (not installed: go install honnef.co/go/tools/cmd/staticcheck@latest)"
-	fi
-	## The rest of the set - dropped errors, shadowed builtins, naming - configured in
-	## src-go/.golangci.yml. Gates when installed, like staticcheck above.
-	if command -v golangci-lint >/dev/null 2>&1; then
-		(cd "${root}/${GO_MODULE_DIR}" && golangci-lint run --concurrency "${BUILD_JOBS}" ./...) || fDie "golangci-lint findings"
-		fEcho "OK: golangci-lint clean"
-	else
-		fEcho "WARNING: golangci-lint skipped (not installed: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest)"
-	fi
-	## The committed Windows resource, against what the newest tag would generate. It is linked
-	## into published bytes, so an edited icon or description that nobody regenerated would ship
-	## silently. Probe-gated like the two above.
-	winres_status=0
-	"${WINRES_CMD[@]}" --check -q || winres_status=$?
-	case "${winres_status}" in
-		0) fEcho "OK: windows resource current" ;;
-		3) fEcho "WARNING: windows resource check skipped (not installed: go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.5.0)" ;;
-		*) fDie "windows resource is stale" ;;
-	esac
-	## Two backlog rules the review rounds kept leaking through: every open review item
-	## names where it came from, and a suite check removed on this branch is named in the
-	## backlog. Both were broken by hand before, and neither showed anywhere.
-	"${BACKLOG_CHECK_CMD[@]}" -q || fDie "backlog check failed (see above)"
-	fEcho "OK: backlog check"
+	fStageLint
 fi
 
 ## Stage 2: build, then the regression suite against what was just built. The build is
@@ -413,9 +459,7 @@ else
 	fEcho "OK: go build (v${go_version#v})"
 	## The unit tests come before the suite below: they answer in milliseconds and
 	## cover the parsing and matching the suite can only reach through a built binary.
-	## -race costs little on a tree with no goroutines and pays the day one appears.
-	(cd "${root}/${GO_MODULE_DIR}" && GOMAXPROCS="${BUILD_JOBS}" go test -race -p "${BUILD_JOBS}" ./...) || fDie "go test failures"
-	fEcho "OK: go test"
+	fUnitTests
 	if [[ -f "${TEST_CMD[0]:-}" ]]; then
 		"${TEST_CMD[@]}" ${harness_quiet[@]+"${harness_quiet[@]}"}
 		fEcho "OK: tests passed"
@@ -581,3 +625,4 @@ fEcho_Clean
 ##		- 2026-08-19 JC: Stage 1 checks the committed Windows resource against the newest tag. The .exe carries an icon and version details now, and the resource that gives it them is a checked-in file that nothing else would notice going stale.
 ##		- 2026-08-19 JC: --quick narrows dogfood to the native target, which is the slow part it was supposed to be skipping. Every build site shares one set of flags (-buildvcs=false above all, without which the published assets can never be rebuilt to their published checksums) and half the cores. Stage 3 gained govulncheck and the spawn counts; the three harnesses take -q from the engine.
 ##		- 2026-09-10 JC: Stage 1 runs backlog-check.bash: open review items carry an Origin line, and a suite check removed on the branch has to be named in the backlog. Two decisions had been reversed by deleting the check that encoded them, with nothing written down.
+##		- 2026-09-14 JC: --gate runs every lint check and the unit tests and nothing else, for the pre-push hook that --install-hook puts in place. Stage 1 and the unit tests became functions, so the gate and a full run share one copy of each.
