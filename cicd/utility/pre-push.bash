@@ -40,7 +40,9 @@ marker="## gitsby pre-push gate - installed by cicd/cicd.bash --install-hook"
 IFS= read -r -d '' shimText <<'EOF' || true
 #!/usr/bin/env bash
 ## gitsby pre-push gate - installed by cicd/cicd.bash --install-hook
-top="$(git rev-parse --show-toplevel)" || exit 1
+## A push from a subdirectory starts this at the top of the work tree, and GIT_PREFIX says so.
+## A relative GIT_WORK_TREE still points from the subdirectory then, so git would name the wrong top.
+if [[ -n "${GIT_PREFIX:-}" ]]; then top="${PWD}"; else top="$(git rev-parse --show-toplevel)" || exit 1; fi
 hook="${top}/cicd/utility/pre-push.bash"
 if [[ ! -x "${hook}" ]]; then
 	printf '%s\n' "pre-push: this checkout has no cicd/utility/pre-push.bash, so this push is not gated." >&2
@@ -237,3 +239,5 @@ esac
 ##	History:
 ##		- 20260914 JC: Created. It gates the commit being pushed, in a worktree of its own, rather
 ##		  than the working tree: uncommitted edits are routine here, and a push names a commit.
+##		- 20260914 JC: The hook finds its checkout from where git started it when the push came from
+##		  a subdirectory. A relative --work-tree had sent it to the directory above, ungated.

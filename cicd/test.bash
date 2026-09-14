@@ -2847,6 +2847,12 @@ GHEOF
 		hookRc=0; fHookPush "${hookRepo}/sub" origin side:refs/heads/fromsub || hookRc=$?
 		fAssert "the gate does not inherit GIT_PREFIX from a push run in a subdirectory" \
 			bash -c "[[ '${hookRc}' == 0 ]] && grep -qF '|side|GIT_PREFIX=unset|' '${hookLog}'"
+		## From a subdirectory git starts the hook at the top, but passes a relative --work-tree on as
+		## typed. Read from the top, ".." is the directory above the checkout.
+		hookRc=0; : > "${hookLog}"
+		(cd "${hookRepo}/sub" && git --git-dir=../.git --work-tree=.. push origin main:refs/heads/relwt) >"${hookOut}" 2>&1 || hookRc=$?
+		fAssert "a push from a subdirectory with a relative --work-tree is gated all the same" \
+			bash -c "[[ '${hookRc}' != 0 ]] && grep -qF '${hookSnap}|--gate|fail|' '${hookLog}' && [[ -z \"\$(git -C '${hookRepo}' ls-remote origin refs/heads/relwt)\" ]]"
 		## git hands a hook GIT_DIR from a linked worktree. Passed on, the gate worktree's checkout
 		## would land on this worktree instead, and detach it.
 		local hookLinked="${hookDir}/linked"
