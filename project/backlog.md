@@ -55,6 +55,7 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 	- Reproduced: with a `python3` on PATH that exits 1, a full run exits 0 and prints `OK: py_compile`. `cicd.bash --gate` does the same.
 	- Cause: the compile is the first half of an `&&` list. Under `set -e` a failure there neither stops the script nor fires the error trap.
 	- Probable fix: fail on the compile on its own line, then clear the cache. Add a failing `python3` case to the gate checks in test.bash.
+	- Note: the line clears `cicd/utility/__pycache__`, but `py_compile` writes `cicd/utility/demo/__pycache__`, beside the file it compiles, so the cache stays. The same on `gover`.
 	- Origin: e014c29, the first pipeline. No earlier round saw it. Confirmed.
 
 - 🛠️ Code review 20260909 - a pass against the standing directives, aimed at the work since the last round. Twenty defects, twelve enhancements.
