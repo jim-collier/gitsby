@@ -50,6 +50,21 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 ### Bugs
 
+- 🔘 A folder rule with `*`, `?` or `[` in it binds repos in plain git that gitsby never matches.
+	- Opened: 20260914-145514
+	- Reproduced: `path: "<home>/d*"` lists as a folder that can never match, and gitsby names no account in `<home>/dev/work/proj`. After `account apply`, plain git gives that repo the account's email. `pathcontains: "acme-*"` does the same under `.../acme-x/...`, and `pathcontains: "**"` gives every repo on the disk the account.
+	- Cause: gitsby compares a rule as literal text, and `account apply` writes it into an includeIf, which git matches as a glob.
+	- Probable fix: list a rule holding a glob character as ignored, or escape it on the way into the includeIf once it is known which escape git's gitdir match honors, on Windows too.
+	- Note: found while designing Code Review 20260909 item 1, which closes the relative half of the same disagreement.
+	- Origin: `accountApplyPlan` since f48f89d (the port), and the scripted `account apply` before it. No earlier round saw it; fuzz.bash feeds `**` to `pathContains` and asserts only that nothing crashes. Confirmed.
+
+- 🔘 A relative `tokenfile` or `sshkey` is read from whatever folder a command runs in.
+	- Opened: 20260914-145514
+	- Reproduced: with `tokenfile: tok.txt`, `account list` says `token ...: tok.txt` in a repo holding a `tok.txt` and `none` in a repo without one. `sshkey: id_work` goes into the account's git config fragment as `ssh -i id_work`, which ssh reads from each repo's own folder.
+	- Note: a repo someone else wrote can then decide which token or key a push uses. Same class as Code Review 20260909 item 1.
+	- Probable fix: hold these to the same absolute-or-`~` test as `path`, and check `gitsby.ghTokenFile` in git config the same way.
+	- Origin: `absorb` and `readTokenFile` since f48f89d (the port), and the scripted builds before it. No earlier round saw it. Confirmed for `tokenfile` and for what `sshkey` writes; the push with a relative key was not run.
+
 - 🔘 The demo gif runs about two minutes, against a budget of twenty to thirty seconds.
 	- Opened: 20260914-140251
 	- Reproduced: the committed gif loops in 123.8 s over nine scenes. The shortest scene, a one-line `echo`, takes 8.6 s, and `br merge` takes 20.9 s. The holds alone add up to 52.8 s.
@@ -75,6 +90,9 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- Note: this is the wrong-account commit the whole feature exists to stop, and nothing on screen says it happened. A bare `.` is the natural thing to type from the folder you mean to bind.
 		- Probable fix: refuse a `path` that is not absolute, list one as ignored when read, and test the folder's existence against the resolved value rather than against the current directory.
 		- Origin: `canonPath` since f48f89d (the port); no round has handled a relative value. Confirmed.
+		- Note: v2.1.0 does the same. The scripted `account apply` writes `gitdir/i:./` for a flat `path = .`, so a file from the release carries it.
+		- Note: `account set` resolves a relative path from the folder it runs in rather than refusing it. Only the loader ignores one, since a file cannot say where a value was typed.
+		- Sweep: `tokenfile`, `sshkey` and `gitsby.ghTokenFile` take paths too, and a relative one is read from wherever a command runs. Filed as its own bug. A glob character in a folder rule is the other way the two matchers disagree, also filed.
 
 	- 🔘 Code Review 20260909 item 2: `br prune --no-fetch` deletes a branch on origin that origin has moved past.
 		- Reproduced: with a branch merged locally and one further commit pushed to origin from a second clone, prune deleted it on origin and the pushed commit became unreachable.
