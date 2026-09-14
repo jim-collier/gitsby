@@ -213,6 +213,11 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 ### Features and enhancements
 
+- 🔘 No UI and UX style guide exists, and README points at none.
+	- Opened: 20260914-122353
+	- Note: the output rules are in design.md's UI section and nowhere else. This item writes `project/style-guide_ui-ux.md` from them and links it from README.
+	- Note: bringing the output into line with the guide is a separate item, filed once the guide exists.
+
 - 🛠️ Code review 20260909 - enhancements from the same pass. Twelve items, none of them urgent.
 	- Opened: 20260909-184419
 
