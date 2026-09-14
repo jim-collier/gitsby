@@ -487,7 +487,9 @@ See also the release policy under Architecture, which covers how releases are pu
 
 - The demo in the README is drawn, not screen-recorded, and the commands in it really run. They act on a throwaway repo built offline for each render, so the output cannot drift from what the tool actually prints.
 
-- Commit dates in that repo are pinned. An unchanged demo therefore renders byte for byte identical, which is what lets the pipeline replace the committed file only when the demo really changed.
+- Commit dates in that repo are pinned, and the build the demo runs is stamped with the newest release rather than with the commit it was built from. An unchanged demo therefore renders byte for byte identical from one commit to the next, which is what lets the pipeline replace the committed file only when the demo really changed. The version banner in it names the last release, not the build in progress.
+
+- Among the options considered, keeping the version banner out of the demo was rejected. gitsby prints it above every command's output, so hiding it would take either a switch that only the demo uses or a filter on output this section says really runs.
 
 - The demo is described twice on purpose. `script.txt` is the readable version - scenes, captions, typed lines, hold times - and is the one to edit; the scenario file beside it is the machine version. We decided the readable one is the source of truth, because the parameters that shape a demo are aesthetic judgments, and they are far easier to argue about in prose than in a table of numbers.
 

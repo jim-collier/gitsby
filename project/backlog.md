@@ -186,6 +186,8 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- Probable fix: stamp a fixed version for the demo build, or keep the banner out of the demo run.
 		- Origin: 3b16d8d (build number) put a per-commit banner on `status`, which the demo captures. Confirmed.
 		- Note: the length half of the third bullet is filed as its own bug at the top of this section. This item covers the rebuild on every commit, the closing black and the quiet flag.
+		- Fixed: the demo renders from a build of its own, stamped with the newest release tag and that tag's commit time rather than the commit. The banner on camera now reads `gitsby v2.1.0 build db8ey` and stays put until the next release. `-q` reaches the generator, and the loop ends on three seconds of black. The committed gif is the new render, and the three comments and the design.md sentence name the release stamp.
+		- Verified: two builds of one source, stamped like two consecutive commits, rendered to gifs that differ. 11 new checks, 852 -> 863. Nine fail on `gover`, and the other two, `-y` alone and the repeat render, are regression guards. The two build-site pins now count four sites and fail on `gover`. With `versionsort.suffix` taken out, the release-candidate check fails. The render is 960x540 and 12412356 bytes, loops in 124.84 s on the 20 ms grid, and ends on 3 s of black. A pipeline run regenerated the gif in 47 s. The next run, on the commit holding the gif, left it unchanged in 87 s, with the suite at 863/0 and parity 27/0. Linux only: Windows, macOS and the BSDs are untested.
 
 	- 🔘 Code Review 20260909 item 17: pipeline housekeeping.
 		- The two "have I seen this yet" markers live inside the working tree. A clean checkout loses them.
