@@ -15,6 +15,7 @@ import (
 	"cmp"
 	"errors"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -241,10 +242,21 @@ func (a *app) cmdAccountList() {
 	if len(a.cfg.unknown) > 0 {
 		a.out.clean("Ignored keys .: " + strings.Join(a.cfg.unknown, ", "))
 	}
+	// Here and nowhere else: this is the command the docs send you to when something
+	// went out as the wrong person, and asking git costs every other command a process.
+	stale := a.cfg.relativeManagedIncludes()
+	warnStale := func() {
+		for _, pattern := range stale {
+			a.out.clean("")
+			a.out.clean("WARNING: your global git config still has the rule 'gitdir/i:" + pattern + "' from an earlier 'account apply'. " +
+				"Its folder isn't absolute, so plain git can apply that account far from where it was typed. Run '" + meName + " account apply' to remove it.")
+		}
+	}
 	names := a.cfg.accountNames()
 	if len(names) == 0 {
 		a.out.clean("")
 		a.out.clean("No accounts defined. See the Multiple accounts section of the README for the file format.")
+		warnStale()
 		return
 	}
 	a.out.clean("")
@@ -256,6 +268,7 @@ func (a *app) cmdAccountList() {
 		a.out.clean("")
 		a.out.clean("WARNING: more than one account claims " + contested + " - only the first is used.")
 	}
+	warnStale()
 }
 
 // contestedRules names the folder rules more than one account claims. There is no
@@ -513,6 +526,70 @@ func canonAccountField(field string) string {
 	return ""
 }
 
+// folderRuleValue is the 'path' value 'account set' writes. A relative one means
+// the folder the command runs in, as it would for any command, and the file can
+// never say that later - so it goes in absolute. Spelled the way the platform
+// spells it rather than in canonical form, since the file is edited by hand, and
+// with forward slashes, since a backslash in a bare value is an escape. A '~'
+// value is written as typed, so one file still works where home differs.
+func folderRuleValue(value string) (string, error) {
+	// filepath.Abs("") is the current directory, which nobody typed.
+	if value == "" {
+		return value, nil
+	}
+	switch folderRuleProblem(value) {
+	case "":
+		return value, nil
+	case ruleNoHome:
+		return "", usagef("'%s' starts with '~', and this machine names no home folder for it. Give the full path.", value)
+	case ruleOtherHome:
+		return "", usagef("'%s' names another user's home folder, and only a bare '~' is expanded. Give the full path.", value)
+	}
+	abs, err := filepath.Abs(value)
+	if err == nil {
+		abs = filepath.ToSlash(abs)
+	}
+	if err != nil || folderRuleProblem(abs) != "" {
+		return "", usagef("Couldn't work out which folder '%s' is from here. Give the full path.", value)
+	}
+	return abs, nil
+}
+
+// managedIncludePattern takes the folder pattern back out of an includeIf key as
+// accountManagedIncludes lists it: 'includeIf.gitdir/i:./.path' gives './'. git
+// hands the section and variable back lower-cased and the pattern as written.
+func managedIncludePattern(key string) (string, bool) {
+	const suffix = ".path"
+	for _, prefix := range []string{"includeif.gitdir/i:", "includeif.gitdir:"} {
+		if len(key) < len(prefix)+len(suffix) {
+			continue
+		}
+		if strings.EqualFold(key[:len(prefix)], prefix) && strings.EqualFold(key[len(key)-len(suffix):], suffix) {
+			return key[len(prefix) : len(key)-len(suffix)], true
+		}
+	}
+	return "", false
+}
+
+// relativeManagedIncludes names our includeIf patterns in the global git config
+// whose folder is not absolute. An 'account apply' from before such a rule was
+// ignored wrote them, and plain git goes on reading one far from where it was
+// typed until the next apply removes it. A '**/' pattern is a 'pathcontains' rule,
+// which names no folder by design.
+func (c *config) relativeManagedIncludes() []string {
+	var out []string
+	for _, key := range c.accountManagedIncludes() {
+		pattern, ok := managedIncludePattern(key)
+		if !ok || strings.HasPrefix(pattern, "**/") || slices.Contains(out, pattern) {
+			continue
+		}
+		if folderRuleProblem(strings.TrimSuffix(pattern, "/")) != "" {
+			out = append(out, pattern)
+		}
+	}
+	return out
+}
+
 // accountSetTarget is what 'account set' would write, and where. Everything the
 // write needs is settled here, off ONE read of the file, so the plan on screen and
 // the edit that follows cannot describe two different files.
@@ -554,6 +631,12 @@ func (a *app) accountSetPlan() (accountSetTarget, error) {
 	}
 	if (t.field == "host" || t.field == "user") && !forgeWordOK.MatchString(t.value) {
 		return t, usagef("'%s' isn't a plain %s name; letters, digits, '.', '_' and '-' only.", t.value, t.field)
+	}
+	if t.field == "path" {
+		var err error
+		if t.value, err = folderRuleValue(t.value); err != nil {
+			return t, err
+		}
 	}
 	switch {
 	case a.cfg.file == "":

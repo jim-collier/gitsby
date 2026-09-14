@@ -2370,6 +2370,51 @@ GHEOF
 	fAssert "and dropping that account drops its rule" \
 		bash -c "cd '${ac}/my trees/work' && sed -i '/^account\.sp\./d' '${ac}/spaced.shcl' && env ${acSpaceEnv} '${gitsby}' -q -NoFetch --config '${ac}/spaced.shcl' account apply >/dev/null && ! grep -q 'sp\.gitconfig' '${ac}/spacehome/.gitconfig'"
 
+	## A folder rule typed relative. 'path: .' went out as 'gitdir/i:./', which git measures from
+	## the folder holding the global git config, so every repo under home took the account while
+	## gitsby matched it nowhere. That base is GIT_CONFIG_GLOBAL's folder, so the repo that would
+	## show the leak sits under it and the bound one outside it. The hand-written files use printf:
+	## the block layout needs its tabs, and a <<- heredoc strips them.
+	local acRel="${ac}/rel"
+	mkdir -p "${acRel}/home/other" "${acRel}/trees/work/proj" "${acRel}/cfg"
+	git init --quiet -b main "${acRel}/home/other"
+	git init --quiet -b main "${acRel}/trees/work/proj"
+	: > "${acRel}/home/.gitconfig"
+	: > "${acRel}/cfg/config.shcl"
+	local acRelProj="${acRel}/trees/work/proj"; ((isWindows)) && acRelProj="$( cd "${acRel}/trees/work/proj" && pwd -W )"
+	local acRelEnv="${acNoDiscovery} HOME='${acRel}/home' GIT_CONFIG_GLOBAL='${acRel}/home/.gitconfig' PATH='${ac}/bin:${PATH}'"
+	local acRelRun="cd '${acRel}/trees/work/proj' && env ${acRelEnv} '${gitsby}' -q -NoFetch --config"
+	fAssert "account set resolves a relative path against the folder it is run from" \
+		bash -c "${acRelRun} '${acRel}/cfg/config.shcl' account set rel path . >/dev/null && grep -qF -e 'path: ${acRelProj}' -e 'path: \"${acRelProj}\"' '${acRel}/cfg/config.shcl'"
+	fAssert "and plain git then applies that account inside the folder" \
+		bash -c "${acRelRun} '${acRel}/cfg/config.shcl' account set rel email rel@example.com >/dev/null && ${acRelRun} '${acRel}/cfg/config.shcl' account apply >/dev/null && [[ \"\$(env ${acRelEnv} git -C '${acRel}/trees/work/proj' config user.email || true)\" == rel@example.com ]]"
+	fAssert "and nowhere else under home" \
+		bash -c "[[ -z \"\$(env ${acRelEnv} git -C '${acRel}/home/other' config user.email || true)\" ]]"
+	printf 'account: hand\n\tpath: .\n\temail: hand@example.com\n' > "${acRel}/cfg/hand.shcl"
+	printf 'account.flat.path = dev/work\n' > "${acRel}/cfg/flat.shcl"
+	fAssertOut "a relative path in the file is listed as ignored"  'Ignored keys \.: account\[hand\]\.path \(not an absolute folder: \.\)' \
+		bash -c "${acRelRun} '${acRel}/cfg/hand.shcl' account list"
+	fAssertNotOut "and is not shown as a folder"  'folder \.\.: \.$' \
+		bash -c "${acRelRun} '${acRel}/cfg/hand.shcl' account list"
+	fAssertOut "and the identity block names it"  'ignored: account\[hand\]\.path \(not an absolute folder: \.\)' \
+		bash -c "${acRelRun} '${acRel}/cfg/hand.shcl' status"
+	fAssertOut "a relative path in a 2.x flat file is ignored the same way"  'account\.flat\.path \(not an absolute folder: dev/work\)' \
+		bash -c "${acRelRun} '${acRel}/cfg/flat.shcl' account list"
+	fAssert "account apply writes no rule for a relative path" \
+		bash -c ": > '${acRel}/home/.gitconfig' && ${acRelRun} '${acRel}/cfg/hand.shcl' account apply >/dev/null && ! grep -qi includeif '${acRel}/home/.gitconfig'"
+	## What an apply from before this left behind stays in force for plain git until the next one.
+	git config --file "${acRel}/home/.gitconfig" --add 'includeIf.gitdir/i:./.path' "${acRel}/cfg/accounts/hand.gitconfig"
+	fAssertOut "account list warns about a relative rule an earlier apply left behind"  "WARNING: your global git config still has the rule 'gitdir/i:\./'" \
+		bash -c "${acRelRun} '${acRel}/cfg/hand.shcl' account list"
+	fAssert "and account apply removes it" \
+		bash -c "${acRelRun} '${acRel}/cfg/hand.shcl' account apply >/dev/null && ! grep -qF 'gitdir/i:./' '${acRel}/home/.gitconfig'"
+	fAssertNotOut "and the warning is gone after"  'WARNING: your global git config still has' \
+		bash -c "${acRelRun} '${acRel}/cfg/hand.shcl' account list"
+	fAssertFail "account set refuses another user's '~'" \
+		bash -c "${acRelRun} '${acRel}/cfg/config.shcl' account set rel path '~nobody/x'"
+	fAssertOut "and says why"  "another user's home folder" \
+		bash -c "${acRelRun} '${acRel}/cfg/config.shcl' account set rel path '~nobody/x'"
+
 	## 'apply' is the one command that writes outside the repo you are standing in, and it reported
 	## success whatever happened: the truncate error was discarded and every 'git config' exit code
 	## ignored. A directory where the fragment file belongs is the cheapest way to fail one write.
@@ -3654,3 +3699,4 @@ echo "passed: ${pass}, failed: ${fail}"
 ##		- 20260914 JC: The pre-push gate. cicd.bash --gate against a copy of the engine whose every tool is a stub: what it runs, what it leaves out, a failure per tool, and its refusals. Then the hook in a throwaway clone: the install and its three refusals, the pushed commit gated as committed, a failing push refused, deletes and tags left alone, one gate per commit, commits and checkouts from before the gate, git's own variables kept from the gate, a missing worktree, and the lock. Linux only. 35 of the 36 fail against the tree before them; the full-run check is a regression guard. 810 -> 846.
 ##		- 20260914 JC: More on the pre-push gate: a push from a subdirectory with a relative --work-tree, --install-hook run through cicd.bash, an older hook of ours replaced, a gate worktree left dirty or missing its .git file, and a push off Linux. 846 -> 852.
 ##		- 20260914 JC: The demo stage renders from its own build, stamped with the newest release rather than the commit: no tag, a tag that is not a version, a release candidate beside its release, the build removed, a later commit left alone, and a failed build. -q reaches the generator, which renders one scenario to the same bytes twice, and the committed gif ends on three seconds of black. The two build-site pins count four sites. The fixture checks are Linux only, and the renderer checks need Pillow. Nine of the eleven fail against the tree before them; two are regression guards. 852 -> 863.
+##		- 20260914 JC: A relative folder rule. account set resolves one from the folder it runs in, and plain git then applies the account there and nowhere else under home. A relative path already in a file, block or flat, is listed as ignored, shown as no folder, and named by the identity block; account apply writes no rule for one, and account list warns about one an earlier apply left behind until apply removes it. Another user's '~' is refused. Twelve of the thirteen fail against the tree before them; the warning going away is a regression guard. 863 -> 876.

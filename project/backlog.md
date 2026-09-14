@@ -50,6 +50,21 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 ### Bugs
 
+- 🔘 The Go unit tests fail on Windows.
+	- Opened: 20260914-152134
+	- Reproduced: built for Windows and run on vm925w, `TestCanonPath` and `TestDisplayPath` fail on `gover`, since they expect Linux spellings.
+	- Note: no pipeline stage runs the Go tests on Windows, so nothing reports it.
+	- Probable fix: spell those fixtures the way each platform writes an absolute path.
+	- Origin: `TestCanonPath` since 0a3ef88 and `TestDisplayPath` since a620930. No earlier round ran the Go tests on Windows. Confirmed.
+
+- 🔘 On Windows, `account apply` refuses to run when the accounts file is named with backslashes.
+	- Opened: 20260914-152134
+	- Reproduced: with `--config C:\Users\<you>\x\wl.shcl`, or `GITSBY_CONFIG` spelled the same way, apply stops with "Couldn't create 'C:\Users\<you>\x\wl.shcl/accounts' for the account fragments". The same file named with forward slashes applies.
+	- Cause: `includeDir` cuts the file name off at the last `/`. A path spelled with `\` has none, so the fragments folder goes under the file itself.
+	- Probable fix: cut at the last `/` or `\`, as `cmdAccountSet` already does for the file's own folder.
+	- Note: found while working Code Review 20260909 item 1.
+	- Origin: `includeDir` since 9eb34e7 (go: repo and account). No earlier round saw it. Confirmed on the `gover` build.
+
 - 🔘 A folder rule with `*`, `?` or `[` in it binds repos in plain git that gitsby never matches.
 	- Opened: 20260914-145514
 	- Reproduced: `path: "<home>/d*"` lists as a folder that can never match, and gitsby names no account in `<home>/dev/work/proj`. After `account apply`, plain git gives that repo the account's email. `pathcontains: "acme-*"` does the same under `.../acme-x/...`, and `pathcontains: "**"` gives every repo on the disk the account.
@@ -84,7 +99,8 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 	- Fix order: by class, each class across all its sites in one group of commits. 5 with 11 (unknown is listed, unknown is not missing); 9 with 19 (preview follows command, one spawn per run); 3 and 8 without moving the decisions they sit on; 12 and 20 only once reproduced. 15 and 16 early, since the pipeline is what proves the rest.
 	- Note: about twelve of the twenty sit in code that rounds 20260819b, c, d and 20260821 declared clean. Those rounds read the Go and grepped the rest.
 
-	- 🔘 Code Review 20260909 item 1: a folder rule typed as `.` binds every repo under the home directory to that account.
+	- ✅ Code Review 20260909 item 1: a folder rule typed as `.` binds every repo under the home directory to that account.
+		- Closed: 20260914-155309
 		- Reproduced: `account set work path .` is accepted and stored as typed. `account list` shows the folder with no warning, because `.` always exists relative to wherever you are standing. gitsby itself then ignores the rule and reports no account for that very folder.
 		- Cause: `account apply` turns it into an includeIf rule spelled `./`, and git resolves a leading `./` against the folder holding the config file, which is the home directory. Every repo under home then commits as that account and offers its login to the credential helper.
 		- Note: this is the wrong-account commit the whole feature exists to stop, and nothing on screen says it happened. A bare `.` is the natural thing to type from the folder you mean to bind.
@@ -93,6 +109,8 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- Note: v2.1.0 does the same. The scripted `account apply` writes `gitdir/i:./` for a flat `path = .`, so a file from the release carries it.
 		- Note: `account set` resolves a relative path from the folder it runs in rather than refusing it. Only the loader ignores one, since a file cannot say where a value was typed.
 		- Sweep: `tokenfile`, `sshkey` and `gitsby.ghTokenFile` take paths too, and a relative one is read from wherever a command runs. Filed as its own bug. A glob character in a folder rule is the other way the two matchers disagree, also filed.
+		- Fixed: `account set` writes a relative `path` as the absolute folder it names, and refuses another user's `~`. A relative rule already in a file is listed as ignored and `account apply` never writes one. `account list` warns about one an earlier apply left behind. On Windows a rule for a folder not made yet no longer reads as `c:./work`, which apply handed to git as relative.
+		- Verified: 13 new checks in test.bash, 12 red against the tree before and green after, the last a regression guard, 863 -> 876. fuzz.bash 269 -> 301, and eight new Go tests red before and green after. On vm925w the new Go tests pass, `account set` from `C:\` writes `C:/sub`, and `account apply` writes `c:/...` where it wrote `c:./...`. A full Go run there failed eight older tests on `1b4f757`, whose `/srv/...` fixtures name no drive. With a drive in them it fails only `TestCanonPath` and `TestDisplayPath`, which fail on `gover` too. macOS and the BSDs untested.
 
 	- 🔘 Code Review 20260909 item 2: `br prune --no-fetch` deletes a branch on origin that origin has moved past.
 		- Reproduced: with a branch merged locally and one further commit pushed to origin from a second clone, prune deleted it on origin and the pushed commit became unreachable.

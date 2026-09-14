@@ -57,7 +57,7 @@ Per-account keys, all optional except a `path` to match on:
 
 | Key             | What it does
 | :--             | :--
-| `path`          | A folder tree this account owns. More than one: `path: ~/dev/work, ~/dev/other`, or repeat the key. The longest match wins, so a tree nested inside another account's tree belongs to the inner one.
+| `path`          | A folder tree this account owns, as an absolute path or one starting with `~`. More than one: `path: ~/dev/work, ~/dev/other`, or repeat the key. The longest match wins, so a tree nested inside another account's tree belongs to the inner one. A relative path is listed as ignored, since a file cannot say what it was relative to; `account set` turns one into the folder it names from where you run it.
 | `pathcontains`  | A run of folder names that appears anywhere in the path, so the same rule works on machines whose roots differ. Whole names only - `alice` never matches `alice-old`. Repeatable.
 | `ghaccount`  | The GitHub login to act as.
 | `tokenfile`  | A file holding that account's token, for a machine where `gh` was never logged in as it.
@@ -68,7 +68,7 @@ Per-account keys, all optional except a `path` to match on:
 | `host`       | The git host this account is on. Defaults to `github.com`, which is what every config written before this key existed meant.
 | `user`       | The login on that host, when it isn't `ghaccount` - Gitea checks the username an HTTPS push presents, where GitHub ignores it.
 
-Run `gitsby account` to see what it made of all that, and which account the folder you're standing in resolves to. It is the command to reach for when something went out as the wrong person. A `path` rule pointing at a directory that isn't there is marked as one that can never match, which is usually a typo. Once any account names a `host`, the listing shows one for all of them, marked `(default)` where the file never said - an account meant for another host that never named one is the usual reason a repository there goes on using `gh`'s account.
+Run `gitsby account` to see what it made of all that, and which account the folder you're standing in resolves to. It is the command to reach for when something went out as the wrong person. A `path` rule pointing at a directory that isn't there is marked as one that can never match, which is usually a typo. If an earlier `account apply` left a rule for a folder that isn't absolute in your global git config, it says so, and `account apply` removes it. Once any account names a `host`, the listing shows one for all of them, marked `(default)` where the file never said - an account meant for another host that never named one is the usual reason a repository there goes on using `gh`'s account.
 
 The file is meant to be edited by hand, but you don't have to. `gitsby account set <account> <key> <value>` writes one key into that account's block - replacing it where the block has it, adding it where it doesn't, or creating the file if there isn't one yet. It shows the edit and asks before making it, refuses a key nothing reads rather than leaving a line that is silently dropped on every load, and keeps the rest of the file - comments and order - as it was. The spacing is the format's own: tabs, lower-case keys, one blank line between blocks.
 

@@ -30,7 +30,7 @@ type acctRule struct {
 type config struct {
 	loaded   bool
 	values   map[string]string
-	paths    []acctRule     // 'path' rules: absolute folder claims
+	paths    []acctRule     // 'path' rules: absolute folder claims only; anything else is in unknown
 	segments []acctRule     // 'pathContains' rules: machine-free folder-name runs
 	unknown  []string       // named but not understood - reported, never silent
 	order    []string       // accounts in declaration order, for ones with keys but no folder rule
@@ -73,15 +73,15 @@ func expandTilde(p string) string {
 var (
 	msysDriveRE = regexp.MustCompile(`^/([A-Za-z])(/.*)?$`)
 	driveRootRE = regexp.MustCompile(`^[A-Za-z]:/$`)
+	// A drive root or a share. 'C:work' and '/work' are left out on purpose: both
+	// mean something different depending on the current drive or directory.
+	winAbsFolderRE = regexp.MustCompile(`^(?:[A-Za-z]:/|//[^/]+/[^/]+)`)
 )
 
-// canonPath gives a directory one spelling, so a config written on one machine
-// matches the same tree on another, and so a rule and the folder it claims are
-// compared on the same terms.
-func canonPath(p string) string {
-	if p == "" {
-		return ""
-	}
+// pathSpelling is the part of canonPath that touches no disk: forward slashes, '~'
+// expanded, and the MSYS drive folded. The absolute test reads this form too, so
+// the test and the matcher cannot disagree about how a path is spelled.
+func pathSpelling(p string) string {
 	p = strings.ReplaceAll(p, "\\", "/")
 	p = expandTilde(p)
 	if isWindows() {
@@ -95,6 +95,57 @@ func canonPath(p string) string {
 			p = m[1] + ":" + tail
 		}
 	}
+	return p
+}
+
+// isAbsFolderFor says whether p, already in pathSpelling form, names one folder
+// wherever a command runs. Takes the platform, so both answers are testable
+// from either.
+func isAbsFolderFor(goos, p string) bool {
+	if goos == "windows" {
+		return winAbsFolderRE.MatchString(p)
+	}
+	return strings.HasPrefix(p, "/")
+}
+
+// folderRuleProblem says why a 'path' value cannot be a folder rule, or "" when it
+// can. A relative value has nothing to be relative to once it sits in a file:
+// gitsby measured one from wherever a command ran, and git measures './' from the
+// folder holding its config - home - so 'path: .' bound every repo under home.
+// String work only, never canonPath's output: resolveLinks asks the disk about a
+// relative value from the current directory, and the answer changes with it.
+func folderRuleProblem(value string) string {
+	// Slashes folded again after the '~': a native Windows home comes back as
+	// 'C:\Users\x', which the drive test would otherwise read as no drive at all.
+	if value == "" || isAbsFolderFor(runtime.GOOS, strings.ReplaceAll(pathSpelling(value), `\`, "/")) {
+		return ""
+	}
+	switch {
+	case value == "~" || strings.HasPrefix(value, "~/") || strings.HasPrefix(value, `~\`):
+		return ruleNoHome
+	case strings.HasPrefix(value, "~"):
+		// git expands '~name' to that user's home, and gitsby does not, so the two
+		// would read the rule differently.
+		return ruleOtherHome
+	}
+	return ruleNotAbsolute
+}
+
+// Why a 'path' value is not a folder rule, as the ignored list says it.
+const (
+	ruleNotAbsolute = "not an absolute folder"
+	ruleNoHome      = "no home folder to put '~' on"
+	ruleOtherHome   = "only a bare '~' is expanded"
+)
+
+// canonPath gives a directory one spelling, so a config written on one machine
+// matches the same tree on another, and so a rule and the folder it claims are
+// compared on the same terms.
+func canonPath(p string) string {
+	if p == "" {
+		return ""
+	}
+	p = pathSpelling(p)
 	p = resolveLinks(p)
 	if isWindows() {
 		p = strings.ToLower(p)
@@ -127,6 +178,12 @@ func resolveLinks(p string) string {
 			tail = head[strings.LastIndex(head, "/")+1:] + "/" + tail
 		}
 		head = head[:strings.LastIndex(head, "/")]
+	}
+	// A walk that climbs to the drive stops at its root. A bare 'C:' is the current
+	// directory on that drive, which EvalSymlinks answers as 'C:.', so a rule for a
+	// folder not made yet came out as 'c:./work' - and git reads that as relative.
+	if isWindows() && tail != "" && len(head) == 2 && head[1] == ':' {
+		head += "/"
 	}
 	if fi, err := os.Stat(head); err != nil || !fi.IsDir() {
 		return p
@@ -430,9 +487,20 @@ func (c *config) loadFlat(text string) {
 func (c *config) absorb(acct, field, value, key string) {
 	switch field {
 	case "path":
-		if value != "" {
-			c.paths = append(c.paths, acctRule{canonPath(value), acct})
+		if value == "" {
+			break
 		}
+		// Listed, not guessed at: the file holds no record of where a relative value
+		// was typed. The account stays defined, so its key and author still apply
+		// when it is named.
+		if problem := folderRuleProblem(value); problem != "" {
+			c.unknown = append(c.unknown, key+" ("+problem+": "+value+")")
+			if !contains(c.order, acct) {
+				c.order = append(c.order, acct)
+			}
+			break
+		}
+		c.paths = append(c.paths, acctRule{canonPath(value), acct})
 	case "pathcontains":
 		if value != "" {
 			c.segments = append(c.segments, acctRule{canonSegment(value), acct})

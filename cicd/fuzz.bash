@@ -321,6 +321,15 @@ GHEOF
 	done
 	unset GITSBY_ACCOUNT
 
+	## 'path' is the same kind of VALUE. One that isn't absolute is listed as ignored rather than
+	## matched, and junk matches nothing either way: nothing fires and nothing crashes.
+	local pathCfg="${work}/path-fuzz.shcl" pathVal
+	for pathVal in "${inject[@]}" '.' '..' './x' 'dev/work' '~' '~nobody/x' 'C:work' '\work'; do
+		{ printf 'account.f.path = %s\n' "${pathVal}"; printf 'account.f.ghAccount = fuzzacct\n'; } > "${pathCfg}"
+		fSurvive "path inert: '${pathVal}'" "${repo2}" -q --no-fetch --config "${pathCfg}" status
+		fSurvive "path inert in account: '${pathVal}'" "${repo2}" -q --no-fetch --config "${pathCfg}" account
+	done
+
 	## 'pathContains' is a config VALUE that reaches a native command twice over: it is compared
 	## against the current path, and 'account apply' builds a git config key out of it. A rule that
 	## matches nothing is the ordinary answer for junk, so what is asserted here is that nothing
@@ -421,3 +430,4 @@ echo "passed: ${pass}, failed: ${fail}"
 ##		- 20260812 JC: Vectors for the "pathContains" config value. It is compared against the current path and becomes a git config key in "account apply", so it reaches a native command twice; junk there must stay inert rather than be refused, since a rule matching nothing is the ordinary answer.
 ##		- 20260813 JC: Same environment isolation the behavioral suite grew, plus the gitsby config file this one had never pinned at all.
 ##		- 20260818 JC: One leg, the compiled build. The scripted ones moved to legacy/ and are no longer a fuzz target - nothing new can reach them.
+##		- 20260914 JC: Vectors for the "path" config value, beside pathContains: the injection set plus relative, dot, tilde and drive-relative spellings. One that isn't absolute is listed as ignored, and nothing fires or crashes either way. 269 -> 301.

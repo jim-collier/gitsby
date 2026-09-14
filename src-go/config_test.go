@@ -72,8 +72,28 @@ func writeConfig(t *testing.T, body string) *config {
 	return cfg
 }
 
+// driveFolder spells a made-up folder such as '/srv/work' as an absolute path on
+// the platform running the test. On Windows it names no drive, so it is
+// root-relative there, and a rule spelled that way is ignored.
+func driveFolder(p string) string {
+	if isWindows() {
+		return "C:" + p
+	}
+	return p
+}
+
+// driveFixture puts the drive on every /srv folder in a config body.
+func driveFixture(body string) string {
+	return strings.ReplaceAll(body, "/srv/", driveFolder("/srv/"))
+}
+
+// driveRule is the rule gitsby holds for driveFolder(p), lower case on Windows.
+func driveRule(p string) string {
+	return canonPath(driveFolder(p))
+}
+
 func TestConfigLoad(t *testing.T) {
-	cfg := writeConfig(t, `
+	cfg := writeConfig(t, driveFixture(`
 # a comment
 account.work.ghAccount = octocat
 account.work.path = /srv/work
@@ -83,7 +103,7 @@ account.play.ghAccount = playful
 protocol = https
 account.work.nonsense = 1
 just-a-key
-`)
+`))
 	if got := cfg.value("work", "ghAccount"); got != "octocat" {
 		t.Errorf("ghAccount = %q", got)
 	}
@@ -131,11 +151,11 @@ func TestConfigFileMustExistWhenNamed(t *testing.T) {
 }
 
 func TestAccountForDir(t *testing.T) {
-	cfg := writeConfig(t, `
+	cfg := writeConfig(t, driveFixture(`
 account.outer.path = /srv/code
 account.inner.path = /srv/code/client
 account.anywhere.pathContains = shared/lib
-`)
+`))
 	tests := []struct{ dir, want string }{
 		{"/srv/code", "outer"},
 		{"/srv/code/other", "outer"},
@@ -147,8 +167,9 @@ account.anywhere.pathContains = shared/lib
 		{"/nothing/here", ""},
 	}
 	for _, tc := range tests {
-		if got := cfg.accountForDir(tc.dir); got != tc.want {
-			t.Errorf("accountForDir(%q) = %q, want %q", tc.dir, got, tc.want)
+		dir := driveFolder(tc.dir)
+		if got := cfg.accountForDir(dir); got != tc.want {
+			t.Errorf("accountForDir(%q) = %q, want %q", dir, got, tc.want)
 		}
 	}
 }
@@ -265,6 +286,20 @@ func TestCanonPathKeepsMissingTail(t *testing.T) {
 	got := canonPath(filepath.ToSlash(filepath.Join(root, "self", "not", "there", "yet")))
 	if want := canonPath(filepath.ToSlash(root)) + "/not/there/yet"; got != want {
 		t.Errorf("canonPath = %q, want %q", got, want)
+	}
+}
+
+// A rule for a folder that isn't there yet climbs to the drive to settle links,
+// and a bare 'C:' is that drive's current directory, not its root. The rule came
+// out as 'c:./work', which 'account apply' handed to git as a relative pattern.
+func TestCanonPathStopsAtTheDriveRoot(t *testing.T) {
+	if !isWindows() {
+		t.Skip("drive letters are Windows only")
+	}
+	vol := filepath.VolumeName(t.TempDir())
+	p := vol + "/gitsby-no-such-folder-" + filepath.Base(t.TempDir()) + "/x"
+	if got, want := canonPath(p), strings.ToLower(p); got != want {
+		t.Errorf("canonPath(%q) = %q, want %q", p, got, want)
 	}
 }
 
@@ -418,7 +453,7 @@ func TestConfigCandidatesFor(t *testing.T) {
 // the dotted spelling a hand conversion produces, a folder given as an array and
 // as a repeated key, a key typed in camel case, and the things it reports.
 func TestConfigLoadHierarchical(t *testing.T) {
-	cfg := writeConfig(t, `# top
+	cfg := writeConfig(t, driveFixture(`# top
 protocol: ssh
 stray: 1
 account.dotted.path: /srv/dotted
@@ -432,7 +467,7 @@ account: Block
 account: 2024
 	host: gitea.example
 bad = line
-`)
+`))
 	if cfg.flat {
 		t.Fatal("read as the flat layout")
 	}
@@ -445,7 +480,7 @@ bad = line
 	if got := cfg.value("Dotted", "ghAccount"); got != "dottedlogin" {
 		t.Errorf("dotted ghAccount = %q", got)
 	}
-	if got := cfg.foldersOf("block"); !slices.Equal(got, []string{"/srv/a", "/srv/b c", "/srv/d"}) {
+	if got := cfg.foldersOf("block"); !slices.Equal(got, []string{driveRule("/srv/a"), driveRule("/srv/b c"), driveRule("/srv/d")}) {
 		t.Errorf("block folders = %v", got)
 	}
 	if got := cfg.segmentsOf("block"); !slices.Equal(got, []string{"github.com/alice"}) {
@@ -534,5 +569,118 @@ func TestShclValue(t *testing.T) {
 		if got := shclValue(in); got != want {
 			t.Errorf("shclValue(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// A folder rule is absolute or it is nothing. Both platforms' answers, whatever
+// this machine is: 'C:work' and '/work' change meaning with the current drive on
+// Windows, and 'C:/work' is no folder on Linux.
+func TestIsAbsFolderFor(t *testing.T) {
+	cases := []struct {
+		goos string
+		in   string
+		want bool
+	}{
+		{"linux", "/", true},
+		{"linux", "/a", true},
+		{"linux", "//srv/share", true},
+		{"linux", "", false},
+		{"linux", ".", false},
+		{"linux", "./a", false},
+		{"linux", "..", false},
+		{"linux", "dev/work", false},
+		{"linux", "C:/work", false},
+		{"linux", "~/x", false},
+		{"windows", "c:/", true},
+		{"windows", "C:/work", true},
+		{"windows", "//srv/share/x", true},
+		{"windows", "", false},
+		{"windows", "C:", false},
+		{"windows", "C:work", false},
+		{"windows", "/work", false},
+		{"windows", ".", false},
+		{"windows", "dev/work", false},
+	}
+	for _, tc := range cases {
+		if got := isAbsFolderFor(tc.goos, tc.in); got != tc.want {
+			t.Errorf("isAbsFolderFor(%q, %q) = %v, want %v", tc.goos, tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestFolderRuleProblem(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cases := map[string]string{
+		filepath.ToSlash(t.TempDir()): "",
+		"~":                           "",
+		"~/dev":                       "",
+		".":                           "not an absolute folder",
+		"./x":                         "not an absolute folder",
+		"..":                          "not an absolute folder",
+		"dev/work":                    "not an absolute folder",
+		"~nobody/x":                   "only a bare '~' is expanded",
+	}
+	for in, want := range cases {
+		if got := folderRuleProblem(in); got != want {
+			t.Errorf("folderRuleProblem(%q) = %q, want %q", in, got, want)
+		}
+	}
+	// os.UserHomeDir reads USERPROFILE on Windows, so an empty HOME proves nothing there.
+	if isWindows() {
+		return
+	}
+	t.Setenv("HOME", "")
+	if got, want := folderRuleProblem("~/dev"), "no home folder to put '~' on"; got != want {
+		t.Errorf("folderRuleProblem(~/dev) with no home = %q, want %q", got, want)
+	}
+}
+
+// 'path: .' became 'gitdir/i:./' in the global git config, which git measures from
+// the folder holding that file - home - so every repo under home took the account,
+// while gitsby matched it nowhere. A file cannot say where a relative value was
+// typed, so the loader lists one instead of guessing, and keeps the account.
+func TestConfigIgnoresARelativePath(t *testing.T) {
+	abs := filepath.ToSlash(t.TempDir())
+	cases := []struct {
+		name, body string
+		unknown    []string
+		folders    []string
+	}{
+		{"flat", "account.work.path = .\naccount.work.email = w@example.com\n", []string{"account.work.path (not an absolute folder: .)"}, nil},
+		{"block", "account: work\n\tpath: dev/work, \"" + abs + "\"\n\temail: w@example.com\n", []string{"account[work].path (not an absolute folder: dev/work)"}, []string{canonPath(abs)}},
+	}
+	for _, tc := range cases {
+		cfg := writeConfig(t, tc.body)
+		if !slices.Equal(cfg.unknown, tc.unknown) {
+			t.Errorf("%s: unknown = %q, want %q", tc.name, cfg.unknown, tc.unknown)
+		}
+		if got := cfg.foldersOf("work"); !slices.Equal(got, tc.folders) {
+			t.Errorf("%s: folders = %q, want %q", tc.name, got, tc.folders)
+		}
+		if !cfg.knowsAccount("work") || !slices.Contains(cfg.accountNames(), "work") {
+			t.Errorf("%s: the account went with its ignored path: %v", tc.name, cfg.accountNames())
+		}
+		if got := cfg.contestedRules(); len(got) != 0 {
+			t.Errorf("%s: contested = %v", tc.name, got)
+		}
+		here := t.TempDir()
+		t.Chdir(here)
+		if got := cfg.accountForDir(here); got != "" {
+			t.Errorf("%s: accountForDir(cwd) = %q, want none", tc.name, got)
+		}
+	}
+	cfg := writeConfig(t, "account.only.path = .\n")
+	if !slices.Contains(cfg.accountNames(), "only") {
+		t.Errorf("an account whose only key is an ignored path is gone: %v", cfg.accountNames())
+	}
+}
+
+func TestAccountApplyPlanSkipsARelativePath(t *testing.T) {
+	abs := filepath.ToSlash(t.TempDir())
+	cfg := writeConfig(t, "account.a.path = .\naccount.b.path = dev/work\naccount.c.path = ~nobody/x\naccount.d.path = "+abs+"\n")
+	plan := cfg.accountApplyPlan()
+	if want := "includeIf.gitdir/i:" + canonPath(abs) + "/.path"; len(plan) != 1 || plan[0].cond != want {
+		t.Errorf("plan = %+v, want the one rule %q", plan, want)
 	}
 }

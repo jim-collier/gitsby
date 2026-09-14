@@ -12,6 +12,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -23,18 +24,18 @@ func planFor(t *testing.T, body string) *config {
 }
 
 func TestAccountApplyPlanOrder(t *testing.T) {
-	cfg := planFor(t, `
+	cfg := planFor(t, driveFixture(`
 account.inner.path = /srv/code/client
 account.outer.path = /srv/code
 account.anywhere.pathContains = a/b
 account.broad.pathContains = b
-`)
+`))
 	plan := cfg.accountApplyPlan()
 	var conds []string
 	for _, r := range plan {
 		conds = append(conds, strings.TrimSuffix(strings.TrimPrefix(r.cond, "includeIf.gitdir/i:"), ".path"))
 	}
-	want := []string{"**/b/**", "**/a/b/**", "/srv/code/", "/srv/code/client/"}
+	want := []string{"**/b/**", "**/a/b/**", driveRule("/srv/code") + "/", driveRule("/srv/code/client") + "/"}
 	if len(conds) != len(want) {
 		t.Fatalf("plan = %v, want %v", conds, want)
 	}
@@ -48,7 +49,7 @@ account.broad.pathContains = b
 // Every rule points at the fragment for its own account, beside the config file
 // that declared it.
 func TestAccountApplyPlanTargets(t *testing.T) {
-	cfg := planFor(t, "account.work.path = /srv/work\n")
+	cfg := planFor(t, driveFixture("account.work.path = /srv/work\n"))
 	plan := cfg.accountApplyPlan()
 	if len(plan) != 1 {
 		t.Fatalf("plan = %v", plan)
@@ -90,16 +91,16 @@ func TestSortIncludesTieBreaks(t *testing.T) {
 // The tie-break that matters: whichever account gitsby resolves a folder to has to
 // be the one git resolves it to, and git takes the last rule written.
 func TestAccountApplyPlanAgreesWithAccountForDir(t *testing.T) {
-	cfg := planFor(t, `
+	cfg := planFor(t, driveFixture(`
 account.abe.path = /srv/shared
 account.zed.path = /srv/shared
-`)
+`))
 	plan := cfg.accountApplyPlan()
 	if len(plan) != 2 {
 		t.Fatalf("plan = %v", plan)
 	}
 	lastWins := plan[len(plan)-1].target
-	want := cfg.includeDir() + "/" + cfg.accountForDir("/srv/shared/x") + ".gitconfig"
+	want := cfg.includeDir() + "/" + cfg.accountForDir(driveFolder("/srv/shared/x")) + ".gitconfig"
 	if lastWins != want {
 		t.Errorf("git would keep %q, gitsby resolves to %q", lastWins, want)
 	}
@@ -108,15 +109,15 @@ account.zed.path = /srv/shared
 // Two accounts on one folder is a mistake with no right answer, so it gets said
 // out loud rather than settled silently.
 func TestContestedRules(t *testing.T) {
-	cfg := planFor(t, `
+	cfg := planFor(t, driveFixture(`
 account.abe.path = /srv/shared
 account.zed.path = /srv/shared
 account.abe.pathContains = w/x
 account.zed.pathContains = w/x
 account.solo.path = /srv/mine
-`)
+`))
 	got := cfg.contestedRules()
-	want := []string{"/srv/shared: abe, zed", "w/x: abe, zed"}
+	want := []string{driveRule("/srv/shared") + ": abe, zed", "w/x: abe, zed"}
 	if len(got) != len(want) {
 		t.Fatalf("contestedRules = %v, want %v", got, want)
 	}
@@ -214,13 +215,18 @@ func TestAccountSetCreatesTheFile(t *testing.T) {
 	if err := a.cfg.load(a.opt); err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	a.cmd = command{name: "account-set", arg: "work", arg2: "path", arg3: "/srv/work", mutating: true}
+	folder := driveFolder("/srv/work")
+	a.cmd = command{name: "account-set", arg: "work", arg2: "path", arg3: folder, mutating: true}
 	if err := a.cmdAccountSet(); err != nil {
 		t.Fatalf("set: %v", err)
 	}
 	file := defaultConfigFile()
 	got := readBack(t, file)
-	for _, want := range []string{"# " + meName + " accounts", "\naccount: work\n\tpath: /srv/work\n"} {
+	block := "\naccount: work\n\tpath: /srv/work\n"
+	if isWindows() {
+		block = "\naccount: work\n\tpath: \"C:/srv/work\"\n" // the format quotes a drive path
+	}
+	for _, want := range []string{"# " + meName + " accounts", block} {
 		if !strings.Contains(got, want) {
 			t.Errorf("created file is missing %q:\n%s", want, got)
 		}
@@ -235,7 +241,7 @@ func TestAccountSetCreatesTheFile(t *testing.T) {
 		t.Errorf("mode = %v, want 0600", fi.Mode().Perm())
 	}
 	cfg := writeConfig(t, got)
-	if cfg.accountForDir("/srv/work/x") != "work" {
+	if cfg.accountForDir(driveFolder("/srv/work/x")) != "work" {
 		t.Errorf("the created file does not read back: %+v", cfg)
 	}
 }
@@ -323,8 +329,103 @@ func TestAccountSetConvertsAFlatFile(t *testing.T) {
 	if cfg.flat || cfg.value("work", "host") != "gitea.com" || cfg.value("work", "ghAccount") != "a#b" || cfg.values["protocol"] != "https" {
 		t.Errorf("read back wrong: %+v", cfg.values)
 	}
-	if got := cfg.foldersOf("work"); len(got) != 1 || got[0] != "C:/work" {
-		t.Errorf("folders = %v", got)
+	// A drive path is a folder on Windows alone; anywhere else it is listed as ignored.
+	if isWindows() {
+		if got := cfg.foldersOf("work"); len(got) != 1 || got[0] != "c:/work" {
+			t.Errorf("folders = %v", got)
+		}
+		return
+	}
+	if got := cfg.foldersOf("work"); len(got) != 0 {
+		t.Errorf("folders = %v, want none off Windows", got)
+	}
+	if want := "account[work].path (not an absolute folder: C:/work)"; !slices.Contains(cfg.unknown, want) {
+		t.Errorf("unknown = %q, missing %q", cfg.unknown, want)
+	}
+}
+
+// A relative path on the command line means the folder the command runs in, as
+// it does for any command. The file can never say that later, so it is written
+// absolute, and the plan shows that value.
+func TestAccountSetResolvesARelativePath(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	t.Chdir(dir)
+	want, err := filepath.Abs(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = filepath.ToSlash(want)
+	abs := filepath.ToSlash(t.TempDir())
+	cases := map[string]string{
+		".":      want,
+		"sub/..": want,
+		"sub":    want + "/sub",
+		"~/dev":  "~/dev",
+		abs:      abs,
+		"":       "",
+	}
+	for in, out := range cases {
+		a, _ := setApp(t, "", "work", "path", in)
+		plan, err := a.accountSetPlan()
+		if err != nil {
+			t.Errorf("plan for %q: %v", in, err)
+			continue
+		}
+		if plan.value != out {
+			t.Errorf("plan for %q writes %q, want %q", in, plan.value, out)
+		}
+	}
+	a, file := setApp(t, "", "work", "path", ".")
+	if err := a.cmdAccountSet(); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	if got := readBack(t, file); !strings.Contains(got, "path: "+shclValue(want)) {
+		t.Errorf("file does not hold the absolute folder %q:\n%s", want, got)
+	}
+}
+
+// gitsby expands only a bare '~' and git expands another user's too, so the two
+// would read such a rule differently. Refused before anything is written.
+func TestAccountSetRefusesAnotherUsersHome(t *testing.T) {
+	body := "account: work\n\temail: w@example.com\n"
+	a, file := setApp(t, body, "work", "path", "~nobody/x")
+	if err := a.cmdAccountSet(); err == nil || !strings.Contains(err.Error(), "another user's home folder") {
+		t.Errorf("err = %v, want a refusal naming another user's home folder", err)
+	}
+	if got := readBack(t, file); got != body {
+		t.Errorf("file changed:\n%s", got)
+	}
+	if isWindows() {
+		return
+	}
+	t.Setenv("HOME", "")
+	a, file = setApp(t, body, "work", "path", "~/x")
+	if err := a.cmdAccountSet(); err == nil || !strings.Contains(err.Error(), "names no home folder") {
+		t.Errorf("err = %v, want a refusal naming no home folder", err)
+	}
+	if got := readBack(t, file); got != body {
+		t.Errorf("file changed:\n%s", got)
+	}
+}
+
+func TestManagedIncludePattern(t *testing.T) {
+	cases := []struct {
+		key, want string
+		ok        bool
+	}{
+		{"includeIf.gitdir/i:./.path", "./", true},
+		{"includeIf.gitdir:dev/work/.path", "dev/work/", true},
+		{"includeIf.gitdir/i:**/a/b/**.path", "**/a/b/**", true},
+		{"includeIf.gitdir/i:/srv/a.b/.path", "/srv/a.b/", true},
+		{"includeif.GITDIR/I:/Srv/X/.PATH", "/Srv/X/", true},
+		{"includeIf.onbranch:main.path", "", false},
+	}
+	for _, tc := range cases {
+		got, ok := managedIncludePattern(tc.key)
+		if got != tc.want || ok != tc.ok {
+			t.Errorf("managedIncludePattern(%q) = %q, %v; want %q, %v", tc.key, got, ok, tc.want, tc.ok)
+		}
 	}
 }
 
