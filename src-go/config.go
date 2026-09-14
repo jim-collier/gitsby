@@ -179,6 +179,12 @@ func resolveLinks(p string) string {
 		}
 		head = head[:strings.LastIndex(head, "/")]
 	}
+	// A walk that climbs to the drive stops at its root. A bare 'C:' is the current
+	// directory on that drive, which EvalSymlinks answers as 'C:.', so a rule for a
+	// folder not made yet came out as 'c:./work' - and git reads that as relative.
+	if isWindows() && tail != "" && len(head) == 2 && head[1] == ':' {
+		head += "/"
+	}
 	if fi, err := os.Stat(head); err != nil || !fi.IsDir() {
 		return p
 	}

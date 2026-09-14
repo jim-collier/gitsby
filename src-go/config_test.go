@@ -268,6 +268,20 @@ func TestCanonPathKeepsMissingTail(t *testing.T) {
 	}
 }
 
+// A rule for a folder that isn't there yet climbs to the drive to settle links,
+// and a bare 'C:' is that drive's current directory, not its root. The rule came
+// out as 'c:./work', which 'account apply' handed to git as a relative pattern.
+func TestCanonPathStopsAtTheDriveRoot(t *testing.T) {
+	if !isWindows() {
+		t.Skip("drive letters are Windows only")
+	}
+	vol := filepath.VolumeName(t.TempDir())
+	p := vol + "/gitsby-no-such-folder-" + filepath.Base(t.TempDir()) + "/x"
+	if got, want := canonPath(p), strings.ToLower(p); got != want {
+		t.Errorf("canonPath(%q) = %q, want %q", p, got, want)
+	}
+}
+
 // A byte-order mark is what a Windows editor writes by default, and it lands on
 // the first key in the file. Read as part of the name, that key became one
 // nothing understands - and the line reporting those printed the mark with it,
