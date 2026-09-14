@@ -52,10 +52,10 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 - 🔘 The Go unit tests fail on Windows.
 	- Opened: 20260914-152134
-	- Reproduced: built for Windows and run on vm925w, `TestCanonPath` and `TestDisplayPath` fail on `gover`, since they expect Linux spellings. With Code Review 20260909 item 1 in, eight more fail. Their `/srv/...` fixtures are root-relative on Windows, and that item lists such a rule as ignored.
+	- Reproduced: built for Windows and run on vm925w, `TestCanonPath` and `TestDisplayPath` fail on `gover`, since they expect Linux spellings.
 	- Note: no pipeline stage runs the Go tests on Windows, so nothing reports it.
 	- Probable fix: spell those fixtures the way each platform writes an absolute path.
-	- Origin: the fixtures since the port. No earlier round ran the Go tests on Windows. Confirmed.
+	- Origin: `TestCanonPath` since 0a3ef88 and `TestDisplayPath` since a620930. No earlier round ran the Go tests on Windows. Confirmed.
 
 - 🔘 On Windows, `account apply` refuses to run when the accounts file is named with backslashes.
 	- Opened: 20260914-152134
@@ -109,7 +109,7 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- Note: `account set` resolves a relative path from the folder it runs in rather than refusing it. Only the loader ignores one, since a file cannot say where a value was typed.
 		- Sweep: `tokenfile`, `sshkey` and `gitsby.ghTokenFile` take paths too, and a relative one is read from wherever a command runs. Filed as its own bug. A glob character in a folder rule is the other way the two matchers disagree, also filed.
 		- Fixed: `account set` writes a relative `path` as the absolute folder it names, and refuses another user's `~`. A relative rule already in a file is listed as ignored and `account apply` never writes one. `account list` warns about one an earlier apply left behind. On Windows a rule for a folder not made yet no longer reads as `c:./work`, which apply handed to git as relative.
-		- Verified: 13 new checks in test.bash, 12 red against the tree before and green after, the last a regression guard, 863 -> 876. fuzz.bash 269 -> 301, and eight new Go tests red before and green after. On vm925w the new Go tests pass, `account set` from `C:\` writes `C:/sub`, and `account apply` writes `c:/...` where it wrote `c:./...`. Eight older Go tests fail there now, filed. macOS and the BSDs untested.
+		- Verified: 13 new checks in test.bash, 12 red against the tree before and green after, the last a regression guard, 863 -> 876. fuzz.bash 269 -> 301, and eight new Go tests red before and green after. On vm925w the new Go tests pass, `account set` from `C:\` writes `C:/sub`, and `account apply` writes `c:/...` where it wrote `c:./...`. A full Go run there failed eight older tests on `1b4f757`, whose `/srv/...` fixtures name no drive. With a drive in them it fails only `TestCanonPath` and `TestDisplayPath`, which fail on `gover` too. macOS and the BSDs untested.
 
 	- 🔘 Code Review 20260909 item 2: `br prune --no-fetch` deletes a branch on origin that origin has moved past.
 		- Reproduced: with a branch merged locally and one further commit pushed to origin from a second clone, prune deleted it on origin and the pushed commit became unreachable.
