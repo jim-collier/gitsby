@@ -50,6 +50,21 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 ### Bugs
 
+- 🔘 `br prune` says to run it again for origin's copies it left alone, and the second run can't see them.
+	- Opened: 20260914-165245
+	- Reproduced: with origin unreachable, `br prune` deleted the local branch, kept origin's copy and said "'gitsby br prune' again once online". Once online, the second run said "Nothing to prune" and origin kept the branch. The warning for a branch origin has moved since the last fetch ("takes a fresh look") ends the same way.
+	- Cause: prune takes its candidates from local branches, and both warnings print after the local branch is gone.
+	- Probable fix: name what deletes that copy on origin once it has been checked, instead of a second run.
+	- Origin: the unreachable line from 75c2c7c (Code Review 20260819a item 7), the moved line from Code Review 20260909 item 2. No earlier round saw it. Confirmed.
+
+- 🔘 A tag on origin with a branch's name stops every remote delete in `br prune`.
+	- Opened: 20260914-165245
+	- Reproduced: with branches `amb` and `other` merged and a tag `amb` on origin, the delete push failed with "dst refspec amb matches more than one" and sent nothing. gitsby said it couldn't delete either, and origin kept both.
+	- Cause: each delete names the branch by its short name, which git matches against every ref on origin.
+	- Probable fix: name each delete by its full ref, `refs/heads/<branch>`.
+	- Note: `br merge` names its delete the same way. Read, not run.
+	- Origin: bb60cc5 (the port). No earlier round saw it. Confirmed.
+
 - 🔘 `br merge --no-fetch` deletes its branch on origin after someone else pushed to it.
 	- Opened: 20260914-160947
 	- Reproduced: with `feat` pushed from one clone and a further commit pushed to it from a second, `br merge --no-fetch` in the first said "Nothing to push.", merged, pushed `dev` and deleted `feat` on origin. The second clone's commit is on no branch there.
@@ -120,7 +135,8 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- Fixed: `account set` writes a relative `path` as the absolute folder it names, and refuses another user's `~`. A relative rule already in a file is listed as ignored and `account apply` never writes one. `account list` warns about one an earlier apply left behind. On Windows a rule for a folder not made yet no longer reads as `c:./work`, which apply handed to git as relative.
 		- Verified: 13 new checks in test.bash, 12 red against the tree before and green after, the last a regression guard, 863 -> 876. fuzz.bash 269 -> 301, and eight new Go tests red before and green after. On vm925w the new Go tests pass, `account set` from `C:\` writes `C:/sub`, and `account apply` writes `c:/...` where it wrote `c:./...`. A full Go run there failed eight older tests on `1b4f757`, whose `/srv/...` fixtures name no drive. With a drive in them it fails only `TestCanonPath` and `TestDisplayPath`, which fail on `gover` too. macOS and the BSDs untested.
 
-	- 🔘 Code Review 20260909 item 2: `br prune --no-fetch` deletes a branch on origin that origin has moved past.
+	- ✅ Code Review 20260909 item 2: `br prune --no-fetch` deletes a branch on origin that origin has moved past.
+		- Closed: 20260914-165502
 		- Reproduced: with a branch merged locally and one further commit pushed to origin from a second clone, prune deleted it on origin and the pushed commit became unreachable.
 		- Cause: the remote half of the plan reads the local mirror of origin, and the delete-time re-check surveys local branches only, so origin is never asked again. `--no-fetch` leaves the mirror as stale as it was.
 		- Note: the plan line asserts each branch was re-checked at delete time. With the fetch left on, the same case is handled correctly, so the flag is the trigger, and its help text gives no hint that it makes this command unsafe.
@@ -129,6 +145,8 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- Note: the same unasked origin drops every remote delete when one branch is already gone there, and under `--no-fetch` reports an unreachable origin as branches "already gone". Both are fixed with this item.
 		- Sweep: `br merge` deletes its branch on origin the same way under `--no-fetch`, filed as its own bug. `pr ok` leaves the delete to the git host after it merges, so no local copy of origin decides it.
 		- Decided against: checking whether origin's merge target was rewritten since the last fetch. Telling needs objects the run declined to fetch, and gitsby never rewrites a shared branch.
+		- Fixed: just before the delete push, prune asks origin where its branches point, and leases each delete on the value it checked. A branch origin has moved is left alone with a warning. One already deleted there is named as gone and left out of the push. If origin does not answer, no remote delete goes out and the existing unreachable line prints. The plan line names the lease.
+		- Verified: 13 new checks in test.bash, 876 -> 889. Ten fail on `gover`, and so does the plan check's new pattern. The other three are regression guards: the unmoved branch still goes, origin is not asked when nothing goes there, and the local delete still happens without origin. The prompt check needs `script`, so the total is 888 without it. The four new Go tests don't build on `gover` and pass on the branch. fuzz.bash 301/0, parity.bash 27/0, and the quick pipeline and the pre-push gate are green. `br prune` in the spawn-count fixture goes 35 -> 39, recorded as the new baseline. The ask is three processes, and the fourth is the `core.sshCommand` lookup a fetch would otherwise have made. On vm925w the four Go tests pass. There the `gover` build deletes a moved branch on origin, drops every delete when one branch is gone, and blames the branch when origin is away, and the branch build gets all three right. macOS and the BSDs untested.
 
 	- 🔘 Code Review 20260909 item 3: a config file that exists but cannot be read is replaced instead of refused.
 		- Reproduced: with the accounts file mode 0200, `account set` printed a plan saying "create", truncated the file and wrote a fresh one. The login and token path that were in it are gone.

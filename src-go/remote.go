@@ -230,8 +230,27 @@ func (a *app) fetchRemote() {
 	}
 }
 
-// isOffline: set by the pre-command fetch, which is the only thing that actually
-// asks origin. --no-fetch is NOT offline: it declines the incoming round trip,
+// askOriginHeads asks origin itself where its branches point, for br prune's
+// delete-time check. Every branch in one answer rather than a pattern per
+// candidate: git matches patterns on this side, after origin has sent every ref
+// anyway, and a long list of them can pass Windows' command-line limit. Same
+// environment as the fetch, so no credential prompt and a connect timeout, and
+// git's own reason goes to the terminal. false means origin was not asked, which
+// says nothing about any branch.
+func (a *app) askOriginHeads() (map[string]string, bool) {
+	ask := exec.Command("git", "ls-remote", "--heads", "origin")
+	ask.Env = a.remoteEnv()
+	ask.Stderr = os.Stderr
+	out, err := ask.Output()
+	if err != nil {
+		return nil, false
+	}
+	return parseOriginHeads(string(out)), true
+}
+
+// isOffline: set by the pre-command fetch, which is the only thing that decides
+// offline. br prune's delete-time ask of origin reports its own failure without
+// changing it. --no-fetch is NOT offline: it declines the incoming round trip,
 // and pushes still go out.
 func (a *app) isOffline() bool { return !a.gh.reachable }
 
