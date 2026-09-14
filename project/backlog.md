@@ -163,7 +163,8 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- Nothing is said when the installed binary will not run. The run simply ends.
 		- Origin: 200310a. Five of the six were in the 20260819a notes as seen and not filed. Confirmed against a local mock.
 
-	- 🔘 Code Review 20260909 item 15: there is no fast gate and no pre-push hook.
+	- ✅ Code Review 20260909 item 15: there is no fast gate and no pre-push hook.
+		- Closed: 20260914-134906
 		- The standing directive asks for a quick mode that checks formatting, lints with warnings as errors and runs the unit tests, registered as a pre-push hook, so nothing reaches dev or main unverified outside a full run.
 		- Nothing like it exists, and the hooks directory holds only the stock samples.
 		- Note: the full pipeline is the only gate today, it takes minutes, and it is currently red.
