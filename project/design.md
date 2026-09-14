@@ -191,6 +191,10 @@ The Bash and PowerShell files were ports of each other, and were kept in step fo
 	- The current branch and `main`/`master`/`dev` are never candidates.
 	- Deletion runs `git branch -D`, gated by our own containment check rather than git's. `git branch -d` asks whether the branch is contained in its *upstream*, or in *HEAD* when it has none - neither of which is the question prune asks. The first produces a warning about HEAD on every branch when you prune from anywhere but the target; the second silently refuses a genuinely-merged local-only branch, so the plan promises a deletion that never happens. Deferring to git here looked conservative and was actually wrong in both directions.
 	- The containment check is re-run immediately before each delete rather than trusted from plan time, since the confirmation prompt can sit for a while.
+		- The remote half is re-checked against origin itself, not the local copy of it. That copy is only as new as the last fetch, and `--no-fetch` or a long prompt leaves it older. Decided 2026-09-14.
+			- Just before the delete push, prune asks origin where each branch points. One that origin has moved is left alone, and one it has already deleted is reported as gone rather than sent.
+			- Each delete is leased on the value that passed the containment check, so origin refuses a branch that moves after it was asked.
+			- Asking is part of the push, so `--no-fetch` still sends it. If origin does not answer, nothing is deleted there, the same as when the fetch finds origin unreachable.
 	- It takes no arguments at all. Choosing branches by name is what raw git is for, and an argument slot would invite exactly the "delete this one specific thing" use that the ancestry gate cannot vouch for.
 
 - The pre-2.0 command names were dropped outright rather than kept as hidden aliases. Version 2 is a deliberate break, the tool is invoked by a different name than it was, and not all of the old commands worked. Carrying dead spellings forward would have been the worst of both.
