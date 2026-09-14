@@ -24,18 +24,18 @@ func planFor(t *testing.T, body string) *config {
 }
 
 func TestAccountApplyPlanOrder(t *testing.T) {
-	cfg := planFor(t, `
+	cfg := planFor(t, driveFixture(`
 account.inner.path = /srv/code/client
 account.outer.path = /srv/code
 account.anywhere.pathContains = a/b
 account.broad.pathContains = b
-`)
+`))
 	plan := cfg.accountApplyPlan()
 	var conds []string
 	for _, r := range plan {
 		conds = append(conds, strings.TrimSuffix(strings.TrimPrefix(r.cond, "includeIf.gitdir/i:"), ".path"))
 	}
-	want := []string{"**/b/**", "**/a/b/**", "/srv/code/", "/srv/code/client/"}
+	want := []string{"**/b/**", "**/a/b/**", driveRule("/srv/code") + "/", driveRule("/srv/code/client") + "/"}
 	if len(conds) != len(want) {
 		t.Fatalf("plan = %v, want %v", conds, want)
 	}
@@ -49,7 +49,7 @@ account.broad.pathContains = b
 // Every rule points at the fragment for its own account, beside the config file
 // that declared it.
 func TestAccountApplyPlanTargets(t *testing.T) {
-	cfg := planFor(t, "account.work.path = /srv/work\n")
+	cfg := planFor(t, driveFixture("account.work.path = /srv/work\n"))
 	plan := cfg.accountApplyPlan()
 	if len(plan) != 1 {
 		t.Fatalf("plan = %v", plan)
@@ -91,16 +91,16 @@ func TestSortIncludesTieBreaks(t *testing.T) {
 // The tie-break that matters: whichever account gitsby resolves a folder to has to
 // be the one git resolves it to, and git takes the last rule written.
 func TestAccountApplyPlanAgreesWithAccountForDir(t *testing.T) {
-	cfg := planFor(t, `
+	cfg := planFor(t, driveFixture(`
 account.abe.path = /srv/shared
 account.zed.path = /srv/shared
-`)
+`))
 	plan := cfg.accountApplyPlan()
 	if len(plan) != 2 {
 		t.Fatalf("plan = %v", plan)
 	}
 	lastWins := plan[len(plan)-1].target
-	want := cfg.includeDir() + "/" + cfg.accountForDir("/srv/shared/x") + ".gitconfig"
+	want := cfg.includeDir() + "/" + cfg.accountForDir(driveFolder("/srv/shared/x")) + ".gitconfig"
 	if lastWins != want {
 		t.Errorf("git would keep %q, gitsby resolves to %q", lastWins, want)
 	}
@@ -109,15 +109,15 @@ account.zed.path = /srv/shared
 // Two accounts on one folder is a mistake with no right answer, so it gets said
 // out loud rather than settled silently.
 func TestContestedRules(t *testing.T) {
-	cfg := planFor(t, `
+	cfg := planFor(t, driveFixture(`
 account.abe.path = /srv/shared
 account.zed.path = /srv/shared
 account.abe.pathContains = w/x
 account.zed.pathContains = w/x
 account.solo.path = /srv/mine
-`)
+`))
 	got := cfg.contestedRules()
-	want := []string{"/srv/shared: abe, zed", "w/x: abe, zed"}
+	want := []string{driveRule("/srv/shared") + ": abe, zed", "w/x: abe, zed"}
 	if len(got) != len(want) {
 		t.Fatalf("contestedRules = %v, want %v", got, want)
 	}
@@ -215,13 +215,18 @@ func TestAccountSetCreatesTheFile(t *testing.T) {
 	if err := a.cfg.load(a.opt); err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	a.cmd = command{name: "account-set", arg: "work", arg2: "path", arg3: "/srv/work", mutating: true}
+	folder := driveFolder("/srv/work")
+	a.cmd = command{name: "account-set", arg: "work", arg2: "path", arg3: folder, mutating: true}
 	if err := a.cmdAccountSet(); err != nil {
 		t.Fatalf("set: %v", err)
 	}
 	file := defaultConfigFile()
 	got := readBack(t, file)
-	for _, want := range []string{"# " + meName + " accounts", "\naccount: work\n\tpath: /srv/work\n"} {
+	block := "\naccount: work\n\tpath: /srv/work\n"
+	if isWindows() {
+		block = "\naccount: work\n\tpath: \"C:/srv/work\"\n" // the format quotes a drive path
+	}
+	for _, want := range []string{"# " + meName + " accounts", block} {
 		if !strings.Contains(got, want) {
 			t.Errorf("created file is missing %q:\n%s", want, got)
 		}
@@ -236,7 +241,7 @@ func TestAccountSetCreatesTheFile(t *testing.T) {
 		t.Errorf("mode = %v, want 0600", fi.Mode().Perm())
 	}
 	cfg := writeConfig(t, got)
-	if cfg.accountForDir("/srv/work/x") != "work" {
+	if cfg.accountForDir(driveFolder("/srv/work/x")) != "work" {
 		t.Errorf("the created file does not read back: %+v", cfg)
 	}
 }

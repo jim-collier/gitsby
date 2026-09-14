@@ -72,8 +72,28 @@ func writeConfig(t *testing.T, body string) *config {
 	return cfg
 }
 
+// driveFolder spells a made-up folder such as '/srv/work' as an absolute path on
+// the platform running the test. On Windows it names no drive, so it is
+// root-relative there, and a rule spelled that way is ignored.
+func driveFolder(p string) string {
+	if isWindows() {
+		return "C:" + p
+	}
+	return p
+}
+
+// driveFixture puts the drive on every /srv folder in a config body.
+func driveFixture(body string) string {
+	return strings.ReplaceAll(body, "/srv/", driveFolder("/srv/"))
+}
+
+// driveRule is the rule gitsby holds for driveFolder(p), lower case on Windows.
+func driveRule(p string) string {
+	return canonPath(driveFolder(p))
+}
+
 func TestConfigLoad(t *testing.T) {
-	cfg := writeConfig(t, `
+	cfg := writeConfig(t, driveFixture(`
 # a comment
 account.work.ghAccount = octocat
 account.work.path = /srv/work
@@ -83,7 +103,7 @@ account.play.ghAccount = playful
 protocol = https
 account.work.nonsense = 1
 just-a-key
-`)
+`))
 	if got := cfg.value("work", "ghAccount"); got != "octocat" {
 		t.Errorf("ghAccount = %q", got)
 	}
@@ -131,11 +151,11 @@ func TestConfigFileMustExistWhenNamed(t *testing.T) {
 }
 
 func TestAccountForDir(t *testing.T) {
-	cfg := writeConfig(t, `
+	cfg := writeConfig(t, driveFixture(`
 account.outer.path = /srv/code
 account.inner.path = /srv/code/client
 account.anywhere.pathContains = shared/lib
-`)
+`))
 	tests := []struct{ dir, want string }{
 		{"/srv/code", "outer"},
 		{"/srv/code/other", "outer"},
@@ -147,8 +167,9 @@ account.anywhere.pathContains = shared/lib
 		{"/nothing/here", ""},
 	}
 	for _, tc := range tests {
-		if got := cfg.accountForDir(tc.dir); got != tc.want {
-			t.Errorf("accountForDir(%q) = %q, want %q", tc.dir, got, tc.want)
+		dir := driveFolder(tc.dir)
+		if got := cfg.accountForDir(dir); got != tc.want {
+			t.Errorf("accountForDir(%q) = %q, want %q", dir, got, tc.want)
 		}
 	}
 }
@@ -432,7 +453,7 @@ func TestConfigCandidatesFor(t *testing.T) {
 // the dotted spelling a hand conversion produces, a folder given as an array and
 // as a repeated key, a key typed in camel case, and the things it reports.
 func TestConfigLoadHierarchical(t *testing.T) {
-	cfg := writeConfig(t, `# top
+	cfg := writeConfig(t, driveFixture(`# top
 protocol: ssh
 stray: 1
 account.dotted.path: /srv/dotted
@@ -446,7 +467,7 @@ account: Block
 account: 2024
 	host: gitea.example
 bad = line
-`)
+`))
 	if cfg.flat {
 		t.Fatal("read as the flat layout")
 	}
@@ -459,7 +480,7 @@ bad = line
 	if got := cfg.value("Dotted", "ghAccount"); got != "dottedlogin" {
 		t.Errorf("dotted ghAccount = %q", got)
 	}
-	if got := cfg.foldersOf("block"); !slices.Equal(got, []string{"/srv/a", "/srv/b c", "/srv/d"}) {
+	if got := cfg.foldersOf("block"); !slices.Equal(got, []string{driveRule("/srv/a"), driveRule("/srv/b c"), driveRule("/srv/d")}) {
 		t.Errorf("block folders = %v", got)
 	}
 	if got := cfg.segmentsOf("block"); !slices.Equal(got, []string{"github.com/alice"}) {
