@@ -699,7 +699,7 @@ fRunSuite(){
 		git merge --quiet --no-ff beta  -m "merge beta"
 		git push --quiet
 	)
-	fAssertPlan "and the remote delete is one call too"  'git push origin --delete alpha beta'  bash -c "cd '${prWork2}' && '${gitsby}' -q br prune"
+	fAssertPlan "and the remote delete is one call too"  'git push --force-with-lease origin --delete alpha beta'  bash -c "cd '${prWork2}' && '${gitsby}' -q br prune"
 	fAssert     "both went from origin"  bash -c "cd '${prOrigin2}' && ! git show-ref --verify --quiet refs/heads/alpha && ! git show-ref --verify --quiet refs/heads/beta"
 	fAssert     "br clean aliases br prune"        bash -c "cd '${prWork}' && '${gitsby}' -q br clean"
 	fAssertFail "br prune with an argument rejected"  bash -c "cd '${prWork}' && '${gitsby}' -q br prune wip"
@@ -754,6 +754,110 @@ fRunSuite(){
 	fAssert    "the deletable one still went"      bash -c "cd '${prWork}' && ! git show-ref --verify --quiet refs/heads/goes"
 	fAssert    "and origin keeps the held branch"  bash -c "cd '${prOrigin}' && git show-ref --verify --quiet refs/heads/held"
 	( cd "${prWork}" && git worktree remove --force "${work}/$1-prune-held" >/dev/null 2>&1 || true )
+	## The remote half is decided from the local copy of origin, which is only as new as the last
+	## fetch. So origin is asked just before the push, and each delete is leased on the value the
+	## plan tested. A second clone moves things behind the first one's back. Each run's output is
+	## kept in a file, since running prune again would find nothing left to prune.
+	local pnOrigin="${work}/$1-pno.git"; local pnA="${work}/$1-pna"; local pnB="${work}/$1-pnb"
+	local pnBranch="" pnWait=0
+	git init --quiet --bare -b main "${pnOrigin}"
+	git clone --quiet "${pnOrigin}" "${pnA}" 2>/dev/null
+	(
+		cd "${pnA}"
+		echo one > f.txt; git add --all; git commit --quiet -m "initial"; git push --quiet -u origin main
+		git checkout --quiet -b dev; git push --quiet -u origin dev
+	)
+	git clone --quiet "${pnOrigin}" "${pnB}" 2>/dev/null
+	## Someone pushes to one of two merged branches after this clone's last fetch.
+	(
+		cd "${pnA}"
+		for pnBranch in moved plain; do
+			git checkout --quiet -b "${pnBranch}" dev; echo "${pnBranch}" > "${pnBranch}.txt"; git add --all
+			git commit --quiet -m "${pnBranch}"; git push --quiet -u origin "${pnBranch}"
+		done
+		git checkout --quiet dev
+		git merge --quiet --no-ff moved -m "merge moved"; git merge --quiet --no-ff plain -m "merge plain"
+		git push --quiet
+	)
+	(
+		cd "${pnB}"
+		git fetch --quiet; git checkout --quiet moved; echo more >> moved.txt
+		git commit --quiet -am "more"; git push --quiet; git rev-parse moved > "${work}/$1-pn1moved"
+	)
+	git -C "${pnA}" rev-parse refs/remotes/origin/plain > "${work}/$1-pn1plain"
+	( cd "${pnA}" && GIT_TRACE="${work}/$1-pn1.trace" "${gitsby}" -q -NoFetch br prune ) > "${work}/$1-pn1.out" 2>&1 || true
+	fAssert    "br prune --no-fetch keeps a branch origin has moved past" \
+		bash -c "[[ \"\$(git -C '${pnOrigin}' rev-parse refs/heads/moved)\" == \"\$(cat '${work}/$1-pn1moved')\" ]]"
+	fAssert    "and still deletes the one origin hasn't moved"  bash -c "! git -C '${pnOrigin}' show-ref --verify --quiet refs/heads/plain"
+	fAssertOut "and says origin's copy changed"  'have changed since this clone last fetched'  cat "${work}/$1-pn1.out"
+	fAssertOut "and counts only what it deleted there"  'Pruned 2 local, 1 on origin'  cat "${work}/$1-pn1.out"
+	fAssert    "the delete is leased on the value that was checked" \
+		bash -c "grep -qF -- \"--force-with-lease=refs/heads/plain:\$(cat '${work}/$1-pn1plain')\" '${work}/$1-pn1.trace'"
+	## Someone already deleted one of them on origin. A batched delete with one missing ref sends
+	## none of them.
+	(
+		cd "${pnA}"
+		for pnBranch in gone stays; do
+			git checkout --quiet -b "${pnBranch}" dev; echo "${pnBranch}" > "${pnBranch}.txt"; git add --all
+			git commit --quiet -m "${pnBranch}"; git push --quiet -u origin "${pnBranch}"
+		done
+		git checkout --quiet dev
+		git merge --quiet --no-ff gone -m "merge gone"; git merge --quiet --no-ff stays -m "merge stays"
+		git push --quiet
+	)
+	git -C "${pnB}" push --quiet origin --delete gone
+	( cd "${pnA}" && "${gitsby}" -q -NoFetch br prune ) > "${work}/$1-pn2.out" 2>&1 || true
+	fAssert    "a branch already gone from origin doesn't stop the other deletes"  bash -c "! git -C '${pnOrigin}' show-ref --verify --quiet refs/heads/stays"
+	fAssertOut "and it says which one was already gone"  'Already gone from origin: gone'  cat "${work}/$1-pn2.out"
+	fAssertOut "and leaves it out of the count"  'Pruned 2 local, 1 on origin'  cat "${work}/$1-pn2.out"
+	## Merged and never pushed, so nothing goes to origin and origin is not asked.
+	(
+		cd "${pnA}"
+		git checkout --quiet -b solo dev; echo solo > solo.txt; git add --all; git commit --quiet -m solo
+		git checkout --quiet dev; git merge --quiet --no-ff solo -m "merge solo"; git push --quiet
+	)
+	( cd "${pnA}" && GIT_TRACE="${work}/$1-pn3.trace" "${gitsby}" -q -NoFetch br prune ) > "${work}/$1-pn3.out" 2>&1 || true
+	fAssert    "origin isn't asked when nothing goes there" \
+		bash -c "! git -C '${pnA}' show-ref --verify --quiet refs/heads/solo && [[ -s '${work}/$1-pn3.trace' ]] && ! grep -qF 'ls-remote' '${work}/$1-pn3.trace'"
+	## With the fetch on, someone pushes while the prompt waits. The second clone's output is kept
+	## off the pipe, since everything on it is typed at the prompt.
+	if ((hasPty)); then
+		(
+			cd "${pnA}"
+			git checkout --quiet -b late dev; echo late > late.txt; git add --all
+			git commit --quiet -m late; git push --quiet -u origin late
+			git checkout --quiet dev; git merge --quiet --no-ff late -m "merge late"; git push --quiet
+		)
+		: > "${work}/$1-pn4.out"
+		# shellcheck disable=SC2094  ## the poll reads the file script is writing, on purpose.
+		{
+			for ((pnWait = 0; pnWait < 100; pnWait++)); do
+				grep -qF 'Continue?' "${work}/$1-pn4.out" && break
+				sleep 0.1
+			done
+			(
+				cd "${pnB}"
+				git fetch --quiet; git checkout --quiet late; echo more >> late.txt
+				git commit --quiet -am "more"; git push --quiet; git rev-parse late > "${work}/$1-pn4late"
+			) >/dev/null 2>&1
+			echo y
+		} | script -qec "cd '${pnA}' && '${gitsby}' br prune" /dev/null > "${work}/$1-pn4.out" 2>&1 || true
+		fAssert "a branch moved on origin during the prompt is kept" \
+			bash -c "[[ \"\$(git -C '${pnOrigin}' rev-parse refs/heads/late)\" == \"\$(cat '${work}/$1-pn4late')\" ]]"
+	fi
+	## Last, since origin goes away for it: renamed rather than removed, and put back after.
+	(
+		cd "${pnA}"
+		git checkout --quiet -b far dev; echo far > far.txt; git add --all
+		git commit --quiet -m far; git push --quiet -u origin far
+		git checkout --quiet dev; git merge --quiet --no-ff far -m "merge far"; git push --quiet
+	)
+	mv "${pnOrigin}" "${pnOrigin}.away"
+	( cd "${pnA}" && "${gitsby}" -q -NoFetch br prune ) > "${work}/$1-pn5.out" 2>&1 || true
+	mv "${pnOrigin}.away" "${pnOrigin}"
+	fAssertOut    "br prune --no-fetch holds origin's deletes when it can't reach origin"  "left origin's copies of far alone"  cat "${work}/$1-pn5.out"
+	fAssertNotOut "and doesn't blame the branch"  'already gone'  cat "${work}/$1-pn5.out"
+	fAssert       "and still deletes the local branch without origin"  bash -c "! git -C '${pnA}' show-ref --verify --quiet refs/heads/far"
 
 	## clone: derives the dir, checks out dev when the repo has one, no-op re-run, collision guards
 	local cl="${work}/$1-clone"
@@ -3700,3 +3804,4 @@ echo "passed: ${pass}, failed: ${fail}"
 ##		- 20260914 JC: More on the pre-push gate: a push from a subdirectory with a relative --work-tree, --install-hook run through cicd.bash, an older hook of ours replaced, a gate worktree left dirty or missing its .git file, and a push off Linux. 846 -> 852.
 ##		- 20260914 JC: The demo stage renders from its own build, stamped with the newest release rather than the commit: no tag, a tag that is not a version, a release candidate beside its release, the build removed, a later commit left alone, and a failed build. -q reaches the generator, which renders one scenario to the same bytes twice, and the committed gif ends on three seconds of black. The two build-site pins count four sites. The fixture checks are Linux only, and the renderer checks need Pillow. Nine of the eleven fail against the tree before them; two are regression guards. 852 -> 863.
 ##		- 20260914 JC: A relative folder rule. account set resolves one from the folder it runs in, and plain git then applies the account there and nowhere else under home. A relative path already in a file, block or flat, is listed as ignored, shown as no folder, and named by the identity block; account apply writes no rule for one, and account list warns about one an earlier apply left behind until apply removes it. Another user's '~' is refused. Twelve of the thirteen fail against the tree before them; the warning going away is a regression guard. 863 -> 876.
+##		- 20260914 JC: br prune asks origin before deleting there, and leases the delete: a branch moved or already deleted on origin since the last fetch, one moved during the prompt, and origin unreachable under --no-fetch.

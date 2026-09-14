@@ -153,7 +153,7 @@ func (a *app) cmdPush() error {
 // cmdPrune deletes exactly what the plan listed - resolvePrune did all the
 // deciding, up front.
 func (a *app) cmdPrune() error {
-	doneLocal, doneRemote := 0, 0
+	doneLocal := 0
 	heldBack := map[string]bool{}
 	// -D with our own gate, not -d. 'git branch -d' asks whether the branch is contained in
 	// its upstream, or in HEAD when it has none - neither of which is the question here, and
@@ -162,7 +162,8 @@ func (a *app) cmdPrune() error {
 	// but surveyed the way resolvePrune surveys: one 'for-each-ref --merged' per target ref
 	// answers containment for every branch at once, instead of a merge-base fork per branch.
 	// A branch deleted since the plan drops out of the survey, which reads as not-contained
-	// and holds it (and its remote copy) back, same as the per-branch ask did.
+	// and holds it (and its remote copy) back, same as the per-branch ask did. This survey
+	// reads refs/heads only; pruneRemote asks origin itself about the remote half.
 	stillMerged := map[string]bool{}
 	unconfirmed := func() bool {
 		for _, branch := range a.prune.local {
@@ -228,37 +229,7 @@ func (a *app) cmdPrune() error {
 			deleteRemote = append(deleteRemote, branch)
 		}
 	}
-	if len(deleteRemote) > 0 && a.isOffline() {
-		// Same rule br merge keeps: nothing goes out while origin is unreachable. The push
-		// would fail and be reported as "already gone", blaming the branch for a network
-		// problem, and the count at the end would read as if it had finished.
-		a.out.status("WARNING: remote unreachable; left origin's copies of " + strings.Join(deleteRemote, ", ") + " alone - '" + meName + " br prune' again once online.")
-		deleteRemote = nil
-	}
-	if len(deleteRemote) > 0 {
-		// Non-fatal, same as br merge: someone else may have deleted one already.
-		a.out.clean("")
-		a.out.status("git push origin --delete " + strings.Join(deleteRemote, " ") + " ...")
-		if a.inheritOK("git", append([]string{"push", "origin", "--delete"}, deleteRemote...)...) {
-			doneRemote = len(deleteRemote)
-		} else {
-			// One refspec failing does not stop the others, so count what actually went
-			// rather than writing the whole batch off. A delete that succeeded takes the
-			// remote-tracking ref with it, which is a local lookup.
-			var stillThere []string
-			for _, branch := range deleteRemote {
-				if branchExistsRemote(branch) {
-					stillThere = append(stillThere, branch)
-				} else {
-					doneRemote++
-				}
-			}
-			if len(stillThere) > 0 {
-				a.out.status("WARNING: couldn't delete " + strings.Join(stillThere, ", ") + " on origin (already gone?); continuing.")
-			}
-		}
-		a.out.resetBlank()
-	}
+	doneRemote := a.pruneRemote(deleteRemote)
 	// Close with the count, so a wall of git output still ends in a plain answer.
 	a.out.clean("")
 	a.out.status("Pruned " + strconv.Itoa(doneLocal) + " local, " + strconv.Itoa(doneRemote) + " on origin.")
@@ -269,4 +240,73 @@ func (a *app) cmdPrune() error {
 		a.out.status("Kept " + strings.Join(a.prune.keep, ", ") + " - not merged into " + a.mergeTarget() + " yet.")
 	}
 	return nil
+}
+
+// pruneRemote deletes br prune's remote half and says how many went. The plan was
+// decided from the local copy of origin, which is only as new as the last fetch:
+// --no-fetch, or a prompt left waiting, leaves it older, and a plain delete push
+// removes whatever origin holds by then. So origin is asked just before the push,
+// and each delete is leased on the value that passed the containment check, which
+// covers the moment between the answer and the push.
+func (a *app) pruneRemote(branches []string) int {
+	if len(branches) == 0 {
+		return 0
+	}
+	// Same rule br merge keeps: nothing goes out while origin is unreachable, or the
+	// count at the end reads as if it had finished.
+	if a.isOffline() {
+		a.pruneHeldOffline(branches)
+		return 0
+	}
+	onOrigin, asked := a.askOriginHeads()
+	if !asked {
+		a.pruneHeldOffline(branches)
+		return 0
+	}
+	send, changed, gone := sortRemoteDeletes(branches, a.prune.remoteTip, onOrigin)
+	if len(changed) > 0 {
+		again := "again"
+		if !a.opt.fetch {
+			again = "without --no-fetch"
+		}
+		a.out.status("WARNING: origin's copies of " + strings.Join(changed, ", ") + " have changed since this clone last fetched; left them alone - '" + meName + " br prune' " + again + " takes a fresh look.")
+	}
+	// Not a warning: gone is what was asked for. Left out of the push, since one delete of a
+	// missing ref makes git send none of them.
+	if len(gone) > 0 {
+		a.out.status("Already gone from origin: " + strings.Join(gone, ", ") + ".")
+	}
+	done := 0
+	var stillThere []string
+	for _, args := range leaseDeleteBatches(send, a.prune.remoteTip, leasePushBudget) {
+		// The branch names close the list, one for each lease.
+		batch := args[len(args)-(len(args)-3)/2:]
+		a.out.clean("")
+		a.out.status("git push --force-with-lease origin --delete " + strings.Join(batch, " ") + " ...")
+		if a.inheritOK("git", args...) {
+			done += len(batch)
+		} else {
+			// Non-fatal, same as br merge. A leased delete is decided per ref, so count what
+			// went rather than writing the batch off: a delete that went through takes the
+			// remote-tracking ref with it, which is a local lookup.
+			for _, branch := range batch {
+				if branchExistsRemote(branch) {
+					stillThere = append(stillThere, branch)
+				} else {
+					done++
+				}
+			}
+		}
+		a.out.resetBlank()
+	}
+	if len(stillThere) > 0 {
+		a.out.status("WARNING: couldn't delete " + strings.Join(stillThere, ", ") + " on origin; continuing.")
+	}
+	return done
+}
+
+// pruneHeldOffline is the one wording for origin's copies held back because origin
+// can't be reached, whether the fetch found that or the delete-time ask did.
+func (a *app) pruneHeldOffline(branches []string) {
+	a.out.status("WARNING: remote unreachable; left origin's copies of " + strings.Join(branches, ", ") + " alone - '" + meName + " br prune' again once online.")
 }
