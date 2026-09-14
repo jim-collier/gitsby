@@ -178,7 +178,8 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- Fixed: `cicd/cicd.bash --gate` runs every lint check and the unit tests, and nothing else. `--install-hook` installs a pre-push hook that runs it on each commit pushed to a branch, as committed, never on the working tree. A push from a subdirectory with a relative `--work-tree` is gated too.
 		- Verified: 42 new checks, 810 -> 852. 41 of them fail on `gover`; the full-run check is a regression guard. The relative `--work-tree` check fails against the hook as it was, and each of the five later checks fails with the path it covers broken. The pipeline is green at 852/0, with parity 27/0 and fuzz 269/0. The real gate passes in 11.6 s. In a scratch clone the hook passes a good push, 11.6 s cold and 10.3 s warm, and refuses a gofmt violation. A failing commit is refused through 22 push forms. Nothing is installed in this repo. Linux only: Windows, macOS and the BSDs are untested.
 
-	- 🔘 Code Review 20260909 item 16: the demo gif is rebuilt and recommitted on nearly every commit.
+	- ✅ Code Review 20260909 item 16: the demo gif is rebuilt and recommitted on nearly every commit.
+		- Closed: 20260914-144550
 		- Cause: every command prints the version and build number above its output, and the first scene captures one. The version moves with every commit, so the render always differs and an eleven megabyte file is replaced.
 		- Note: three places state the opposite, that an unchanged binary and scenario reproduce the same bytes.
 		- The run also lasts about two minutes against a twenty to thirty second budget, and its closing black is two seconds where three was asked for.
