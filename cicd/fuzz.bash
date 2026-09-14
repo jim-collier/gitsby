@@ -321,6 +321,15 @@ GHEOF
 	done
 	unset GITSBY_ACCOUNT
 
+	## 'path' is the same kind of VALUE. One that isn't absolute is listed as ignored rather than
+	## matched, and junk matches nothing either way: nothing fires and nothing crashes.
+	local pathCfg="${work}/path-fuzz.shcl" pathVal
+	for pathVal in "${inject[@]}" '.' '..' './x' 'dev/work' '~' '~nobody/x' 'C:work' '\work'; do
+		{ printf 'account.f.path = %s\n' "${pathVal}"; printf 'account.f.ghAccount = fuzzacct\n'; } > "${pathCfg}"
+		fSurvive "path inert: '${pathVal}'" "${repo2}" -q --no-fetch --config "${pathCfg}" status
+		fSurvive "path inert in account: '${pathVal}'" "${repo2}" -q --no-fetch --config "${pathCfg}" account
+	done
+
 	## 'pathContains' is a config VALUE that reaches a native command twice over: it is compared
 	## against the current path, and 'account apply' builds a git config key out of it. A rule that
 	## matches nothing is the ordinary answer for junk, so what is asserted here is that nothing

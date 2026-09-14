@@ -101,6 +101,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- A folder rule has to be absolute or start with `~`. A relative one is listed as ignored and `account apply` no longer writes it, since git read `path: .` as the whole home folder, in 2.1.0 as well. `account set` turns a relative path into the folder it names from where you run it, and `account list` warns about a relative rule an earlier `account apply` left in your global git config.
+
 - `repo clone` picks its account from the folder the clone lands in, not the folder you launched it from. Cloning into your personal tree while standing in a work repository used the work account - the one case where the folder that decides is not the one you are in. A `gitsby.ghAccount` set on the surrounding repository no longer follows the clone out of it either, and the owner of a repository being cloned is not taken as evidence that it is yours: with no rule for the destination, gh stays on its own account.
 
 - A folder rule written through a symlink now claims the folder. A path that goes through a link - a synced folder, a stable name pointing at a dated one, a home directory that is itself a link - was compared against the folder's real name and matched nothing, so the account silently never applied. `account list` looked right while this was happening; it now marks the account in force either way.

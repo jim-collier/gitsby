@@ -12,6 +12,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -323,8 +324,103 @@ func TestAccountSetConvertsAFlatFile(t *testing.T) {
 	if cfg.flat || cfg.value("work", "host") != "gitea.com" || cfg.value("work", "ghAccount") != "a#b" || cfg.values["protocol"] != "https" {
 		t.Errorf("read back wrong: %+v", cfg.values)
 	}
-	if got := cfg.foldersOf("work"); len(got) != 1 || got[0] != "C:/work" {
-		t.Errorf("folders = %v", got)
+	// A drive path is a folder on Windows alone; anywhere else it is listed as ignored.
+	if isWindows() {
+		if got := cfg.foldersOf("work"); len(got) != 1 || got[0] != "c:/work" {
+			t.Errorf("folders = %v", got)
+		}
+		return
+	}
+	if got := cfg.foldersOf("work"); len(got) != 0 {
+		t.Errorf("folders = %v, want none off Windows", got)
+	}
+	if want := "account[work].path (not an absolute folder: C:/work)"; !slices.Contains(cfg.unknown, want) {
+		t.Errorf("unknown = %q, missing %q", cfg.unknown, want)
+	}
+}
+
+// A relative path on the command line means the folder the command runs in, as
+// it does for any command. The file can never say that later, so it is written
+// absolute, and the plan shows that value.
+func TestAccountSetResolvesARelativePath(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	t.Chdir(dir)
+	want, err := filepath.Abs(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = filepath.ToSlash(want)
+	abs := filepath.ToSlash(t.TempDir())
+	cases := map[string]string{
+		".":      want,
+		"sub/..": want,
+		"sub":    want + "/sub",
+		"~/dev":  "~/dev",
+		abs:      abs,
+		"":       "",
+	}
+	for in, out := range cases {
+		a, _ := setApp(t, "", "work", "path", in)
+		plan, err := a.accountSetPlan()
+		if err != nil {
+			t.Errorf("plan for %q: %v", in, err)
+			continue
+		}
+		if plan.value != out {
+			t.Errorf("plan for %q writes %q, want %q", in, plan.value, out)
+		}
+	}
+	a, file := setApp(t, "", "work", "path", ".")
+	if err := a.cmdAccountSet(); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	if got := readBack(t, file); !strings.Contains(got, "path: "+shclValue(want)) {
+		t.Errorf("file does not hold the absolute folder %q:\n%s", want, got)
+	}
+}
+
+// gitsby expands only a bare '~' and git expands another user's too, so the two
+// would read such a rule differently. Refused before anything is written.
+func TestAccountSetRefusesAnotherUsersHome(t *testing.T) {
+	body := "account: work\n\temail: w@example.com\n"
+	a, file := setApp(t, body, "work", "path", "~nobody/x")
+	if err := a.cmdAccountSet(); err == nil || !strings.Contains(err.Error(), "another user's home folder") {
+		t.Errorf("err = %v, want a refusal naming another user's home folder", err)
+	}
+	if got := readBack(t, file); got != body {
+		t.Errorf("file changed:\n%s", got)
+	}
+	if isWindows() {
+		return
+	}
+	t.Setenv("HOME", "")
+	a, file = setApp(t, body, "work", "path", "~/x")
+	if err := a.cmdAccountSet(); err == nil || !strings.Contains(err.Error(), "names no home folder") {
+		t.Errorf("err = %v, want a refusal naming no home folder", err)
+	}
+	if got := readBack(t, file); got != body {
+		t.Errorf("file changed:\n%s", got)
+	}
+}
+
+func TestManagedIncludePattern(t *testing.T) {
+	cases := []struct {
+		key, want string
+		ok        bool
+	}{
+		{"includeIf.gitdir/i:./.path", "./", true},
+		{"includeIf.gitdir:dev/work/.path", "dev/work/", true},
+		{"includeIf.gitdir/i:**/a/b/**.path", "**/a/b/**", true},
+		{"includeIf.gitdir/i:/srv/a.b/.path", "/srv/a.b/", true},
+		{"includeif.GITDIR/I:/Srv/X/.PATH", "/Srv/X/", true},
+		{"includeIf.onbranch:main.path", "", false},
+	}
+	for _, tc := range cases {
+		got, ok := managedIncludePattern(tc.key)
+		if got != tc.want || ok != tc.ok {
+			t.Errorf("managedIncludePattern(%q) = %q, %v; want %q, %v", tc.key, got, ok, tc.want, tc.ok)
+		}
 	}
 }
 

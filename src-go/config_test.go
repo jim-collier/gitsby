@@ -536,3 +536,116 @@ func TestShclValue(t *testing.T) {
 		}
 	}
 }
+
+// A folder rule is absolute or it is nothing. Both platforms' answers, whatever
+// this machine is: 'C:work' and '/work' change meaning with the current drive on
+// Windows, and 'C:/work' is no folder on Linux.
+func TestIsAbsFolderFor(t *testing.T) {
+	cases := []struct {
+		goos string
+		in   string
+		want bool
+	}{
+		{"linux", "/", true},
+		{"linux", "/a", true},
+		{"linux", "//srv/share", true},
+		{"linux", "", false},
+		{"linux", ".", false},
+		{"linux", "./a", false},
+		{"linux", "..", false},
+		{"linux", "dev/work", false},
+		{"linux", "C:/work", false},
+		{"linux", "~/x", false},
+		{"windows", "c:/", true},
+		{"windows", "C:/work", true},
+		{"windows", "//srv/share/x", true},
+		{"windows", "", false},
+		{"windows", "C:", false},
+		{"windows", "C:work", false},
+		{"windows", "/work", false},
+		{"windows", ".", false},
+		{"windows", "dev/work", false},
+	}
+	for _, tc := range cases {
+		if got := isAbsFolderFor(tc.goos, tc.in); got != tc.want {
+			t.Errorf("isAbsFolderFor(%q, %q) = %v, want %v", tc.goos, tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestFolderRuleProblem(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cases := map[string]string{
+		filepath.ToSlash(t.TempDir()): "",
+		"~":                           "",
+		"~/dev":                       "",
+		".":                           "not an absolute folder",
+		"./x":                         "not an absolute folder",
+		"..":                          "not an absolute folder",
+		"dev/work":                    "not an absolute folder",
+		"~nobody/x":                   "only a bare '~' is expanded",
+	}
+	for in, want := range cases {
+		if got := folderRuleProblem(in); got != want {
+			t.Errorf("folderRuleProblem(%q) = %q, want %q", in, got, want)
+		}
+	}
+	// os.UserHomeDir reads USERPROFILE on Windows, so an empty HOME proves nothing there.
+	if isWindows() {
+		return
+	}
+	t.Setenv("HOME", "")
+	if got, want := folderRuleProblem("~/dev"), "no home folder to put '~' on"; got != want {
+		t.Errorf("folderRuleProblem(~/dev) with no home = %q, want %q", got, want)
+	}
+}
+
+// 'path: .' became 'gitdir/i:./' in the global git config, which git measures from
+// the folder holding that file - home - so every repo under home took the account,
+// while gitsby matched it nowhere. A file cannot say where a relative value was
+// typed, so the loader lists one instead of guessing, and keeps the account.
+func TestConfigIgnoresARelativePath(t *testing.T) {
+	abs := filepath.ToSlash(t.TempDir())
+	cases := []struct {
+		name, body string
+		unknown    []string
+		folders    []string
+	}{
+		{"flat", "account.work.path = .\naccount.work.email = w@example.com\n", []string{"account.work.path (not an absolute folder: .)"}, nil},
+		{"block", "account: work\n\tpath: dev/work, \"" + abs + "\"\n\temail: w@example.com\n", []string{"account[work].path (not an absolute folder: dev/work)"}, []string{canonPath(abs)}},
+	}
+	for _, tc := range cases {
+		cfg := writeConfig(t, tc.body)
+		if !slices.Equal(cfg.unknown, tc.unknown) {
+			t.Errorf("%s: unknown = %q, want %q", tc.name, cfg.unknown, tc.unknown)
+		}
+		if got := cfg.foldersOf("work"); !slices.Equal(got, tc.folders) {
+			t.Errorf("%s: folders = %q, want %q", tc.name, got, tc.folders)
+		}
+		if !cfg.knowsAccount("work") || !slices.Contains(cfg.accountNames(), "work") {
+			t.Errorf("%s: the account went with its ignored path: %v", tc.name, cfg.accountNames())
+		}
+		if got := cfg.contestedRules(); len(got) != 0 {
+			t.Errorf("%s: contested = %v", tc.name, got)
+		}
+		here := t.TempDir()
+		t.Chdir(here)
+		if got := cfg.accountForDir(here); got != "" {
+			t.Errorf("%s: accountForDir(cwd) = %q, want none", tc.name, got)
+		}
+	}
+	cfg := writeConfig(t, "account.only.path = .\n")
+	if !slices.Contains(cfg.accountNames(), "only") {
+		t.Errorf("an account whose only key is an ignored path is gone: %v", cfg.accountNames())
+	}
+}
+
+func TestAccountApplyPlanSkipsARelativePath(t *testing.T) {
+	abs := filepath.ToSlash(t.TempDir())
+	cfg := writeConfig(t, "account.a.path = .\naccount.b.path = dev/work\naccount.c.path = ~nobody/x\naccount.d.path = "+abs+"\n")
+	plan := cfg.accountApplyPlan()
+	if want := "includeIf.gitdir/i:" + canonPath(abs) + "/.path"; len(plan) != 1 || plan[0].cond != want {
+		t.Errorf("plan = %+v, want the one rule %q", plan, want)
+	}
+}

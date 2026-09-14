@@ -88,10 +88,31 @@ func FuzzConfigKeyValue(f *testing.F) {
 	f.Add("account.work.ghAccount", "my-login")
 	f.Add("account.a.b.c", "  spaced  ")
 	f.Add("", "\"quoted\"")
+	for _, value := range []string{".", "dev/work", "~nobody/x", "C:work", "/srv/work"} {
+		f.Add("account.f.path", value)
+	}
 	f.Fuzz(func(t *testing.T, key, value string) {
 		if acct, field, ok := splitAccountKey(key); ok && (acct == "" || field == "") {
 			t.Errorf("splitAccountKey(%q) said ok with empty parts (%q, %q)", key, acct, field)
 		}
 		parseConfigValue(value)
+		// A 'path' value is a folder rule or it is listed, never both and never neither,
+		// and no rule reaches git that git would measure from somewhere else.
+		c := &config{values: map[string]string{}, file: "/cfg/config.shcl"}
+		c.absorb("f", "path", value, "account.f.path")
+		if value != "" && len(c.paths)+len(c.unknown) != 1 {
+			t.Errorf("path %q: %d rules and %d ignored, want exactly one of the two", value, len(c.paths), len(c.unknown))
+		}
+		for _, r := range c.paths {
+			if problem := folderRuleProblem(r.match); problem != "" {
+				t.Errorf("path %q kept as %q, which is %s", value, r.match, problem)
+			}
+		}
+		for _, rule := range c.accountApplyPlan() {
+			pattern := strings.TrimSuffix(strings.TrimPrefix(rule.cond, "includeIf.gitdir/i:"), ".path")
+			if !strings.HasPrefix(pattern, "**/") && folderRuleProblem(strings.TrimSuffix(pattern, "/")) != "" {
+				t.Errorf("path %q goes to git as %q, which is not absolute", value, rule.cond)
+			}
+		}
 	})
 }
