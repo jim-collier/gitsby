@@ -26,7 +26,7 @@
 @
 @ Gif only, no video: 960x540, 50 fps, silent.   -> assets/demo.gif (README)
 @
-@ Currently 2632 frames, 122.5 seconds, 11.06 MB. There is no size cliff to stay
+@ Currently 2694 frames, 124.8 seconds, 12.41 MB. There is no size cliff to stay
 @ under - the file is committed and served from raw, where the limits are 50 MB
 @ (warning) and 100 MB (blocked). GitHub's 10 MB figure is for attachments and
 @ Camo's 5 MB is for external images; neither applies. So size is a judgment
