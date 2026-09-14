@@ -50,6 +50,14 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 ### Bugs
 
+- 🔘 `br merge --no-fetch` deletes its branch on origin after someone else pushed to it.
+	- Opened: 20260914-160947
+	- Reproduced: with `feat` pushed from one clone and a further commit pushed to it from a second, `br merge --no-fetch` in the first said "Nothing to push.", merged, pushed `dev` and deleted `feat` on origin. The second clone's commit is on no branch there.
+	- Cause: with the fetch declined, the park push reads the local copy of origin and finds nothing ahead, and the delete push removes whatever origin holds.
+	- Note: with the fetch on, the pull brings the commit in first and the merge keeps it. Found while designing Code Review 20260909 item 2.
+	- Probable fix: ask origin and lease the delete, reusing what `br prune` does for Code Review 20260909 item 2.
+	- Origin: `cmdMerge` since 53c6c0f (go branch commands). No earlier round saw it. Confirmed.
+
 - 🔘 The Go unit tests fail on Windows.
 	- Opened: 20260914-152134
 	- Reproduced: built for Windows and run on vm925w, `TestCanonPath` and `TestDisplayPath` fail on `gover`, since they expect Linux spellings.
@@ -118,6 +126,9 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- Note: the plan line asserts each branch was re-checked at delete time. With the fetch left on, the same case is handled correctly, so the flag is the trigger, and its help text gives no hint that it makes this command unsafe.
 		- Probable fix: ask origin about each remote candidate before the delete push, or send the delete with a lease so git refuses on stale information.
 		- Origin: bb60cc5 (the port). The remote half has always read the local mirror, and the plan line from 0a3ef88 has overclaimed since. Not fallout from the 20260821 re-check rework. Confirmed.
+		- Note: the same unasked origin drops every remote delete when one branch is already gone there, and under `--no-fetch` reports an unreachable origin as branches "already gone". Both are fixed with this item.
+		- Sweep: `br merge` deletes its branch on origin the same way under `--no-fetch`, filed as its own bug. `pr ok` leaves the delete to the git host after it merges, so no local copy of origin decides it.
+		- Decided against: checking whether origin's merge target was rewritten since the last fetch. Telling needs objects the run declined to fetch, and gitsby never rewrites a shared branch.
 
 	- 🔘 Code Review 20260909 item 3: a config file that exists but cannot be read is replaced instead of refused.
 		- Reproduced: with the accounts file mode 0200, `account set` printed a plan saying "create", truncated the file and wrote a fresh one. The login and token path that were in it are gone.
