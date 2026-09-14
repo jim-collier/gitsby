@@ -99,7 +99,8 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 	- Fix order: by class, each class across all its sites in one group of commits. 5 with 11 (unknown is listed, unknown is not missing); 9 with 19 (preview follows command, one spawn per run); 3 and 8 without moving the decisions they sit on; 12 and 20 only once reproduced. 15 and 16 early, since the pipeline is what proves the rest.
 	- Note: about twelve of the twenty sit in code that rounds 20260819b, c, d and 20260821 declared clean. Those rounds read the Go and grepped the rest.
 
-	- 🔘 Code Review 20260909 item 1: a folder rule typed as `.` binds every repo under the home directory to that account.
+	- ✅ Code Review 20260909 item 1: a folder rule typed as `.` binds every repo under the home directory to that account.
+		- Closed: 20260914-155309
 		- Reproduced: `account set work path .` is accepted and stored as typed. `account list` shows the folder with no warning, because `.` always exists relative to wherever you are standing. gitsby itself then ignores the rule and reports no account for that very folder.
 		- Cause: `account apply` turns it into an includeIf rule spelled `./`, and git resolves a leading `./` against the folder holding the config file, which is the home directory. Every repo under home then commits as that account and offers its login to the credential helper.
 		- Note: this is the wrong-account commit the whole feature exists to stop, and nothing on screen says it happened. A bare `.` is the natural thing to type from the folder you mean to bind.
