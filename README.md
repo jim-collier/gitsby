@@ -294,7 +294,11 @@ Any stage whose tooling isn't installed reports itself absent and is skipped, so
 cicd/cicd.bash --quick          # skips fuzz and the demo gif; what you want while iterating
 cicd/cicd.bash                  # everything, and it prompts once for a commit message
 cicd/cicd.bash -y -m "message"  # unattended
+cicd/cicd.bash --gate           # every lint check and the unit tests; what the pre-push hook runs
+cicd/cicd.bash --install-hook   # run --gate on each pushed commit before every push
 ~~~
+
+With the hook installed, `git push --no-verify` skips the gate for one push.
 
 Full prerequisites and process: [contributing.md](contributing.md). Coding style: [style-guide.md](style-guide.md). There's also "[Git notes and one-liners](git_notes_and_oneliners.md)", covering simplified versions of what Gitsby does - useful when you want the raw commands.
 

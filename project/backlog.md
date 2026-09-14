@@ -50,6 +50,14 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 ### Bugs
 
+- 🔘 A failing `py_compile` passes lint stage 1, and the pre-push gate with it.
+	- Opened: 20260914-130334
+	- Reproduced: with a `python3` on PATH that exits 1, a full run exits 0 and prints `OK: py_compile`. `cicd.bash --gate` does the same.
+	- Cause: the compile is the first half of an `&&` list. Under `set -e` a failure there neither stops the script nor fires the error trap.
+	- Probable fix: fail on the compile on its own line, then clear the cache. Add a failing `python3` case to the gate checks in test.bash.
+	- Note: the line clears `cicd/utility/__pycache__`, but `py_compile` writes `cicd/utility/demo/__pycache__`, beside the file it compiles, so the cache stays. The same on `gover`.
+	- Origin: e014c29, the first pipeline. No earlier round saw it. Confirmed.
+
 - 🛠️ Code review 20260909 - a pass against the standing directives, aimed at the work since the last round. Twenty defects, twelve enhancements.
 	- Opened: 20260909-184419
 	- Fix order: by class, each class across all its sites in one group of commits. 5 with 11 (unknown is listed, unknown is not missing); 9 with 19 (preview follows command, one spawn per run); 3 and 8 without moving the decisions they sit on; 12 and 20 only once reproduced. 15 and 16 early, since the pipeline is what proves the rest.
@@ -155,11 +163,14 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- Nothing is said when the installed binary will not run. The run simply ends.
 		- Origin: 200310a. Five of the six were in the 20260819a notes as seen and not filed. Confirmed against a local mock.
 
-	- 🔘 Code Review 20260909 item 15: there is no fast gate and no pre-push hook.
+	- ✅ Code Review 20260909 item 15: there is no fast gate and no pre-push hook.
+		- Closed: 20260914-134906
 		- The standing directive asks for a quick mode that checks formatting, lints with warnings as errors and runs the unit tests, registered as a pre-push hook, so nothing reaches dev or main unverified outside a full run.
 		- Nothing like it exists, and the hooks directory holds only the stock samples.
 		- Note: the full pipeline is the only gate today, it takes minutes, and it is currently red.
 		- Origin: new requirement from the 2026-09-07 directives. Not a regression.
+		- Fixed: `cicd/cicd.bash --gate` runs every lint check and the unit tests, and nothing else. `--install-hook` installs a pre-push hook that runs it on each commit pushed to a branch, as committed, never on the working tree. A push from a subdirectory with a relative `--work-tree` is gated too.
+		- Verified: 42 new checks, 810 -> 852. 41 of them fail on `gover`; the full-run check is a regression guard. The relative `--work-tree` check fails against the hook as it was, and each of the five later checks fails with the path it covers broken. The pipeline is green at 852/0, with parity 27/0 and fuzz 269/0. The real gate passes in 11.6 s. In a scratch clone the hook passes a good push, 11.6 s cold and 10.3 s warm, and refuses a gofmt violation. A failing commit is refused through 22 push forms. Nothing is installed in this repo. Linux only: Windows, macOS and the BSDs are untested.
 
 	- 🔘 Code Review 20260909 item 16: the demo gif is rebuilt and recommitted on nearly every commit.
 		- Cause: every command prints the version and build number above its output, and the first scene captures one. The version moves with every commit, so the render always differs and an eleven megabyte file is replaced.

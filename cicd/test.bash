@@ -144,6 +144,72 @@ fMakeFixture(){
 	git clone --quiet "${origin}" "${cloneB}"
 }
 
+## The pre-push gate's fixture: the real pipeline engine and its config, with every tool and
+## harness it calls replaced by a stub that logs its own command line and fails when a marker
+## file of its name exists. The checks then see which steps a mode runs, and where it stops.
+## $1 the stub, $2 its marker name, $3 a line run before the verdict.
+fGateStub(){
+	fStub "$1" <<-EOF
+		#!/usr/bin/env bash
+		printf '%s\n' "\$(basename "\$0") \$*" >> '${gateCalls}'
+		${3:-}
+		[[ ! -e "${gateFail}/$2" ]]
+	EOF
+}
+fMakeGateFixture(){
+	local s
+	mkdir -p "${gateDir}/cicd/utility/include" "${gateDir}/cicd/utility/demo" "${gateDir}/bin" "${gateDir}/home" "${gateDir}/src-go" "${gateFail}"
+	cp "${root}/cicd/cicd.bash" "${root}/cicd/config.bash" "${gateDir}/cicd/"
+	cp "${root}/cicd/utility/include/gfs-rotate.bash" "${root}/cicd/utility/include/gh-account.bash" "${gateDir}/cicd/utility/include/"
+	## Empty, so the lint globs and PY_LINT_FILES resolve.
+	: > "${gateDir}/install.bash"; : > "${gateDir}/install.ps1"; : > "${gateDir}/cicd/utility/demo/gen-demo-gif.py"
+	echo "# Fixture" > "${gateDir}/README.md"
+	for s in test fuzz parity; do fGateStub "${gateDir}/cicd/${s}.bash" "${s}"; done
+	for s in gen-winres backlog-check spawn-count; do fGateStub "${gateDir}/cicd/utility/${s}.bash" "${s}"; done
+	fGateStub "${gateDir}/cicd/utility/n8git_backup-and-publish" n8git_backup-and-publish
+	for s in markdownlint python3 staticcheck golangci-lint govulncheck; do fGateStub "${gateDir}/bin/${s}" "${s}"; done
+	## The probes answer yes whatever the marker says, so a failure is the tool's finding and
+	## not "not installed".
+	fGateStub "${gateDir}/bin/shellcheck" shellcheck "[[ \"\${1:-}\" != --version ]] || exit 0"
+	fGateStub "${gateDir}/bin/pwsh" pwsh "[[ \"\$*\" != *Get-Command* ]] || exit 0"
+	## gofmt reports by listing files, exiting 0 either way; the engine reads the list.
+	fGateStub "${gateDir}/bin/gofmt" gofmt "if [[ -e '${gateFail}/gofmt' ]]; then echo main.go; fi; exit 0"
+	## go fails by subcommand (go-vet, go-test, go-build), and 'version -m' names no module.
+	fGateStub "${gateDir}/bin/go" "go-\${1:-}" "[[ \"\${1:-}\" != version ]] || exit 0"
+}
+## The fixture's engine with the stubs first on PATH. HOME is the fixture's as well: the engine
+## puts ~/.local/bin ahead of PATH, and a real markdownlint there would answer for the stub.
+fGateRun(){ (cd "${gateDir}" && HOME="${gateDir}/home" PATH="${gateDir}/bin:${PATH}" ./cicd/cicd.bash "$@") ;}
+## True when the run exits with exactly $1. An unknown option exits 2, so a plain nonzero test
+## would pass a build that never heard of the option. Output lands in ${gateOut}, and the calls
+## log starts empty.
+fGateStatus(){
+	local want="$1" rc=0
+	shift
+	: > "${gateCalls}"
+	fGateRun "$@" </dev/null >"${gateOut}" 2>&1 || rc=$?
+	[[ "${rc}" == "${want}" ]]
+}
+## As above, and the output matches the extended regex $2.
+fGateSays(){ local want="$1" pat="$2"; shift 2; fGateStatus "${want}" "$@" && grep -qE -- "${pat}" "${gateOut}" ;}
+## True when every extended regex given matches a line of the calls log.
+fGateCalled(){ local p; for p in "$@"; do grep -qE -- "${p}" "${gateCalls}" || return 1; done; return 0 ;}
+fGateFullRun(){
+	fGateSays 0 'CI/CD: done\.' -y --quick --no-sync --no-publish --no-dogfood \
+		&& fGateCalled '^go vet' '^go build' '^go test -race' '^test\.bash' '^parity\.bash'
+}
+## --install-hook hands over to the installer: the hook is in place, and no stage or gate header
+## was printed on the way.
+fGateInstallHook(){
+	fGateSays 0 '^pre-push: installed ' --install-hook \
+		&& grep -qxF '## gitsby pre-push gate - installed by cicd/cicd.bash --install-hook' "${gateDir}/.git/hooks/pre-push" \
+		&& ! grep -qE '[0-9]/[0-9]  ' "${gateOut}"
+}
+## A push from $1, the rest being its arguments. Output lands in ${hookOut}; the gate log starts empty.
+fHookPush(){ local dir="$1"; shift; : > "${hookLog}"; git -C "${dir}" push "$@" >"${hookOut}" 2>&1 ;}
+## One digest of every file under $1, names and contents, to show a directory was left as it was.
+fTreeDigest(){ (cd "$1" && find . -type f -exec sha256sum {} + | LC_ALL=C sort | sha256sum) ;}
+
 ## The whole suite, against whatever ${gitsby} points at.
 fRunSuite(){
 	echo "suite: $1 (${gitsby})"
@@ -2652,6 +2718,211 @@ GHEOF
 	# shellcheck disable=SC2016
 	fAssert "and no inherited gh token"                    bash -c '[[ -z "${GH_TOKEN:-}" ]]'
 
+	## The pre-push gate: cicd.bash --gate against the stubbed engine above, then the hook in a
+	## throwaway clone whose cicd.bash is a stub. Linux only, like the pipeline they belong to.
+	if [[ "$(uname -s)" != Linux ]]; then
+		echo "  skip: pre-push gate checks (Linux only)"
+	else
+		local gateDir="${work}/gate" gateCalls="${work}/gate-calls.log" gateFail="${work}/gate-fail" gateOut="${work}/gate-out.txt"
+		fMakeGateFixture
+		fAssert "the gate passes a clean tree without asking anything"  fGateStatus 0 --gate
+		fAssert "and runs every lint check and the unit tests" \
+			fGateCalled '^shellcheck [^-]' '^markdownlint ' '^python3 -m py_compile' 'Invoke-ScriptAnalyzer -Path' '^gofmt -l' \
+				'^go vet' '^staticcheck ' '^golangci-lint run' '^gen-winres\.bash --check -q' '^backlog-check\.bash -q' '^go test -race'
+		## Tied to the gate having passed: a run that did nothing at all adds nothing either.
+		fAssert "and nothing the full run adds" \
+			bash -c "grep -q 'gate: passed' '${gateOut}' && ! grep -qE '^go build|^test\.bash|^fuzz\.bash|^parity\.bash|^spawn-count\.bash|^n8git_backup-and-publish|^govulncheck|-fuzz' '${gateCalls}' && ! grep -q 'Remote sync' '${gateOut}' && [[ ! -e '${gateDir}/cicd/artifacts/lint' ]]"
+		local gateTool
+		for gateTool in shellcheck markdownlint pwsh gofmt go-vet staticcheck golangci-lint backlog-check go-test; do
+			: > "${gateFail}/${gateTool}"
+			fAssert "the gate fails when ${gateTool} finds something"  fGateStatus 1 --gate
+			if [[ "${gateTool}" == gofmt ]]; then
+				fAssert "and a lint failure stops it before the unit tests" \
+					bash -c "grep -q '^gofmt -l' '${gateCalls}' && ! grep -q '^go test' '${gateCalls}'"
+			fi
+			rm -f -- "${gateFail:?}/${gateTool}"
+		done
+		fAssert "--gate refuses a stage option"  fGateSays 2 'takes no stage options \(got: --no-lint\)' --gate --no-lint
+		fAssert "--gate and --install-hook together are refused"  fGateSays 2 'separate runs' --gate --install-hook
+		## Regression guard: the full run is what the two functions were carved out of.
+		fAssert "the full run still lints, builds and runs the suites"  fGateFullRun
+		fAssert "cicd.bash --help lists --gate and --install-hook" \
+			bash -c "out=\$('${gateDir}/cicd/cicd.bash' --help) && grep -qE -- '^ +--gate ' <<< \"\$out\" && grep -qE -- '^ +--install-hook ' <<< \"\$out\""
+		fAssert "and contributing.md names --install-hook"  grep -qF -- '--install-hook' "${root}/contributing.md"
+		## Last on this fixture, since it makes it a git repo. Every tool is still a stub, so an
+		## --install-hook that fell through into a full run would reach nothing outside it.
+		git init --quiet "${gateDir}"
+		cp "${root}/cicd/utility/pre-push.bash" "${gateDir}/cicd/utility/" 2>/dev/null || true
+		fAssert "cicd.bash --install-hook installs the hook and runs no stage"  fGateInstallHook
+
+		## The hook. Its stub cicd.bash logs where it ran, what it was given, the marker file it saw
+		## and two variables git sets for hooks, and fails when the marker reads "fail". Physical
+		## paths, since git reports them that way.
+		local hookDir; hookDir="$(cd "${work}" && pwd -P)/hook"
+		local hookOrigin="${hookDir}/origin.git" hookRepo="${hookDir}/repo" hookLog="${hookDir}/gate.log" hookOut="${hookDir}/push.txt"
+		local hookFile="${hookDir}/repo/.git/hooks/pre-push" hookSnap="${hookDir}/repo/.git/gitsby-gate" hookRc=0 hookSum="" hookShort="" hookRemote=""
+		mkdir -p "${hookDir}"
+		git init --quiet --bare -b main "${hookOrigin}"
+		git clone --quiet "${hookOrigin}" "${hookRepo}" 2>/dev/null
+		mkdir -p "${hookRepo}/cicd/utility" "${hookRepo}/sub"
+		## Absent from a tree that predates the gate. Every check below then fails, not the suite.
+		cp "${root}/cicd/utility/pre-push.bash" "${hookRepo}/cicd/utility/" 2>/dev/null || true
+		echo keep > "${hookRepo}/sub/keep.txt"
+		echo good > "${hookRepo}/marker.txt"
+		fStub "${hookRepo}/cicd/cicd.bash" <<-EOF
+			#!/usr/bin/env bash
+			case "\${1:-}" in --gate) ;; esac
+			printf '%s|%s|%s|GIT_PREFIX=%s|GIT_DIR=%s|status=%s\n' "\$(pwd -P)" "\$*" "\$(cat marker.txt)" "\${GIT_PREFIX-unset}" "\${GIT_DIR-unset}" "\$(git status --porcelain --untracked-files=all | wc -l)" >> '${hookLog}'
+			[[ "\$(cat marker.txt)" != fail ]]
+		EOF
+		git -C "${hookRepo}" add --all
+		git -C "${hookRepo}" commit --quiet -m init
+		git -C "${hookRepo}" push --quiet -u origin main 2>/dev/null
+
+		fAssert "install writes an executable pre-push hook" \
+			bash -c "'${hookRepo}/cicd/utility/pre-push.bash' --install && grep -qxF '## gitsby pre-push gate - installed by cicd/cicd.bash --install-hook' '${hookFile}' && [[ \"\$(stat -c %a '${hookFile}')\" == 755 ]]"
+		hookSum="$(sha256sum "${hookFile}" 2>/dev/null || true) $(stat -c %i "${hookFile}" 2>/dev/null || true)"
+		fAssert "and a second install changes nothing" \
+			bash -c "'${hookRepo}/cicd/utility/pre-push.bash' --install && [[ \"\$(sha256sum '${hookFile}') \$(stat -c %i '${hookFile}')\" == '${hookSum}' ]]"
+		## A hook from an earlier version of this script: the marker line, other text beneath it.
+		# shellcheck disable=SC2016  ## written as text, for the hook to expand.
+		printf '%s\n' '#!/usr/bin/env bash' '## gitsby pre-push gate - installed by cicd/cicd.bash --install-hook' \
+			'exec "$(git rev-parse --show-toplevel)/cicd/utility/pre-push.bash" "$@"' > "${hookFile}"
+		fAssert "and an older hook of ours is replaced" \
+			bash -c "out=\$('${hookRepo}/cicd/utility/pre-push.bash' --install) && grep -qxF 'pre-push: updated ${hookFile}' <<< \"\$out\" && out=\$('${hookRepo}/cicd/utility/pre-push.bash' --install) && grep -qF 'already installed' <<< \"\$out\""
+		## Fresh clones for the refusals, so none of them depends on the install above.
+		local hookRepo3="${hookDir}/repo3" hookRepo4="${hookDir}/repo4" hookRepo5="${hookDir}/repo5"
+		local hookElsewhere="${hookDir}/hooks-elsewhere" hookUname="${hookDir}/uname-bin" hookForeign=""
+		git clone --quiet "${hookOrigin}" "${hookRepo3}"
+		mkdir -p "${hookRepo3}/.git/hooks"
+		printf '#!/bin/sh\necho mine\n' > "${hookRepo3}/.git/hooks/pre-push"
+		hookForeign="$(sha256sum < "${hookRepo3}/.git/hooks/pre-push")"
+		fAssert "install leaves a hook it did not write alone" \
+			bash -c "out=\$('${hookRepo3}/cicd/utility/pre-push.bash' --install 2>&1); [[ \$? == 1 ]] && grep -qF '${hookRepo3}/.git/hooks/pre-push' <<< \"\$out\" && [[ \"\$(sha256sum < '${hookRepo3}/.git/hooks/pre-push')\" == '${hookForeign}' ]]"
+		git clone --quiet "${hookOrigin}" "${hookRepo4}"
+		mkdir -p "${hookElsewhere}"
+		git -C "${hookRepo4}" config core.hooksPath "${hookElsewhere}"
+		fAssert "install refuses while core.hooksPath is set" \
+			bash -c "out=\$('${hookRepo4}/cicd/utility/pre-push.bash' --install 2>&1); [[ \$? == 1 ]] && grep -qF core.hooksPath <<< \"\$out\" && [[ ! -e '${hookRepo4}/.git/hooks/pre-push' && ! -e '${hookElsewhere}/pre-push' ]]"
+		git clone --quiet "${hookOrigin}" "${hookRepo5}"
+		mkdir -p "${hookUname}"
+		fStub "${hookUname}/uname" <<-'EOF'
+			#!/usr/bin/env bash
+			echo Darwin
+		EOF
+		fAssert "install refuses off Linux" \
+			bash -c "out=\$(PATH='${hookUname}':\"\$PATH\" '${hookRepo5}/cicd/utility/pre-push.bash' --install 2>&1); [[ \$? == 1 ]] && grep -qF 'Linux only' <<< \"\$out\" && [[ ! -e '${hookRepo5}/.git/hooks/pre-push' ]]"
+
+		## Committed "good2", with "fail" sitting uncommitted in the working tree.
+		echo good2 > "${hookRepo}/marker.txt"
+		git -C "${hookRepo}" commit --quiet -m good2 -- marker.txt
+		echo fail > "${hookRepo}/marker.txt"
+		hookRc=0; fHookPush "${hookRepo}" origin main || hookRc=$?
+		fAssert "a push runs the gate on the commit being pushed" \
+			bash -c "[[ '${hookRc}' == 0 ]] && grep -qF '${hookSnap}|--gate|good2|' '${hookLog}' && [[ \"\$(git -C '${hookRepo}' ls-remote origin refs/heads/main | cut -f1)\" == \"\$(git -C '${hookRepo}' rev-parse main)\" ]]"
+		fAssert "and leaves the working tree as it was" \
+			bash -c "[[ -s '${hookLog}' && \"\$(cat '${hookRepo}/marker.txt')\" == fail && \"\$(git -C '${hookRepo}' status --porcelain)\" == ' M marker.txt' ]]"
+		git -C "${hookRepo}" commit --quiet -m fail -- marker.txt
+		hookShort="$(git -C "${hookRepo}" rev-parse --short HEAD)"
+		hookRemote="$(git -C "${hookRepo}" ls-remote origin refs/heads/main)"
+		hookRc=0; fHookPush "${hookRepo}" origin main || hookRc=$?
+		fAssert "a failing gate refuses the push" \
+			bash -c "[[ '${hookRc}' != 0 ]] && grep -qF '${hookShort}' '${hookOut}' && grep -qF 'cicd/cicd.bash --gate' '${hookOut}' && grep -qF -- '--no-verify' '${hookOut}' && [[ \"\$(git -C '${hookRepo}' ls-remote origin refs/heads/main)\" == '${hookRemote}' ]]"
+		## main stays on the failing commit from here on.
+		git -C "${hookRepo}" checkout --quiet -b side main~1
+		echo side > "${hookRepo}/marker.txt"
+		git -C "${hookRepo}" commit --quiet -m side -- marker.txt
+		git -C "${hookRepo}" checkout --quiet main
+		hookRc=0; fHookPush "${hookRepo}" origin side || hookRc=$?
+		fAssert "a branch pushed from elsewhere is gated at its own commit" \
+			bash -c "[[ '${hookRc}' == 0 ]] && grep -qF '|--gate|side|' '${hookLog}'"
+		## A delete on its own leaves nothing to see, so one goes out beside a branch that is gated.
+		hookRc=0; fHookPush "${hookRepo}" origin :side main~1:refs/heads/beside || hookRc=$?
+		fAssert "a branch delete runs no gate" \
+			bash -c "[[ '${hookRc}' == 0 && \"\$(wc -l < '${hookLog}')\" == 1 ]] && grep -qF '|--gate|good2|' '${hookLog}'"
+		git -C "${hookRepo}" tag t1 main
+		hookRc=0; fHookPush "${hookRepo}" origin t1 || hookRc=$?
+		fAssert "a tag push runs no gate" \
+			bash -c "[[ '${hookRc}' == 0 && ! -s '${hookLog}' ]] && grep -qF 'not gated: refs/tags/t1' '${hookOut}'"
+		git -C "${hookRepo}" branch b1 side
+		git -C "${hookRepo}" branch b2 side
+		hookRc=0; fHookPush "${hookRepo}" origin b1 b2 || hookRc=$?
+		fAssert "one commit under two branch names is gated once" \
+			bash -c "[[ '${hookRc}' == 0 && \"\$(grep -c -- '|--gate|' '${hookLog}')\" == 1 ]]"
+		## Its cicd.bash has no --gate) arm, and would fail if it were run.
+		git -C "${hookRepo}" checkout --quiet -b old main~1
+		printf '#!/usr/bin/env bash\nexit 1\n' > "${hookRepo}/cicd/cicd.bash"
+		git -C "${hookRepo}" commit --quiet -m old -- cicd/cicd.bash
+		git -C "${hookRepo}" checkout --quiet main
+		hookRc=0; fHookPush "${hookRepo}" origin old || hookRc=$?
+		fAssert "a commit from before the gate is pushed with a note" \
+			bash -c "[[ '${hookRc}' == 0 && ! -s '${hookLog}' ]] && grep -qF 'predates the gate' '${hookOut}'"
+		git -C "${hookRepo}" checkout --quiet -b noscript main~1
+		git -C "${hookRepo}" rm --quiet --ignore-unmatch cicd/utility/pre-push.bash
+		git -C "${hookRepo}" commit --quiet --allow-empty -m noscript
+		hookRc=0; fHookPush "${hookRepo}" origin noscript || hookRc=$?
+		git -C "${hookRepo}" checkout --quiet main
+		fAssert "a checkout without the hook script pushes with a note" \
+			bash -c "[[ '${hookRc}' == 0 ]] && grep -qF 'not gated' '${hookOut}'"
+		hookRc=0; fHookPush "${hookRepo}/sub" origin side:refs/heads/fromsub || hookRc=$?
+		fAssert "the gate does not inherit GIT_PREFIX from a push run in a subdirectory" \
+			bash -c "[[ '${hookRc}' == 0 ]] && grep -qF '|side|GIT_PREFIX=unset|' '${hookLog}'"
+		## From a subdirectory git starts the hook at the top, but passes a relative --work-tree on as
+		## typed. Read from the top, ".." is the directory above the checkout.
+		hookRc=0; : > "${hookLog}"
+		(cd "${hookRepo}/sub" && git --git-dir=../.git --work-tree=.. push origin main:refs/heads/relwt) >"${hookOut}" 2>&1 || hookRc=$?
+		fAssert "a push from a subdirectory with a relative --work-tree is gated all the same" \
+			bash -c "[[ '${hookRc}' != 0 ]] && grep -qF '${hookSnap}|--gate|fail|' '${hookLog}' && [[ -z \"\$(git -C '${hookRepo}' ls-remote origin refs/heads/relwt)\" ]]"
+		## git hands a hook GIT_DIR from a linked worktree. Passed on, the gate worktree's checkout
+		## would land on this worktree instead, and detach it.
+		local hookLinked="${hookDir}/linked"
+		git -C "${hookRepo}" worktree add --quiet -b linkedb "${hookLinked}" main~1
+		hookRc=0; fHookPush "${hookLinked}" origin linkedb || hookRc=$?
+		fAssert "a push from a linked worktree hands the gate no GIT_DIR and leaves that worktree on its branch" \
+			bash -c "[[ '${hookRc}' == 0 ]] && grep -qF '|good2|GIT_PREFIX=unset|GIT_DIR=unset' '${hookLog}' && [[ \"\$(git -C '${hookLinked}' symbolic-ref --short HEAD)\" == linkedb && -z \"\$(git -C '${hookLinked}' status --porcelain)\" ]]"
+		## Moved aside rather than removed. Either way it is a registered worktree whose directory is gone.
+		if [[ -d "${hookSnap}" ]]; then mv "${hookSnap}" "${hookDir}/gate-moved-aside"; fi
+		git -C "${hookRepo}" checkout --quiet -b b16 main~1
+		echo b16 > "${hookRepo}/marker.txt"
+		git -C "${hookRepo}" commit --quiet -m b16 -- marker.txt
+		git -C "${hookRepo}" checkout --quiet main
+		hookRc=0; fHookPush "${hookRepo}" origin b16 || hookRc=$?
+		fAssert "a gate worktree that went missing is recreated" \
+			bash -c "[[ '${hookRc}' == 0 ]] && grep -qF '${hookSnap}|--gate|b16|' '${hookLog}'"
+		local hookLock="${hookDir}/repo/.git/gitsby-gate.lock" hookLockPid="" hookT0=0 hookT1=0 hookWait=0
+		git -C "${hookRepo}" branch b17 main~1
+		hookT0="$(date +%s%N)"
+		flock "${hookLock}" sleep 2 &
+		hookLockPid=$!
+		## Until the background flock holds the lock, the push could take it first.
+		while flock -n "${hookLock}" true && ((hookWait < 100)); do sleep 0.02; hookWait=$((hookWait + 1)); done
+		hookRc=0; fHookPush "${hookRepo}" origin b17 || hookRc=$?
+		hookT1="$(date +%s%N)"
+		kill "${hookLockPid}" 2>/dev/null || true
+		wait "${hookLockPid}" 2>/dev/null || true
+		fAssert "a second gate waits for the one running" \
+			bash -c "[[ '${hookRc}' == 0 ]] && grep -qF 'waiting for it' '${hookOut}' && (( ${hookT1} - ${hookT0} >= 2000000000 ))"
+		## Leftovers from an earlier gate, one tracked and one untracked. checkout --force alone
+		## would keep the untracked one.
+		if [[ -d "${hookSnap}" ]]; then echo fail > "${hookSnap}/marker.txt"; echo left > "${hookSnap}/leftover.txt"; fi
+		hookRc=0; fHookPush "${hookRepo}" origin main~1:refs/heads/dirty || hookRc=$?
+		fAssert "a gate worktree left dirty is rebuilt before the gate runs" \
+			bash -c "[[ '${hookRc}' == 0 ]] && grep -qF '${hookSnap}|--gate|good2|GIT_PREFIX=unset|GIT_DIR=unset|status=0' '${hookLog}'"
+		hookRc=0; PATH="${hookUname}:${PATH}" fHookPush "${hookRepo}" origin main~1:refs/heads/darwin || hookRc=$?
+		fAssert "a push off Linux goes out ungated with a note" \
+			bash -c "[[ '${hookRc}' == 0 && ! -s '${hookLog}' ]] && grep -qF 'Linux only' '${hookOut}' && [[ -n \"\$(git -C '${hookRepo}' ls-remote origin refs/heads/darwin)\" ]]"
+		## Without its .git file the directory is still registered, but git inside it answers for the
+		## main repo. Nothing there may be forced or removed.
+		local hookSnapSum="" hookSnapAfter=""
+		if [[ -f "${hookSnap}/.git" ]]; then mv "${hookSnap}/.git" "${hookDir}/gate-dotgit-aside"; fi
+		hookSnapSum="$(fTreeDigest "${hookSnap}" || true)"
+		hookRc=0; fHookPush "${hookRepo}" origin main~1:refs/heads/nodotgit || hookRc=$?
+		hookSnapAfter="$(fTreeDigest "${hookSnap}" || true)"
+		fAssert "a gate worktree without its .git file is refused and left as it was" \
+			bash -c "[[ '${hookRc}' != 0 && -n '${hookSnapSum}' && '${hookSnapSum}' == '${hookSnapAfter}' && ! -s '${hookLog}' ]] && grep -qE 'is not this repo.s gate worktree' '${hookOut}'"
+		if [[ -f "${hookDir}/gate-dotgit-aside" && ! -e "${hookSnap}/.git" ]]; then mv "${hookDir}/gate-dotgit-aside" "${hookSnap}/.git"; fi
+	fi
+
 	## Go-only: the renamed commands, the aliases that keep every 2.1.0 spelling working, and
 	## 'whoami'. The scripts are frozen at the old surface, so asserting the new names on their
 	## legs would only prove that a frozen file is frozen.
@@ -3289,3 +3560,5 @@ echo "passed: ${pass}, failed: ${fail}"
 ##		- 20260819 JC: br prune's plan checks follow the batched deletes - one line for the locals and one for the remotes, which is what the command runs. The remote half needed a fixture of its own: a plan check has to run the command to see a plan, and the check before it had already pruned the world it shared.
 ##		- 20260819 JC: The second adversarial pass. A folder rule spelled through a symlink, checked both by the account line and by which entry 'account list' marks; the shipped-code warning run from a subdirectory, where the pathspec had been reading from the wrong place; and a repo-local commit name or email on its own, each of which the account had been overriding. Five checks, all five failing against the build before them.
 ##		- 20260819 JC: A config file's discovery inputs are now neutralized in one place. Faking HOME never covered XDG_CONFIG_HOME (tried first) or APPDATA (tried last), so every block that tests discovery read the accounts of whoever was running the suite - thirty checks went red the day this machine had a config of its own. Plus four checks for the two defects found with it: an account named through GITSBY_ACCOUNT that carries no GitHub login, and a config file with a byte-order mark on it.
+##		- 20260914 JC: The pre-push gate. cicd.bash --gate against a copy of the engine whose every tool is a stub: what it runs, what it leaves out, a failure per tool, and its refusals. Then the hook in a throwaway clone: the install and its three refusals, the pushed commit gated as committed, a failing push refused, deletes and tags left alone, one gate per commit, commits and checkouts from before the gate, git's own variables kept from the gate, a missing worktree, and the lock. Linux only. 35 of the 36 fail against the tree before them; the full-run check is a regression guard. 810 -> 846.
+##		- 20260914 JC: More on the pre-push gate: a push from a subdirectory with a relative --work-tree, --install-hook run through cicd.bash, an older hook of ours replaced, a gate worktree left dirty or missing its .git file, and a push off Linux. 846 -> 852.

@@ -188,9 +188,15 @@ That binary is the whole product. The rest of the tooling below is for running t
 <!-- omit in toc -->
 #### Run the checks
 
-- `cicd/cicd.bash --quick` - the whole pipeline, minus the slow stages. Run this before you push.
+- `cicd/cicd.bash --quick` - the whole pipeline, minus the slow stages. Run this before you open a PR.
 
 - `cicd/cicd.bash` - everything, including the fuzz suite and the demo.
+
+- `cicd/cicd.bash --gate` - every lint check and the unit tests, and nothing else: no sync, no build, no suites, no prompt and no run log. This is what the pre-push hook runs.
+
+- `cicd/cicd.bash --install-hook` - install a git pre-push hook that runs `--gate` before every push, once for each commit pushed to a branch. It checks the commit as committed, in a separate worktree at `.git/gitsby-gate`, and never your working tree, so an uncommitted edit neither fails a push nor passes one. That worktree shows in `git worktree list`. Deletes and tags are not gated, and `git push --no-verify` skips the gate for one push. The install refuses to replace a pre-push hook it did not write, and writes nothing while `core.hooksPath` is set.
+
+- To remove the hook, run `rm .git/hooks/pre-push` and then `git worktree remove --force .git/gitsby-gate`.
 
 - `cicd/parity.bash` - just the compatibility comparison: whether this build *answers the same* as the frozen v2.1.0 one for a given input, rather than whether either behaves correctly on its own. It has its own pipeline stage.
 
