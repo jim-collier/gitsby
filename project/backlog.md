@@ -50,6 +50,12 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 ### Bugs
 
+- 🔘 The demo gif runs about two minutes, against a budget of twenty to thirty seconds.
+	- Opened: 20260914-140251
+	- Reproduced: the committed gif loops in 123.8 s over nine scenes. The shortest scene, a one-line `echo`, takes 8.6 s, and `br merge` takes 20.9 s. The holds alone add up to 52.8 s.
+	- Note: split from Code Review 20260909 item 16. The budget leaves room for two or three scenes, so this waits on a decision about which ones the README keeps.
+	- Origin: aa63736, the first demo, looped in 18.4 s. 7096bdd took it to 67 s, 9e16dd5 to 84 s and 48089c6 to 122 s. The directives have asked for twenty to thirty seconds since at least 2026-08-22. Confirmed.
+
 - 🔘 A failing `py_compile` passes lint stage 1, and the pre-push gate with it.
 	- Opened: 20260914-130334
 	- Reproduced: with a `python3` on PATH that exits 1, a full run exits 0 and prints `OK: py_compile`. `cicd.bash --gate` does the same.
@@ -179,6 +185,7 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- The quiet flag reaches every other child of the pipeline and not the demo generator.
 		- Probable fix: stamp a fixed version for the demo build, or keep the banner out of the demo run.
 		- Origin: 3b16d8d (build number) put a per-commit banner on `status`, which the demo captures. Confirmed.
+		- Note: the length half of the third bullet is filed as its own bug at the top of this section. This item covers the rebuild on every commit, the closing black and the quiet flag.
 
 	- 🔘 Code Review 20260909 item 17: pipeline housekeeping.
 		- The two "have I seen this yet" markers live inside the working tree. A clean checkout loses them.
