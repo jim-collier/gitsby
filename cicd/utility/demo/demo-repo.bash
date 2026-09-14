@@ -6,9 +6,10 @@
 ##		  gives each tree its own GitHub account. The scenario beside this file drives
 ##		  real gitsby commands against it, so nothing about the demo can go stale.
 ##		- Everything is generic: a /tmp path with no username, a fake HOME + gitconfig,
-##		  a made-up author, and pinned commit dates. Pinned dates keep commit hashes (and
-##		  thus gitsby's output, and thus the gif bytes) identical run to run, so cicd only
-##		  regenerates the gif when the demo actually changes.
+##		  a made-up author, and pinned commit dates. Pinned dates keep commit hashes, and
+##		  thus gitsby's output, identical run to run. With the release stamp cicd gives the
+##		  demo's build, the gif bytes stay identical too, so cicd only regenerates the gif
+##		  when the demo actually changes.
 ##		- Writes "$root/demo.env" holding the env the scenario steps source before each
 ##		  gitsby call.
 ##	Syntax: demo-repo.bash [ROOT]   (ROOT default: /tmp/gitsby-demo)
@@ -196,3 +197,4 @@ GIT_COMMITTER_NAME="${sideName}" GIT_COMMITTER_EMAIL="${sideEmail}" \
 ##		- 20260814: Builds two trees and a gitsby config, so the demo can show a folder deciding which account acts. HOME is the root, the trees differ from their first folder down, and demo.env now unsets the identity and config variables that would otherwise supply what the folder rules are meant to be supplying.
 ##		- 20260819: The fake tokens are 0600 and a stub gh goes first on PATH. Both were showing on camera: the permission warning on every scene, and the real gh answering as whoever is logged in on the machine doing the rendering.
 ##		- 20260813: ROOT is checked before it is removed. It was taken on trust and wiped first thing, so a mistyped or inherited argument cost whatever was there. Directories this script builds are stamped, and only a stamped one is removed.
+##		- 20260914: The header names the second thing the gif's repeat rests on, the release stamp on the demo's build.

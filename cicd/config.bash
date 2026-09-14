@@ -180,10 +180,11 @@ RELEASE_TARGETS=(
 )
 
 ## Stage 5: demo gif. Types the scenario's command into a fake terminal, runs it
-## against the dogfooded binary (in a throwaway anonymized repo the scenario
-## builds), renders the 960x540 animated loop (hard-cut boundary). Seeded + pinned
-## commit dates, so an unchanged binary + scenario reproduces the same file byte
-## for byte (the optimizer below is deterministic too, though its version counts).
+## against a build of its own, stamped with the newest release rather than the commit
+## (in a throwaway anonymized repo the scenario builds), renders the 960x540 animated
+## loop (hard-cut boundary). Seeded, with pinned commit dates and that fixed stamp, so
+## a commit that changes nothing the demo prints reproduces the same file byte for
+## byte (the optimizer below is deterministic too, though its version counts).
 ## Skipped by --quick / --no-demogif; self-skips if the scenario is absent.
 DO_DEMOGIF=1
 DEMOGIF_SCENARIO="cicd/utility/demo/demo-scenario.toml"
@@ -214,3 +215,4 @@ PUBLISH_AUTO_MESSAGE=""
 ##		- 2026-08-19 JC: GO_TOOL_VERSIONS: the lint and audit tools ran at whatever version the box had, so a finding could appear or vanish with no change to the tree. Recorded and compared in stage 1, as a warning.
 ##		- 2026-08-19 JC: The installer is back at the repo root, so its two files are linted again - the root install.bash under shellcheck, install.ps1 under a restored PSScriptAnalyzer glob. FreeBSD joins the release matrix, since it cross-builds for free and the installer would otherwise have nothing to offer a BSD.
 ##		- 2026-09-10 JC: BACKLOG_CHECK_CMD joins stage 1.
+##		- 2026-09-14 JC: The demo comment names the build the demo really runs.

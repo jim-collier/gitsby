@@ -95,10 +95,12 @@
 @ supply the very thing the folder rules are supposed to be supplying, and the
 @ demo would be showing something it had not proved.
 @
-@ Commit dates are pinned to a fixed value. That makes the commit hashes, and
-@ therefore every line of output, and therefore the gif bytes, identical run to
-@ run - which is what lets the pipeline rewrite assets/demo.gif only when the
-@ demo really changed.
+@ Commit dates are pinned to a fixed value, and the build the demo runs is
+@ stamped with the newest release rather than with the commit it was built from.
+@ That makes the commit hashes, the version banner, and therefore every line of
+@ output and the gif bytes, identical from one commit to the next - which is what
+@ lets the pipeline rewrite assets/demo.gif only when the demo really changed.
+@ The banner therefore names the last release, not the build in progress.
 @ So: keep every commit message and every edit in this file fixed. In particular
 @ never demo a bare `pullcom` or `sync` with no message - the auto-generated
 @ message is a timestamp, and the gif would differ on every render.
@@ -213,7 +215,7 @@ gitsby account
 @ •••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 @ Closing
 @
-@ The last frame holds for 1.6 seconds, then the gif hard-cuts to black for 2.0
+@ The last frame holds for 1.6 seconds, then the gif hard-cuts to black for 3.0
 @ seconds before looping. The cut is deliberate - a fade would cost real frames,
 @ and a held black frame costs nothing.
 
