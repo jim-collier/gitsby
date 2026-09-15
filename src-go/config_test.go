@@ -11,12 +11,15 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	shcl "github.com/jim-collier/shcl/source/go/v2"
 )
 
 func TestParseConfigValue(t *testing.T) {
@@ -515,6 +518,146 @@ func TestConfigLoadHierarchicalNames(t *testing.T) {
 	}
 	if !slices.Contains(cfg.unknown, "account[../../evil]") {
 		t.Errorf("unknown = %v", cfg.unknown)
+	}
+}
+
+// nestedKeyRows are files with a key indented under another key, which SHCL reads
+// as that key's child and nothing in gitsby reads at all. Each lists what the
+// ignored list must name, and checks that the key above still applies.
+var nestedKeyRows = []struct {
+	name  string
+	body  string
+	want  []string
+	still func(t *testing.T, cfg *config)
+}{
+	{"under a field", "account: w\n\temail: e@x\n\t\tsshkey: k\n",
+		[]string{"account[w].email.sshkey (indented under email)"},
+		func(t *testing.T, cfg *config) { wantValue(t, cfg, "w", "email", "e@x") }},
+	{"under a key nothing reads", "account: w\n\tnonsense: 1\n\t\ttokenfile: /t\n",
+		[]string{"account[w].nonsense", "account[w].nonsense.tokenfile (indented under nonsense)"}, nil},
+	{"under protocol", "protocol: https\n\tsshkey: k\n",
+		[]string{"protocol.sshkey (indented under protocol)"},
+		func(t *testing.T, cfg *config) { wantProtocol(t, cfg, "https") }},
+	{"under a dotted field", "account.w.email: e@x\n\tsshkey: k\n",
+		[]string{"account.w.email.sshkey (indented under email)"},
+		func(t *testing.T, cfg *config) { wantValue(t, cfg, "w", "email", "e@x") }},
+	{"two levels deeper", "account: w\n\tpath: /srv/a\n\t\t\tsshkey: k\n",
+		[]string{"account[w].path.sshkey (indented under path)"},
+		func(t *testing.T, cfg *config) { wantFolders(t, cfg, "w", driveRule("/srv/a")) }},
+	{"a chain", "account: w\n\temail: e@x\n\t\tsshkey: k\n\t\t\tx: y\n",
+		[]string{"account[w].email.sshkey (indented under email)", "account[w].email.sshkey.x (indented under sshkey)"},
+		func(t *testing.T, cfg *config) { wantValue(t, cfg, "w", "email", "e@x") }},
+	{"under a repeated field", "account: w\n\temail: e@x\n\t\tsshkey: k1\n\temail: f@x\n\t\tsshkey: k2\n",
+		[]string{"account[w].email.sshkey (indented under email)"},
+		func(t *testing.T, cfg *config) { wantValue(t, cfg, "w", "email", "f@x") }},
+	{"a block under protocol", "protocol: https\n\taccount: w\n\t\tpath: /srv/a\n",
+		[]string{"protocol.account (indented under protocol)", "protocol.account.path (indented under account)"},
+		func(t *testing.T, cfg *config) {
+			wantProtocol(t, cfg, "https")
+			if len(cfg.accountNames()) != 0 || len(cfg.paths) != 0 {
+				t.Errorf("accounts = %v, rules = %v, want none", cfg.accountNames(), cfg.paths)
+			}
+		}},
+	{"under a top-level key nothing reads", "stray: 1\n\tx: 2\n",
+		[]string{"stray", "stray.x (indented under stray)"}, nil},
+	{"a stacked list", "account: w\n\tpath:\n\t\t* /srv/a\n\t\t* /srv/b\n",
+		nil,
+		func(t *testing.T, cfg *config) { wantFolders(t, cfg, "w", driveRule("/srv/a"), driveRule("/srv/b")) }},
+	{"a raw block", "account: w\n\tname:\n\t\t~~~\n\t\tJim\n\t\t  sshkey: k\n\t\t~~~\n",
+		nil,
+		func(t *testing.T, cfg *config) { wantValue(t, cfg, "w", "name", "Jim\n  sshkey: k") }},
+	{"inside a refused account name", "account: ../../evil\n\tpath: /x\n\t\tsshkey: k\n",
+		[]string{"account[../../evil]"},
+		func(t *testing.T, cfg *config) {
+			if cfg.knowsAccount("../../evil") {
+				t.Error("a traversal name became an account")
+			}
+		}},
+}
+
+func wantValue(t *testing.T, cfg *config, acct, key, want string) {
+	t.Helper()
+	if got := cfg.value(acct, key); got != want {
+		t.Errorf("%s = %q, want %q", key, got, want)
+	}
+}
+
+func wantProtocol(t *testing.T, cfg *config, want string) {
+	t.Helper()
+	if got := cfg.values["protocol"]; got != want {
+		t.Errorf("protocol = %q, want %q", got, want)
+	}
+}
+
+func wantFolders(t *testing.T, cfg *config, acct string, want ...string) {
+	t.Helper()
+	if got := cfg.foldersOf(acct); !slices.Equal(got, want) {
+		t.Errorf("folders = %v, want %v", got, want)
+	}
+}
+
+// A key indented one level too far became the child of the key above it, and the
+// loader never asked a key for its children. The account applied without it, and
+// the line that lists what was ignored left it out.
+func TestConfigLoadNestedKeys(t *testing.T) {
+	for _, row := range nestedKeyRows {
+		t.Run(row.name, func(t *testing.T) {
+			cfg := writeConfig(t, driveFixture(row.body))
+			for _, want := range row.want {
+				if !slices.Contains(cfg.unknown, want) {
+					t.Errorf("unknown = %q, missing %q", cfg.unknown, want)
+				}
+			}
+			if len(cfg.unknown) != len(row.want) {
+				t.Errorf("unknown = %q, want exactly %q", cfg.unknown, row.want)
+			}
+			if row.still != nil {
+				row.still(t, cfg)
+			}
+		})
+	}
+	// The key nothing reads comes first, then what sits under it.
+	cfg := writeConfig(t, nestedKeyRows[1].body)
+	if parent, child := slices.Index(cfg.unknown, nestedKeyRows[1].want[0]), slices.Index(cfg.unknown, nestedKeyRows[1].want[1]); parent < 0 || child < parent {
+		t.Errorf("unknown = %q, want the parent ahead of its child", cfg.unknown)
+	}
+}
+
+// A chain deeper than the parser keeps still loads, lists every level it kept,
+// and names every line it skipped. The kept depth is the module's answer, so a
+// module that moves its cap moves this test with it.
+func TestConfigLoadNestedKeysAtTheDepthCap(t *testing.T) {
+	const chain = 520
+	var body strings.Builder
+	body.WriteString("account: w\n\temail: e@x\n")
+	for n := 1; n <= chain; n++ {
+		fmt.Fprintf(&body, "%sk%d: v\n", strings.Repeat("\t", n+1), n)
+	}
+	cfg := writeConfig(t, body.String())
+	wantValue(t, cfg, "w", "email", "e@x")
+	doc := shcl.Parse(body.String())
+	kept := 0
+	for at := "account[#0].email[#0]"; len(doc.Children(at)) > 0; at += fmt.Sprintf(".k%d[#0]", kept) {
+		kept++
+	}
+	if kept == 0 || kept >= chain {
+		t.Fatalf("the module kept %d of %d levels, so the cap is not under test", kept, chain)
+	}
+	disp, parent := "account[w].email", "email"
+	for n := 1; n <= kept; n++ {
+		key := fmt.Sprintf("k%d", n)
+		if want := disp + "." + key + " (indented under " + parent + ")"; !slices.Contains(cfg.unknown, want) {
+			t.Fatalf("level %d is not listed", n)
+		}
+		disp, parent = disp+"."+key, key
+	}
+	for n := kept + 1; n <= chain; n++ {
+		if want := fmt.Sprintf("line %d (nesting deeper than %d levels; line skipped)", n+2, shcl.MaxDepth); !slices.Contains(cfg.unknown, want) {
+			t.Errorf("line %d is not listed as skipped", n+2)
+		}
+	}
+	if len(cfg.unknown) != chain {
+		t.Errorf("%d entries, want %d: one per level kept and one per line skipped", len(cfg.unknown), chain)
 	}
 }
 

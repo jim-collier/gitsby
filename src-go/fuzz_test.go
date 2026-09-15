@@ -12,10 +12,14 @@
 package main
 
 import (
+	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"unicode"
+
+	shcl "github.com/jim-collier/shcl/source/go/v2"
 )
 
 func FuzzSplitRemoteURL(f *testing.F) {
@@ -79,6 +83,62 @@ func FuzzMaskURL(f *testing.F) {
 			rest := masked[strings.Index(masked, "://")+3:]
 			if at := strings.Index(rest, "@"); at >= 0 && rest[:at] != "***" && !strings.HasSuffix(rest[:at], ":***") {
 				t.Errorf("maskURL(%q) = %q left userinfo unmasked", url, masked)
+			}
+		}
+	})
+}
+
+// indentLines puts prefix ahead of every line of body.
+func indentLines(body, prefix string) string {
+	lines := strings.Split(body, "\n")
+	for i, line := range lines {
+		lines[i] = prefix + line
+	}
+	return strings.Join(lines, "\n")
+}
+
+// Whatever sits under a key gitsby reads is deeper than that key, so the parser
+// puts it beneath the key or skips it - except a raw block fence, which SHCL
+// reads as the key given again with the block as its value, and the last value
+// wins as it does for any repeat. Nothing under the key may reach the model, and
+// every name the module holds under any instance of it must be on the ignored list.
+func FuzzConfigLoadDoc(f *testing.F) {
+	// The refused account name is left out: its body is a block's, not a key's.
+	for _, row := range nestedKeyRows[:len(nestedKeyRows)-1] {
+		f.Add(row.body[strings.IndexByte(row.body, '\n')+1:])
+	}
+	f.Fuzz(func(t *testing.T, body string) {
+		shapes := []struct {
+			doc, key, disp, parent, value string
+			accounts                      []string
+		}{
+			{"account: w\n\temail: e@x\n" + indentLines(body, "\t\t"), "account[#0].email", "account[w].email", "email", "e@x", []string{"w"}},
+			{"account.w.email: e@x\n" + indentLines(body, "\t"), "account[#0].w.email", "account.w.email", "email", "e@x", []string{"w"}},
+			{"protocol: https\n" + indentLines(body, "\t"), "protocol", "protocol", "protocol", "https", nil},
+		}
+		for _, s := range shapes {
+			cfg := writeConfig(t, s.doc)
+			oracle := shcl.Parse(s.doc)
+			want := s.value
+			if n := oracle.Count(s.key); n != 1 {
+				want = oracle.GetStringOr(fmt.Sprintf("%s[#%d]", s.key, n-1), "")
+			}
+			got := cfg.values["protocol"]
+			if s.accounts != nil {
+				got = cfg.value("w", "email")
+			}
+			if got != want {
+				t.Errorf("%q: %s = %q, want %q", s.doc, s.parent, got, want)
+			}
+			if len(cfg.paths) != 0 || len(cfg.segments) != 0 || !slices.Equal(cfg.accountNames(), s.accounts) {
+				t.Errorf("%q: rules %v %v, accounts %v, want no rules and accounts %v", s.doc, cfg.paths, cfg.segments, cfg.accountNames(), s.accounts)
+			}
+			for j := range oracle.Count(s.key) {
+				for _, name := range oracle.Children(fmt.Sprintf("%s[#%d]", s.key, j)) {
+					if entry := s.disp + "." + name + " (indented under " + s.parent + ")"; !slices.Contains(cfg.unknown, entry) {
+						t.Errorf("%q: unknown = %q, missing %q", s.doc, cfg.unknown, entry)
+					}
+				}
 			}
 		}
 	})

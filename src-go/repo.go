@@ -43,6 +43,13 @@ const (
 
 var ownerNameRE = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 
+// lsRemoteAbsentRE is git's wording, and only git's, for a host that was reached
+// and said no: a path that is not a repository, a repository the host does not
+// have, and a credential the host asked for or refused. git asks for one only
+// after the host answers 401, which GitHub and Gitea both do for a repository
+// that isn't there.
+var lsRemoteAbsentRE = regexp.MustCompile(`does not appear to be a git repository|Repository not found\.|(?m:^fatal: repository '.*' not found$)|could not read (?:Username|Password) for '|Authentication failed for '`)
+
 // isLocalPath: a remote that is a directory on this machine, rather than
 // something to connect to.
 func isLocalPath(url string) bool {
@@ -83,17 +90,63 @@ func sameRemote(a, b string) bool {
 // history? No auth prompts - a bad https URL would otherwise stop and ask for
 // credentials mid-run - and the timeout composes onto git's own ssh command, so
 // a per-repo core.sshCommand still probes as the key git actually pushes with.
-func (a *app) probeRemote(url string) repoExistence {
+// The answer is missing only when git's own words say the host was reached and
+// said no; anything else is unknown, with the reason git gave.
+func (a *app) probeRemote(url string) (repoExistence, string) {
 	probe := exec.Command("git", "ls-remote", url)
 	probe.Env = a.remoteEnv()
+	var errText bytes.Buffer
+	probe.Stderr = &errText
 	out, err := probe.Output()
 	if err != nil {
-		return repoMissing
+		return lsRemoteFailure(errText.String(), err)
 	}
 	if strings.TrimRight(string(out), "\r\n") != "" {
-		return repoNonEmpty
+		return repoNonEmpty, ""
 	}
-	return repoEmpty
+	return repoEmpty, ""
+}
+
+// lsRemoteFailure reads why ls-remote failed. Only git's wording for a host that
+// answered no counts as missing: a network that is down, a host key ssh refused
+// and a git that never started are all "couldn't tell", and the reason goes back
+// to the reader.
+func lsRemoteFailure(said string, err error) (repoExistence, string) {
+	// Joined after splitLines, so a CRLF answer still meets the '$' anchor.
+	lines := splitLines(said)
+	if lsRemoteAbsentRE.MatchString(strings.Join(lines, "\n")) {
+		return repoMissing, ""
+	}
+	// ssh puts its warnings ahead of the line that says what went wrong.
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		lower := strings.ToLower(line)
+		if line == "" || strings.HasPrefix(lower, "warning:") || strings.HasPrefix(lower, "hint:") {
+			continue
+		}
+		return repoUnknown, line
+	}
+	if err != nil {
+		return repoUnknown, err.Error()
+	}
+	return repoUnknown, "git gave no reason"
+}
+
+// probedConnect turns what the probe established into create/connect's answer.
+// Only an empty remote is connected to; every other answer, including one the
+// probe could not get, refuses before the plan.
+func probedConnect(url string, state repoExistence, reason string) error {
+	switch state {
+	case repoEmpty:
+		return nil
+	case repoMissing:
+		return usagef("'%s' doesn't exist, or you have no access to it. Create it first, or on GitHub: %s repo create <owner/name>", maskURL(url), meName)
+	case repoNonEmpty:
+		return usagef("'%s' already has history; clone it instead (%s repo clone %s), or reconcile with raw git.", maskURL(url), meName, maskURL(url))
+	default:
+		// Nothing but reaching the host settles it, so no command is offered.
+		return usagef("Couldn't get an answer from '%s', so there is no telling whether it exists: %s", maskURL(url), reason)
+	}
 }
 
 // ghRepoState asks gh what exists at 'owner/name', plus the reason gh gave when
@@ -268,15 +321,12 @@ func (a *app) settleRepoConnectTo() error {
 		return usagef("No remote configured and no target given. Syntax: %s repo connect <url | owner/name>", meName)
 	}
 	if !ownerNameRE.MatchString(a.cmd.arg) || pathExists(a.cmd.arg) {
-		switch a.probeRemote(a.cmd.arg) {
-		case repoMissing:
-			return usagef("Can't reach '%s' (doesn't exist, or no access). Create it first, or on GitHub: %s repo create <owner/name>", maskURL(a.cmd.arg), meName)
-		case repoNonEmpty:
-			return usagef("'%s' already has history; clone it instead (%s repo clone %s), or reconcile with raw git.", maskURL(a.cmd.arg), meName, maskURL(a.cmd.arg))
-		default:
-			a.tgt.connectMode, a.tgt.connectURL = "add", a.cmd.arg
-			return nil
+		state, reason := a.probeRemote(a.cmd.arg)
+		if err := probedConnect(a.cmd.arg, state, reason); err != nil {
+			return err
 		}
+		a.tgt.connectMode, a.tgt.connectURL = "add", a.cmd.arg
+		return nil
 	}
 	// owner/name shorthand: gh can say whether it exists and whether it's empty.
 	if err := mustBeInPath("gh"); err != nil {
