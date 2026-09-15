@@ -155,7 +155,8 @@ func (a *app) cmdRelease() error {
 		if mergeMessage == "" {
 			mergeMessage = "Release " + a.rel.tag
 		}
-		if err := a.step("git", "merge", "--no-ff", devBranch, "-m", mergeMessage); err != nil {
+		// By full ref: git merge reads a tag of the same name ahead of the branch.
+		if err := a.step("git", "merge", "--no-ff", "refs/heads/"+devBranch, "-m", mergeMessage); err != nil {
 			return err
 		}
 	}
@@ -181,13 +182,13 @@ func (a *app) cmdRelease() error {
 	// commit behind. ff-only (not branch -f): if dev moved mid-release, skip rather
 	// than discard work.
 	if devBranch != "" {
-		if !runOK("git", "merge-base", "--is-ancestor", devBranch, mainBranch) {
+		if !runOK("git", "merge-base", "--is-ancestor", "refs/heads/"+devBranch, "refs/heads/"+mainBranch) {
 			a.out.status("WARNING: '" + devBranch + "' gained commits during the release; leaving it as-is.")
 		} else {
 			if err := a.checkout(devBranch); err != nil {
 				return err
 			}
-			if err := a.step("git", "merge", "--ff-only", mainBranch); err != nil {
+			if err := a.step("git", "merge", "--ff-only", "refs/heads/"+mainBranch); err != nil {
 				return err
 			}
 			if a.hasUpstream() {

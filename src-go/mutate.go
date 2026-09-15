@@ -11,6 +11,7 @@
 package main
 
 import (
+	"runtime"
 	"strconv"
 	"strings"
 )
@@ -179,18 +180,52 @@ func (a *app) cmdPrune() error {
 		if !unconfirmed() {
 			break
 		}
-		for _, branch := range runLines("git", "for-each-ref", "--format=%(refname:short)", "--merged", ref, "refs/heads/") {
+		for _, branch := range runLines("git", "for-each-ref", "--format=%(refname:lstrip=2)", "--merged", ref, "refs/heads/") {
 			stillMerged[branch] = true
 		}
 	}
-	var deleteLocal []string
 	for _, branch := range a.prune.local {
 		if !stillMerged[branch] {
 			a.out.status("'" + branch + "' is no longer contained in " + a.mergeTarget() + "; leaving it alone.")
 			heldBack[branch] = true
-			continue
 		}
-		deleteLocal = append(deleteLocal, branch)
+	}
+	// "Leaving it alone" has to mean the remote copy too, or the message is a lie.
+	remoteLeft := func() []string {
+		var branches []string
+		for _, branch := range a.prune.remote {
+			if !heldBack[branch] {
+				branches = append(branches, branch)
+			}
+		}
+		return branches
+	}
+	// Origin is asked before anything is deleted here, so a copy origin has moved
+	// keeps its local branch too. Prune finds its candidates among local branches,
+	// and a second run can't look again at one that is already gone.
+	var onOrigin map[string]string
+	asked := false
+	if remote := remoteLeft(); len(remote) > 0 && !a.isOffline() {
+		onOrigin, asked = a.askOriginHeads()
+		if asked {
+			_, changed, _ := sortRemoteDeletes(remote, a.prune.remoteTip, onOrigin)
+			for _, branch := range changed {
+				heldBack[branch] = true
+			}
+			if len(changed) > 0 {
+				again := "again"
+				if !a.opt.fetch {
+					again = "without --no-fetch"
+				}
+				a.out.status("WARNING: origin's copies of " + strings.Join(changed, ", ") + " have changed since this clone last fetched; kept them here and on origin - '" + meName + " br prune' " + again + " takes a fresh look.")
+			}
+		}
+	}
+	var deleteLocal []string
+	for _, branch := range a.prune.local {
+		if !heldBack[branch] {
+			deleteLocal = append(deleteLocal, branch)
+		}
 	}
 	// One call, not one per branch. Each fork of git costs a process and takes its own
 	// helpers with it, and this is the command most likely to be handed eight branches at
@@ -222,14 +257,7 @@ func (a *app) cmdPrune() error {
 		}
 		a.out.resetBlank()
 	}
-	var deleteRemote []string
-	for _, branch := range a.prune.remote {
-		// "Leaving it alone" has to mean the remote copy too, or the message is a lie.
-		if !heldBack[branch] {
-			deleteRemote = append(deleteRemote, branch)
-		}
-	}
-	doneRemote := a.pruneRemote(deleteRemote)
+	doneRemote := a.pruneRemote(remoteLeft(), onOrigin, asked)
 	// Close with the count, so a wall of git output still ends in a plain answer.
 	a.out.clean("")
 	a.out.status("Pruned " + strconv.Itoa(doneLocal) + " local, " + strconv.Itoa(doneRemote) + " on origin.")
@@ -245,32 +273,22 @@ func (a *app) cmdPrune() error {
 // pruneRemote deletes br prune's remote half and says how many went. The plan was
 // decided from the local copy of origin, which is only as new as the last fetch:
 // --no-fetch, or a prompt left waiting, leaves it older, and a plain delete push
-// removes whatever origin holds by then. So origin is asked just before the push,
-// and each delete is leased on the value that passed the containment check, which
-// covers the moment between the answer and the push.
-func (a *app) pruneRemote(branches []string) int {
+// removes whatever origin holds by then. So cmdPrune asks origin before deleting
+// anything, and each delete is leased on the value that passed the containment
+// check, which covers the moment between the answer and the push. asked is false
+// when origin couldn't be asked, which says nothing about any branch.
+func (a *app) pruneRemote(branches []string, onOrigin map[string]string, asked bool) int {
 	if len(branches) == 0 {
 		return 0
 	}
 	// Same rule br merge keeps: nothing goes out while origin is unreachable, or the
 	// count at the end reads as if it had finished.
-	if a.isOffline() {
-		a.pruneHeldOffline(branches)
-		return 0
-	}
-	onOrigin, asked := a.askOriginHeads()
 	if !asked {
 		a.pruneHeldOffline(branches)
 		return 0
 	}
-	send, changed, gone := sortRemoteDeletes(branches, a.prune.remoteTip, onOrigin)
-	if len(changed) > 0 {
-		again := "again"
-		if !a.opt.fetch {
-			again = "without --no-fetch"
-		}
-		a.out.status("WARNING: origin's copies of " + strings.Join(changed, ", ") + " have changed since this clone last fetched; left them alone - '" + meName + " br prune' " + again + " takes a fresh look.")
-	}
+	// A copy origin moved was held back with its local branch, so none is left here.
+	send, _, gone := sortRemoteDeletes(branches, a.prune.remoteTip, onOrigin)
 	// Not a warning: gone is what was asked for. Left out of the push, since one delete of a
 	// missing ref makes git send none of them.
 	if len(gone) > 0 {
@@ -279,8 +297,11 @@ func (a *app) pruneRemote(branches []string) int {
 	done := 0
 	var stillThere []string
 	for _, args := range leaseDeleteBatches(send, a.prune.remoteTip, leasePushBudget) {
-		// The branch names close the list, one for each lease.
-		batch := args[len(args)-(len(args)-3)/2:]
+		// The refs close the list, one for each lease.
+		var batch []string
+		for _, ref := range args[len(args)-(len(args)-3)/2:] {
+			batch = append(batch, strings.TrimPrefix(ref, "refs/heads/"))
+		}
 		a.out.clean("")
 		a.out.status("git push --force-with-lease origin --delete " + strings.Join(batch, " ") + " ...")
 		if a.inheritOK("git", args...) {
@@ -306,7 +327,13 @@ func (a *app) pruneRemote(branches []string) int {
 }
 
 // pruneHeldOffline is the one wording for origin's copies held back because origin
-// can't be reached, whether the fetch found that or the delete-time ask did.
+// can't be reached, whether the fetch found that or the delete-time ask did. The
+// local branches are gone by then, so another prune would find nothing to look at.
+// It names the deletes themselves instead, leased on what was checked.
 func (a *app) pruneHeldOffline(branches []string) {
-	a.out.status("WARNING: remote unreachable; left origin's copies of " + strings.Join(branches, ", ") + " alone - '" + meName + " br prune' again once online.")
+	a.out.status("WARNING: remote unreachable; left origin's copies of " + strings.Join(branches, ", ") + " alone.")
+	a.out.clean("  Once origin can be reached, these delete them. Each one stops if that branch has moved:")
+	for _, branch := range branches {
+		a.out.clean(pad + leaseDeleteLine(branch, a.prune.remoteTip[branch], runtime.GOOS))
+	}
 }
