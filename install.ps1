@@ -6,22 +6,25 @@
 .DESCRIPTION
     Shows the plan and asks first. Runs on Windows PowerShell 5.1 as well as PowerShell 7+,
     since 5.1 is what a fresh Windows install has; what it installs is a static binary and
-    needs no PowerShell at all. Meant for one-liner use:
-        irm https://raw.githubusercontent.com/jim-collier/gitsby/main/install.ps1 | iex
-    With options:
-        & ([scriptblock]::Create((irm https://raw.githubusercontent.com/jim-collier/gitsby/main/install.ps1))) -System -Yes
-.PARAMETER Target
-    'user' for a per-user install (default), or 'system' for all users.
-.PARAMETER Arch
-    Which binary to fetch: 'amd64' or 'arm64'. Detected from this machine by default.
-.PARAMETER System
-    Install for all users. The same thing as -Target system.
-.PARAMETER Yes
-    Don't ask for confirmation.
-.PARAMETER Tag
-    Install a specific published release tag instead of the latest.
-.PARAMETER Help
-    Show the options and exit. '--help' is accepted too.
+    needs no PowerShell at all.
+
+    Options:
+        -Target user|system   Install for you (default) or for all users.
+        -System               The same thing as -Target system.
+        -Arch amd64|arm64     Which binary to fetch. Detected from this machine by default.
+        -Tag TAG              A published release tag (default: the latest release).
+        -Ref TAG              The older name for -Tag.
+        -Yes                  Don't ask for confirmation.
+        -Help                 Show the options and exit. '--help' works too.
+        -Release stable       The older name for the default. -Release dev is gone.
+    The Bash installer's spellings work as well, such as --target=system and --yes.
+
+    The options are listed here rather than as parameter help. They belong to the function
+    inside, since a script-level param() block breaks the iex one-liner.
+.EXAMPLE
+    irm https://raw.githubusercontent.com/jim-collier/gitsby/main/install.ps1 | iex
+.EXAMPLE
+    & ([scriptblock]::Create((irm https://raw.githubusercontent.com/jim-collier/gitsby/main/install.ps1))) -System -Yes
 .NOTES
     Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
     Licensed under The MIT License (MIT). Full text at: https://mit-license.org/
@@ -79,9 +82,10 @@ function Install-Gitsby {
         Write-Host '  -System               The same thing as -Target system.'
         Write-Host '  -Arch amd64|arm64     Which binary to fetch. Detected from this machine by default.'
         Write-Host '  -Tag TAG              A published release tag (default: the latest release).'
+        Write-Host '  -Ref TAG              The older name for -Tag.'
         Write-Host '  -Yes                  Do not ask for confirmation.'
         Write-Host '  -Help                 This.'
-        Write-Host "  -Release              Took 'dev' or 'stable' when gitsby was a script; takes neither now."
+        Write-Host "  -Release stable       The older name for the default. '-Release dev' is gone."
         Write-Host ''
         return
     }
@@ -94,7 +98,7 @@ function Install-Gitsby {
         throw "There is no '-Release dev' any more: gitsby is a compiled binary, and a branch has no published build. Take a release with '-Tag TAG', or build the tip yourself: git clone https://github.com/${repo}.git; cd gitsby/src-go; go build -o gitsby ."
     }
     if ($Release -and $Release -ne 'stable') {
-        throw "-Release only ever took 'dev' or 'stable', and now takes neither; use '-Tag TAG' for a specific release."
+        throw "-Release takes only 'stable' now, which is the default; use '-Tag TAG' for a specific release."
     }
     # The tag lands in a download URL, so a path-shaped one walks out of this repo and installs
     # somebody else's binary while the plan on screen still names ours. ValidatePattern admits
@@ -140,12 +144,26 @@ function Install-Gitsby {
     # reports a malformed tag as whatever the surrounding catch happens to say.
     $tagName = $Tag
     if (-not $tagName) {
+        # 7's headers have Location as a property and no string indexer. 5.1's are a
+        # WebHeaderCollection, where the indexer works and the property is an error under strict
+        # mode. Anything unreadable counts as no answer, so the list lookup below still runs.
+        function Read-LocationHeader($response) {
+            try {
+                $headers = $response.Headers
+                if ($headers -is [Collections.IDictionary] -or $headers -is [Collections.Specialized.NameValueCollection]) {
+                    return [string]@($headers['Location'])[0]
+                }
+                return [string]$headers.Location
+            } catch { return '' }
+        }
         $location = ''
         try {
-            $resp = Invoke-WebRequest -Uri "https://github.com/${repo}/releases/latest" -MaximumRedirection 0 -UseBasicParsing -ErrorAction Stop
-            $location = [string]$resp.Headers.Location
+            # Not Stop. On 5.1 that turns the redirect into an error with no response attached, and
+            # only carrying on hands back the 302 itself. 7 throws either way, response and all.
+            $resp = Invoke-WebRequest -Uri "https://github.com/${repo}/releases/latest" -MaximumRedirection 0 -UseBasicParsing -ErrorAction SilentlyContinue
+            $location = Read-LocationHeader $resp
         } catch {
-            if ($_.Exception.PSObject.Properties['Response'] -and $_.Exception.Response) { $location = [string]$_.Exception.Response.Headers.Location }
+            if ($_.Exception.PSObject.Properties['Response'] -and $_.Exception.Response) { $location = Read-LocationHeader $_.Exception.Response }
         }
         if ($location -match '/releases/tag/([^/\s]+)') { $tagName = $Matches[1] }
     }
@@ -155,10 +173,13 @@ function Install-Gitsby {
         # find. That is the case this exists for - and it used to ask the same endpoint again,
         # which fails identically. The list endpoint comes back newest-first.
         try {
-            $releases = @(Invoke-RestMethod -Uri "https://api.github.com/repos/${repo}/releases" -UseBasicParsing)
+            $releaseList = Invoke-RestMethod -Uri "https://api.github.com/repos/${repo}/releases" -UseBasicParsing
         } catch {
             throw "Couldn't work out the latest release of ${repo}. GitHub may be unreachable, or rate-limiting this address (60 requests an hour, unauthenticated). A specific release always works: -Tag TAG. ($($_.Exception.Message))"
         }
+        # Wrapped only once assigned. 5.1 sends the whole array down the pipeline as one object,
+        # so @() around the call made a list of one, and every tag name came out as one tag.
+        $releases = @($releaseList)
         # Highest version wins, not newest-listed: the list is ordered by publish date, so a
         # backported fix cut after a newer release would otherwise resolve as latest. The
         # numeric fields decide; Sort-Object is stable, so a tie keeps the newer-listed entry.
@@ -172,6 +193,7 @@ function Install-Gitsby {
             $tagName = [string]$newestFull.tag_name
         } elseif ($releases.Count -gt 0) {
             $tagName = [string](@($releases | Sort-Object -Property @{Expression = $tagVersion} -Descending)[0].tag_name)
+            Write-Host ''
             Write-Host "[ No full release yet; taking the newest pre-release, ${tagName}. ]"
         } else {
             throw "${repo} has published no releases, so there is nothing to install. Build the tip yourself: git clone https://github.com/${repo}.git; cd gitsby/src-go; go build -o gitsby ."
@@ -219,13 +241,30 @@ function Install-Gitsby {
         $destPath = Join-Path -Path $destDir -ChildPath 'gitsby'
     }
 
+    # Found out here rather than at the copy, after the download. Elevating was passed over:
+    # the iex and scriptblock forms have no file to start again as administrator.
+    function Test-Writable([string]$dir) {
+        $probeDir = $dir
+        while ($probeDir -and -not (Test-Path -LiteralPath $probeDir -PathType Container)) { $probeDir = Split-Path -Path $probeDir -Parent }
+        if (-not $probeDir) { return $false }
+        try {
+            $probe = [IO.File]::Create((Join-Path -Path $probeDir -ChildPath ('.gitsby.probe.' + [IO.Path]::GetRandomFileName())), 1, [IO.FileOptions]::DeleteOnClose)
+            $probe.Dispose()
+            return $true
+        } catch { return $false }
+    }
+    if ($installSystemWide -and -not (Test-Writable $destDir)) {
+        $elevate = if ($onWindows) { 'Run PowerShell as administrator' } else { 'Run it with sudo' }
+        throw "Installing for all users needs write access to ${destDir}, which this shell doesn't have. ${elevate}, or install for this account alone, which is the default."
+    }
+
     Write-Host ''
     Write-Host '[ gitsby installer (PowerShell) ]'
     Write-Host 'This will:'
     Write-Host "  - Download ${asset} (${tagName}) from github.com/${repo}"
     Write-Host '  - Verify it against the release''s published SHA256SUMS'
-    Write-Host "  - Install it to ${destPath}"
-    if ($installSystemWide) { Write-Host '  - Need write access to that directory (run elevated / via sudo)' }
+    if (Test-Path -LiteralPath $destPath) { Write-Host "  - Install it to ${destPath}, replacing the one already there" }
+    else { Write-Host "  - Install it to ${destPath}" }
     # Windows puts nothing on PATH for you, so without this the install finishes with a program
     # that cannot be run by name. On *nix the destination is a conventional bin dir already.
     if ($onWindows -and (($env:PATH -split [IO.Path]::PathSeparator) -notcontains $destDir)) {
@@ -265,7 +304,8 @@ function Install-Gitsby {
         }
 
         $got = (Get-FileHash -Algorithm SHA256 -LiteralPath $tmpFile).Hash
-        if ($got -ne $want) { throw "Checksum mismatch for ${asset}; aborting. (Corrupted download or tampering.)" }
+        # Get-FileHash answers in upper case and SHA256SUMS is written in lower.
+        if ($got.ToLowerInvariant() -cne $want.ToLowerInvariant()) { throw "Checksum mismatch for ${asset}; aborting. (Corrupted download or tampering.)" }
         Write-Host '[ Checksum verified. ]'
 
         Write-Host ''
@@ -298,11 +338,13 @@ function Install-Gitsby {
 
         Write-Host ''
         Write-Host '[ Verifying ... ]'
-        & $destPath --version
-        # A native command's nonzero exit does not trip $ErrorActionPreference, and nothing here
-        # read $LASTEXITCODE - so a binary that could not run at all was reported as installed.
-        if ($LASTEXITCODE -ne 0) {
-            throw "Installed ${destPath}, but it would not run (exit ${LASTEXITCODE}). The download verified against the release checksum, so this is the binary not being runnable on this machine rather than a bad download."
+        # Two ways to fail here. A binary that can't start at all throws, and one that starts and
+        # fails only sets $LASTEXITCODE, which $ErrorActionPreference never sees.
+        $startError = ''
+        try { & $destPath --version } catch { $startError = $_.Exception.Message }
+        if ($startError -or $LASTEXITCODE -ne 0) {
+            $how = if ($startError) { $startError } else { "exit ${LASTEXITCODE}" }
+            throw "Installed ${destPath}, but it would not run (${how}). The download verified against the release checksum, so this is the binary not being runnable on this machine rather than a bad download."
         }
 
         $pathSep = [IO.Path]::PathSeparator
@@ -353,13 +395,38 @@ try {
     # '--help' is what the README documents for both installers, and what anyone types out of
     # habit. PowerShell's binder would only ever report it as a parameter nobody has heard of.
     if (@($args) | Where-Object { $_ -in '--help', '-h', '/?', '-?' }) { Install-Gitsby -Help }
-    else { Install-Gitsby @args }
+    else {
+        # The Bash installer's long options, with the value joined by '=' or apart. In a child
+        # scope, since under iex a variable set at this level is set in the caller's session.
+        & {
+            $named = @{}
+            $rest = @()
+            for ($i = 0; $i -lt $args.Count; $i++) {
+                $word = $args[$i]
+                if ($word -is [string] -and $word -match '^--(target|arch|tag|ref|release)(=(.*))?$') {
+                    $name = $Matches[1]
+                    if ($Matches[2]) { $named[$name] = $Matches[3] }
+                    elseif ($i + 1 -lt $args.Count) { $i++; $named[$name] = [string]$args[$i] }
+                    else { throw "--${name} needs a value." }
+                } elseif ($word -is [string] -and $word -match '^--(system|yes)$') {
+                    $named[$Matches[1]] = $true
+                } else {
+                    $rest += $word
+                }
+            }
+            Install-Gitsby @named @rest
+        } @args
+    }
 } catch {
     # Run from a file: report plainly and exit nonzero, so callers and CI see the failure -
     # a parameter-binding error against @args would otherwise leave the exit code at 0.
     # Evaluated as text (iex / scriptblock): rethrow, because 'exit' would end the session.
+    # A blank line either side, like every other block of output. Rethrown, PowerShell prints
+    # the error itself, so only the line before it is ours.
+    [Console]::Error.WriteLine('')
     if ($PSCommandPath) {
         [Console]::Error.WriteLine("install.ps1: $($_.Exception.Message)")
+        [Console]::Error.WriteLine('')
         exit 1
     }
     throw
@@ -406,3 +473,9 @@ try {
 #     defined as the newest release that is NOT a pre-release - so on a repo whose newest
 #     publication is one, the fallback failed exactly as the primary had, and blamed rate
 #     limiting for it.
+#   - 20260915 JC: The latest release is found on Windows PowerShell 5.1. There the redirect
+#     came back as an error with no response, and the list behind it arrived as one item, so
+#     every tag name made one tag. A system install that can't write its folder is refused
+#     before the plan. The comment help lists the options, the Bash installer's long options
+#     work, and a binary that can't start gets the "would not run" message. -Help lists -Ref,
+#     errors have a blank line either side, and the plan says when it replaces a copy.

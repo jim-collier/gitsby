@@ -35,9 +35,10 @@ fSyntax(){
 	  -s, --system           The same thing as --target system.
 	  --arch amd64|arm64     Which binary to fetch. Detected from this machine by default.
 	  -t, --tag TAG          A published release tag (default: the latest release).
+	  -r, --ref TAG          The older name for --tag.
 	  -y, --yes              Don't ask for confirmation.
 	  -h, --help             This.
-	  --release              Took 'dev' or 'stable' when gitsby was a script; takes neither now.
+	  --release stable       The older name for the default. '--release dev' is gone.
 	EOF
 	echo
 }
@@ -85,7 +86,7 @@ case "${releaseChannel}" in
 	"") : ;;
 	stable) : ;;
 	dev) fErr "There is no '--release dev' any more: gitsby is a compiled binary, and a branch has no published build. Take a release with '--tag TAG', or build the tip yourself: git clone https://github.com/${repo}.git && cd gitsby/src-go && go build -o gitsby ." ;;
-	*)   fErr "--release only ever took 'dev' or 'stable', and now takes neither; use '--tag TAG' for a specific release." ;;
+	*)   fErr "--release takes only 'stable' now, which is the default; use '--tag TAG' for a specific release." ;;
 esac
 
 ## The tag lands in a download URL, so a path-shaped one walks out of this repo and installs
@@ -167,7 +168,7 @@ if [[ -z "${tag}" ]]; then
 		tag="$(printf '%s\n' "${releaseFacts}" | fPickTag false || true)"
 		if [[ -z "${tag}" ]]; then
 			tag="$(printf '%s\n' "${releaseFacts}" | fPickTag any || true)"
-			[[ -z "${tag}" ]] || fEcho "No full release yet; taking the newest pre-release, ${tag}."
+			[[ -z "${tag}" ]] || { echo; fEcho "No full release yet; taking the newest pre-release, ${tag}."; }
 		fi
 	fi
 	[[ -n "${tag}" ]] || fErr "Couldn't work out the latest release of ${repo}. GitHub may be unreachable, or rate-limiting this address (60 requests an hour, unauthenticated). A specific release always works: --tag TAG."
@@ -188,15 +189,20 @@ fi
 ## publishes a binary for this platform, and what that binary should hash to. Fetching it up
 ## front means the plan can promise a specific file, before anything large is downloaded.
 base="https://github.com/${repo}/releases/download/${tag}"
-sums="$(fFetch "${base}/SHA256SUMS" 2>/dev/null || true)"
+## Either case of hash and either line ending, as sha256sum -c and the PowerShell installer take.
+sums="$(fFetch "${base}/SHA256SUMS" 2>/dev/null | tr -d '\r' || true)"
 [[ -n "${sums}" ]] || fErr "Release ${tag} publishes no SHA256SUMS, so nothing here can be verified. (A release published seconds ago may not be servable yet; try again shortly.)"
-want="$(printf '%s\n' "${sums}" | sed -n "s/^\([0-9a-f]\{64\}\)[[:space:]]*\*\{0,1\}${asset}\$/\1/p" | head -n 1)"
+want="$(printf '%s\n' "${sums}" | sed -n "s/^\([0-9a-fA-F]\{64\}\)[[:space:]]*\*\{0,1\}${asset}\$/\1/p" | head -n 1 | tr '[:upper:]' '[:lower:]')"
 if [[ -z "${want}" ]]; then
-	echo "Error: release ${tag} publishes no gitsby binary for ${goOs}/${arch}." >&2
-	published="$(printf '%s\n' "${sums}" | sed -n 's/^[0-9a-f]\{64\}[[:space:]]*\*\{0,1\}gitsby-//p' | sed 's/\.exe$//' | paste -sd, - | sed 's/,/, /g')"
-	[[ -n "${published}" ]] && echo "  It publishes: ${published}" >&2
-	echo "  Build it for yours instead - the module is pure Go with no dependencies:" >&2
-	echo "    git clone https://github.com/${repo}.git && cd gitsby/src-go && go build -o gitsby ." >&2
+	{
+		echo
+		echo "Error: release ${tag} publishes no gitsby binary for ${goOs}/${arch}."
+		published="$(printf '%s\n' "${sums}" | sed -n 's/^[0-9a-fA-F]\{64\}[[:space:]]*\*\{0,1\}gitsby-//p' | sed 's/\.exe$//' | paste -sd, - | sed 's/,/, /g')"
+		[[ -z "${published}" ]] || echo "  It publishes: ${published}"
+		echo "  Build it for yours instead - the module is pure Go with no dependencies:"
+		echo "    git clone https://github.com/${repo}.git && cd gitsby/src-go && go build -o gitsby ."
+		echo
+	} >&2
 	exit 1
 fi
 
@@ -211,7 +217,9 @@ fEcho "gitsby installer"
 echo "This will:"
 echo "  - Download ${asset} (${tag}) from github.com/${repo}"
 echo "  - Verify it against the release's published SHA256SUMS"
-echo "  - Install it to ${destDir}/gitsby"
+if [[ -e "${destDir}/gitsby" ]]; then echo "  - Install it to ${destDir}/gitsby, replacing the one already there"
+else echo "  - Install it to ${destDir}/gitsby"
+fi
 [[ -d "${destDir}" ]] || echo "  - Create ${destDir} (it doesn't exist yet)"
 [[ ${needSudo} -eq 1 ]] && echo "  - Use sudo for the install step (you may be prompted for your password)"
 echo "  - Run 'gitsby --version' to verify"
@@ -224,7 +232,7 @@ if [[ ${doYes} -eq 0 ]]; then
 	elif { : </dev/tty; } 2>/dev/null; then read -r -p "Continue? [y/N] " answer </dev/tty
 	else fErr "No terminal to confirm on; re-run with -y (e.g. '| bash -s -- -y')."
 	fi
-	case "${answer}" in y|Y|yes|Yes|YES) ;; *) echo "Aborted."; exit 1 ;; esac
+	case "${answer}" in y|Y|yes|Yes|YES) ;; *) echo; echo "Aborted."; echo; exit 1 ;; esac
 fi
 
 tmpFile="$(mktemp "${TMPDIR:-/tmp}/gitsby-install.XXXXXX")"
@@ -241,7 +249,7 @@ case "$(head -c 1 "${tmpFile}")" in
 	'<') fErr "The download came back as a web page, not a binary - something between here and GitHub is intercepting it." ;;
 esac
 
-got="$(fSha256 "${tmpFile}")"
+got="$(fSha256 "${tmpFile}" | tr '[:upper:]' '[:lower:]')"
 [[ "${got}" = "${want}" ]] || fErr "Checksum mismatch for ${asset}; aborting. (Corrupted download or tampering.)"
 fEcho "Checksum verified."
 
@@ -268,7 +276,7 @@ staged=""
 
 echo
 fEcho "Verifying ..."
-"${destDir}/gitsby" --version
+"${destDir}/gitsby" --version || fErr "Installed ${destDir}/gitsby, but it would not run (exit $?). The download verified against the release checksum, so this is the binary not being runnable on this machine rather than a bad download."
 case ":${PATH}:" in
 	*":${destDir}:"*) ;;
 	*) echo "Note: ${destDir} isn't on your PATH; add it in your shell profile." ;;
@@ -287,3 +295,4 @@ echo
 ##		- 20260819 JC: The release lookup no longer takes the run out with it. Under 'set -e' an assignment carries its command's status, so a curl that failed - or a wget that answered a declined redirect with exit 8, having already printed the very header it was sent for - ended the install silently, past the fallback and past the message that explains it.
 ##		- 20260819 JC: The release fallback is one. Both routes asked releases/latest, which GitHub defines as the newest release that is NOT a pre-release - so on a repo whose newest publication is one, the fallback failed in exactly the way the primary had, and blamed rate limiting for it. The list endpoint answers instead, newest first, preferring a full release and saying so when only a candidate exists.
 ##		- 20260819 JC: The binary is staged in the destination directory and renamed over the target. Written in place, an interrupt mid-copy left a truncated executable that had passed its checksum under another name, and re-installing over a copy that was running failed outright. --help lists every option the parser accepts.
+##		- 20260915 JC: SHA256SUMS is read with either case of hash and with CRLF line ends. --help lists --ref, and says --release stable still names the default. The no-binary refusal, a declined prompt and the pre-release notice have a blank line either side. The plan says when it replaces a copy, and a binary that won't run is named with its exit code.

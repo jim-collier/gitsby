@@ -61,30 +61,6 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 	- Fix order: by class, each class across all its sites in one group of commits. 5 with 11 (unknown is listed, unknown is not missing); 9 with 19 (preview follows command, one spawn per run); 3 and 8 without moving the decisions they sit on; 12 and 20 only once reproduced. 15 and 16 early, since the pipeline is what proves the rest.
 	- Note: about twelve of the twenty sit in code that rounds 20260819b, c, d and 20260821 declared clean. Those rounds read the Go and grepped the rest.
 
-	- 🔘 Code Review 20260909 item 12: install.ps1 fails on Windows PowerShell 5.1 in the default lookup.
-		- Cause: the release lookup reads a header through a property that exists on version 7's object and not on 5.1's. Strict mode turns that into an error inside the handler, so the fallback below is never reached.
-		- Note: 5.1 is the shell Windows ships and the documented one-liner path. Read rather than reproduced on 5.1 itself, though the two object shapes were checked.
-		- Probable fix: read the header by name through the indexer, and let a failure there fall through to the list lookup.
-		- Origin: 200310a; 20260819a item 33 added 5.1 support and missed this line. Plausible: read, not run on 5.1.
-		- Not fixed until reproduced on 5.1, or pinned by a check that fails on the current file.
-
-	- 🔘 Code Review 20260909 item 13: five more flaws in install.ps1.
-		- A system install promises write access it never checks, does not elevate, and fails after the download with a raw error. The bash one checks, and says up front that it will use sudo.
-		- The documented parameters are unreachable: they sit on the inner function, so help shows a syntax line carrying no options at all.
-		- The joined `--target=value` form is refused, though the bash one takes it and the documented spelling uses it.
-		- The checksum compare works only because the operator is case-insensitive by default. A case-sensitive one would fail every good install.
-		- The message for a binary that will not run is unreachable in the common case, because a launch failure is a terminating error and the outer handler prints raw text instead.
-		- Origin: 200310a. Four of the five were in the 20260819a notes as seen and not filed. The parameter help is fallout from 20260821 item 2, which bound the help to a script that has no parameters. Confirmed against a local mock.
-
-	- 🔘 Code Review 20260909 item 14: six flaws in install.bash, or shared by both installers.
-		- An uppercase hash in the checksums file makes it report the asset as absent and then name nothing. The PowerShell one accepts the same file.
-		- `--release stable` is accepted, while the help and the error text both say the option takes neither value.
-		- `--ref` is accepted and missing from `--help`, against the file's own note that help lists every option.
-		- Several exit paths skip the blank line framing: the "publishes no binary for this platform" block, the declined prompt, the pre-release notice, and every error the PowerShell one raises.
-		- Neither plan says it will overwrite an existing install.
-		- Nothing is said when the installed binary will not run. The run simply ends.
-		- Origin: 200310a. Five of the six were in the 20260819a notes as seen and not filed. Confirmed against a local mock.
-
 	- 🔘 Code Review 20260909 item 17: pipeline housekeeping.
 		- The two "have I seen this yet" markers live inside the working tree. A clean checkout loses them.
 		- The lint report counts a filename as a warning, because one source file has the word error in its name. This is the second time that report has matched something that was never a warning.
@@ -165,6 +141,7 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- The README does not say how to pass a flag to the bash one-liner, though the script knows the answer in a comment nobody sees.
 		- The two release sorters have no tie-break between two pre-releases of one version. Unreachable today, since the full-release pass runs first; wants a comment, not code.
 		- Origin: the writability and sudo bullets were in the 20260819a notes as seen and not filed; the tie-break was the 20260909 round's own deferral. Plausible: read.
+		- Note: since item 13, install.ps1 checks write access for a system install before the plan. The user scope can reuse that check.
 
 	- 🔘 Code Review 20260909 enhancement 11: preallocate the slices whose size is already known, about fourteen of them. The style guide could also use a Go performance section, and its package-variable rule needs widening: five variables that Go cannot express as constants currently read as standing violations.
 		- Origin: new. The five package variables were flagged by 20260819a items 21-25 and left as the ones Go cannot make constants.
@@ -343,6 +320,46 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 - ✅ Code review 20260909 - the closed part of the pass against the standing directives. The rest is still open under Bugs.
 	- Opened: 20260909-184419
+
+	- ✅ Code Review 20260909 item 14: six flaws in install.bash, or shared by both installers.
+		- Closed: 20260915-144923
+		- An uppercase hash in the checksums file makes it report the asset as absent and then name nothing. The PowerShell one accepts the same file.
+		- `--release stable` is accepted, while the help and the error text both say the option takes neither value.
+		- `--ref` is accepted and missing from `--help`, against the file's own note that help lists every option.
+		- Several exit paths skip the blank line framing: the "publishes no binary for this platform" block, the declined prompt, the pre-release notice, and every error the PowerShell one raises.
+		- Neither plan says it will overwrite an existing install.
+		- Nothing is said when the installed binary will not run. The run simply ends.
+		- Origin: 200310a. Five of the six were in the 20260819a notes as seen and not filed. Confirmed against a local mock.
+		- Fixed: `SHA256SUMS` is read with either case of hash and with CRLF line ends, and the platforms it lists come through either way. `--release stable` stays, and the help and the refusal say it names the default. `--help` lists `-r` and `--ref`, and install.ps1's `-Help` lists `-Ref`. The no-binary refusal, a declined prompt and the pre-release notice have a blank line either side, in both installers, and so does every error install.ps1 prints when run as a file. Both plans say when they replace an installed copy. install.bash says when the installed binary won't run, with its exit code. Recorded in design.md.
+		- Decided against: refusing `--release stable`. It always meant the latest release, which an install without it still takes.
+		- Note: run through `iex` or a script block, install.ps1 rethrows and PowerShell prints the error, so only the blank line before it is the installer's.
+		- Sweep: both checksum readers, both help texts and both plans. install.bash lowers its own hash too, not just the file's. The help checks read the options off the Bash parser's `case` arms and the PowerShell function's parameters and aliases, so a new option can't be left out again.
+		- Changed check: "go installer refuses any other --release" matched "now takes neither", the text for refusing both values. It matches "takes only 'stable'" now, since `stable` was never refused.
+		- Verified: 17 new checks in test.bash. 15 fail on the tree before, along with the changed check. Two are regression guards: `--release stable` still installs, and a first install says nothing of replacing. The declined-prompt check needs `script`.
+
+	- ✅ Code Review 20260909 item 13: five more flaws in install.ps1.
+		- Closed: 20260915-144923
+		- A system install promises write access it never checks, does not elevate, and fails after the download with a raw error. The bash one checks, and says up front that it will use sudo.
+		- The documented parameters are unreachable: they sit on the inner function, so help shows a syntax line carrying no options at all.
+		- The joined `--target=value` form is refused, though the bash one takes it and the documented spelling uses it.
+		- The checksum compare works only because the operator is case-insensitive by default. A case-sensitive one would fail every good install.
+		- The message for a binary that will not run is unreachable in the common case, because a launch failure is a terminating error and the outer handler prints raw text instead.
+		- Origin: 200310a. Four of the five were in the 20260819a notes as seen and not filed. The parameter help is fallout from 20260821 item 2, which bound the help to a script that has no parameters. Confirmed against a local mock.
+		- Fixed: a system install that can't write its folder is refused before the plan, naming the folder and saying to run as administrator, or with sudo off Windows. The comment help lists every option in its description, since a script-level `param()` breaks the `iex` one-liner. The Bash installer's long options work, with the value joined by `=` or apart. The checksum compare lowers both sides and says so. A binary that can't start gets the same "would not run" message as one that exits nonzero. Recorded in design.md.
+		- Decided against: elevating. The `iex` and script block forms have no file to start again as administrator.
+		- Sweep: the plan's "run elevated" line went, since the refusal now comes first. A user-scope install still has no write check; that is the first bullet of enhancement 10.
+		- Verified: 9 new checks in test.bash, running whole installs with the web cmdlets stubbed. Eight fail on the tree before, and a tagged install asking for no latest release is a guard. On vm925w, under Windows PowerShell 5.1 and PowerShell 7.6, the long options, both help texts and the script block form all work with the same stubs, and the script block leaves no variable behind. `gover` fails all of those. The system-scope refusal and a binary that can't start were checked on Linux only.
+
+	- ✅ Code Review 20260909 item 12: install.ps1 fails on Windows PowerShell 5.1 in the default lookup.
+		- Closed: 20260915-144923
+		- Reproduced: on 5.1, against the real releases, the default install stopped with "The resolved release tag ('v2.1.0 v2.0.2 v2.0.1 v2.0.0 v1.0.1 v1.0.0') isn't a plain git tag". PowerShell 7 resolved v2.1.0.
+		- Cause: not the one filed. Asked to stop on errors, 5.1 answers the redirect with an error that holds no response, so the header is never read. The list lookup behind it got 5.1's whole array as one item, so every tag name made one tag.
+		- Note: the filed cause is real one step on. With no full release, 5.1's 404 carries headers where reading Location as a property is an error under strict mode, and the run ended inside the catch.
+		- Note: 5.1 is the shell Windows ships and the documented one-liner path.
+		- Origin: 200310a; 20260819a item 33 added 5.1 support and missed these lines. Filed as Plausible, since read. Confirmed on 5.1.
+		- Fixed: the redirect is asked for without stopping on an error, which on 5.1 hands back the 302 itself. The header is read by name on either version's object, and anything unreadable falls through to the list. The list is assigned before it is wrapped.
+		- Sweep: every web call in install.ps1. The `SHA256SUMS` and asset downloads read no header and return one object.
+		- Verified: 4 new checks in test.bash, with the stubs answering the way each version does. Three fail on the tree before, and reading 7's redirect is a guard. test.bash 977 -> 1007 with items 13 and 14, the Go tests and the pre-push gate green. On vm925w, 5.1 and 7.6 both resolve v2.1.0 from the real releases and stop at its missing Windows binary, where `gover` on 5.1 stops at the joined tag.
 
 	- ✅ Code Review 20260909 item 8: three flaws in `account set`.
 		- Closed: 20260915-132814
