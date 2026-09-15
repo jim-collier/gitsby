@@ -158,7 +158,9 @@ function Install-Gitsby {
         }
         $location = ''
         try {
-            $resp = Invoke-WebRequest -Uri "https://github.com/${repo}/releases/latest" -MaximumRedirection 0 -UseBasicParsing -ErrorAction Stop
+            # Not Stop. On 5.1 that turns the redirect into an error with no response attached, and
+            # only carrying on hands back the 302 itself. 7 throws either way, response and all.
+            $resp = Invoke-WebRequest -Uri "https://github.com/${repo}/releases/latest" -MaximumRedirection 0 -UseBasicParsing -ErrorAction SilentlyContinue
             $location = Read-LocationHeader $resp
         } catch {
             if ($_.Exception.PSObject.Properties['Response'] -and $_.Exception.Response) { $location = Read-LocationHeader $_.Exception.Response }
@@ -171,10 +173,13 @@ function Install-Gitsby {
         # find. That is the case this exists for - and it used to ask the same endpoint again,
         # which fails identically. The list endpoint comes back newest-first.
         try {
-            $releases = @(Invoke-RestMethod -Uri "https://api.github.com/repos/${repo}/releases" -UseBasicParsing)
+            $releaseList = Invoke-RestMethod -Uri "https://api.github.com/repos/${repo}/releases" -UseBasicParsing
         } catch {
             throw "Couldn't work out the latest release of ${repo}. GitHub may be unreachable, or rate-limiting this address (60 requests an hour, unauthenticated). A specific release always works: -Tag TAG. ($($_.Exception.Message))"
         }
+        # Wrapped only once assigned. 5.1 sends the whole array down the pipeline as one object,
+        # so @() around the call made a list of one, and every tag name came out as one tag.
+        $releases = @($releaseList)
         # Highest version wins, not newest-listed: the list is ordered by publish date, so a
         # backported fix cut after a newer release would otherwise resolve as latest. The
         # numeric fields decide; Sort-Object is stable, so a tie keeps the newer-listed entry.

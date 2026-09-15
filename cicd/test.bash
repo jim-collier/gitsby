@@ -124,9 +124,10 @@ fAnswerPrompt(){ local answer="$1"; shift; printf '%s\n' "${answer}" | script -q
 ## stdin at EOF so a confirmation prompt refuses instead of blocking.
 fPwshText(){ "${noTty[@]}" pwsh -NoProfile -Command "$1" </dev/null 2>&1 ;}
 ## install.ps1 as a script file, with the web cmdlets replaced by the functions in <dir>/stubs.ps1,
-## which PowerShell finds before a cmdlet of the same name. <shape> picks the redirect's error
-## object: 7, 51, or odd for one with no readable Location. pre is odd with only a pre-release
-## in the list. Each URL asked for goes to <dir>/calls.
+## which PowerShell finds before a cmdlet of the same name. <shape> picks how releases/latest
+## answers: as 7 or 5.1 answer a redirect, nofull as 5.1 answers the 404 of a repo with no full
+## release, or pre, which is nofull with only pre-releases listed. Each URL asked for goes to
+## <dir>/calls.
 fPsInstall(){ local dir="$1" home="$2" shape="$3" inst="$4"; shift 4; : > "${dir}/calls"; mkdir -p "${home}"
 	env HOME="${home}" FAKE_DIR="${dir}" FAKE_SHAPE="${shape}" "${noTty[@]}" pwsh -NoProfile -Command ". '${dir}/stubs.ps1'; & '${inst}' $*" </dev/null 2>&1 ;}
 ## Succeeds when a help text for install.ps1 names every parameter and alias of the function that
@@ -2202,12 +2203,20 @@ GHEOF
 					Add-Content -LiteralPath "$env:FAKE_DIR/calls" -Value $Uri
 					if ($Uri -like '*/releases/latest') {
 						$to = 'https://github.com/jim-collier/gitsby/releases/tag/v1.2.3'
-						if ($env:FAKE_SHAPE -eq '51') { $headers = [Net.WebHeaderCollection]::new(); $headers.Add('Location', $to) }
-						elseif ($env:FAKE_SHAPE -in 'odd', 'pre') { $headers = [pscustomobject]@{ Server = 'stub' } }
-						else { $headers = [pscustomobject]@{ Location = [uri]$to } }
-						$redirect = [Exception]::new('302 Found')
-						$redirect | Add-Member -NotePropertyName Response -NotePropertyValue ([pscustomobject]@{ Headers = $headers })
-						throw $redirect
+						$carryOn = "$ErrorAction" -eq 'SilentlyContinue'
+						if ($env:FAKE_SHAPE -eq '7') {
+							$failure = [Exception]::new('Response status code does not indicate success: 302 (Found).')
+							$headers = [pscustomobject]@{ Location = [uri]$to }
+						} elseif ($env:FAKE_SHAPE -eq '51') {
+							if ($carryOn) { $found = [Collections.Generic.Dictionary[string, string]]::new(); $found['Location'] = $to; return [pscustomobject]@{ StatusCode = 302; Headers = $found } }
+							throw [InvalidOperationException]::new('Operation is not valid due to the current state of the object.')
+						} else {
+							if ($carryOn) { return }
+							$failure = [Exception]::new('The remote server returned an error: (404) Not Found.')
+							$headers = [Net.WebHeaderCollection]::new(); $headers.Add('Server', 'stub')
+						}
+						$failure | Add-Member -NotePropertyName Response -NotePropertyValue ([pscustomobject]@{ Headers = $headers })
+						throw $failure
 					}
 					if ($Uri -like '*/SHA256SUMS') { return [pscustomobject]@{ Content = [IO.File]::ReadAllBytes("$env:FAKE_DIR/SHA256SUMS") } }
 					if ($Uri -like '*/gitsby-*') { Copy-Item -LiteralPath "$env:FAKE_DIR/asset" -Destination $OutFile; return }
@@ -2216,16 +2225,20 @@ GHEOF
 				function Invoke-RestMethod {
 					param($Uri, [switch]$UseBasicParsing)
 					Add-Content -LiteralPath "$env:FAKE_DIR/calls" -Value $Uri
-					[pscustomobject]@{ tag_name = 'v1.2.3'; prerelease = ($env:FAKE_SHAPE -eq 'pre') }
+					# The whole array as one object, the way 5.1 sends it.
+					$pre = $env:FAKE_SHAPE -eq 'pre'
+					Write-Output -NoEnumerate @([pscustomobject]@{ tag_name = 'v1.2.2'; prerelease = $pre }, [pscustomobject]@{ tag_name = 'v1.2.3'; prerelease = $pre })
 				}
 			PSEOF
-			## 5.1's redirect error holds a WebHeaderCollection. Reading Location off it as a
-			## property is an error under strict mode, and that error ended the run in the catch.
-			fAssertOut "go ps installer reads the redirect from 5.1's headers"  'gitsby v1\.2\.3 \(stand-in\)' \
+			## On 5.1 the redirect was never read, and the list it fell back to came back as one
+			## item, which gave a tag made of every tag name. With no full release, 5.1's 404
+			## holds a WebHeaderCollection, where reading Location as a property is an error under
+			## strict mode, and that error ended the run inside the catch.
+			fAssertOut "go ps installer reads the redirect on 5.1"  'gitsby v1\.2\.3 \(stand-in\)' \
 				fPsInstall "${psi}" "${psi}/h51" 51 "${goInstPs}" -Yes
 			fAssert    "and needs no list lookup for it"  bash -c "! grep -q '/repos/' '${psi}/calls'"
-			fAssertOut "go ps installer takes the list when the redirect can't be read"  'gitsby v1\.2\.3 \(stand-in\)' \
-				fPsInstall "${psi}" "${psi}/hodd" odd "${goInstPs}" -Yes
+			fAssertOut "go ps installer takes the list on 5.1 when there's no full release"  'gitsby v1\.2\.3 \(stand-in\)' \
+				fPsInstall "${psi}" "${psi}/hnofull" nofull "${goInstPs}" -Yes
 			fAssertOut "go ps installer still reads 7's redirect"  'gitsby v1\.2\.3 \(stand-in\)' \
 				fPsInstall "${psi}" "${psi}/h7" 7 "${goInstPs}" -Yes
 			## A system install promised write access, checked nothing, and failed at the copy
