@@ -50,21 +50,6 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 ### Bugs
 
-- 🔘 A folder rule with `*`, `?` or `[` in it binds repos in plain git that gitsby never matches.
-	- Opened: 20260914-145514
-	- Reproduced: `path: "<home>/d*"` lists as a folder that can never match, and gitsby names no account in `<home>/dev/work/proj`. After `account apply`, plain git gives that repo the account's email. `pathcontains: "acme-*"` does the same under `.../acme-x/...`, and `pathcontains: "**"` gives every repo on the disk the account.
-	- Cause: gitsby compares a rule as literal text, and `account apply` writes it into an includeIf, which git matches as a glob.
-	- Probable fix: list a rule holding a glob character as ignored, or escape it on the way into the includeIf once it is known which escape git's gitdir match honors, on Windows too.
-	- Note: found while designing Code Review 20260909 item 1, which closes the relative half of the same disagreement.
-	- Origin: `accountApplyPlan` since f48f89d (the port), and the scripted `account apply` before it. No earlier round saw it; fuzz.bash feeds `**` to `pathContains` and asserts only that nothing crashes. Confirmed.
-
-- 🔘 A relative `tokenfile` or `sshkey` is read from whatever folder a command runs in.
-	- Opened: 20260914-145514
-	- Reproduced: with `tokenfile: tok.txt`, `account list` says `token ...: tok.txt` in a repo holding a `tok.txt` and `none` in a repo without one. `sshkey: id_work` goes into the account's git config fragment as `ssh -i id_work`, which ssh reads from each repo's own folder.
-	- Note: a repo someone else wrote can then decide which token or key a push uses. Same class as Code Review 20260909 item 1.
-	- Probable fix: hold these to the same absolute-or-`~` test as `path`, and check `gitsby.ghTokenFile` in git config the same way.
-	- Origin: `absorb` and `readTokenFile` since f48f89d (the port), and the scripted builds before it. No earlier round saw it. Confirmed for `tokenfile` and for what `sshkey` writes; the push with a relative key was not run.
-
 - 🔘 The demo gif runs about two minutes, against a budget of twenty to thirty seconds.
 	- Opened: 20260914-140251
 	- Reproduced: the committed gif loops in 123.8 s over nine scenes. The shortest scene, a one-line `echo`, takes 8.6 s, and `br merge` takes 20.9 s. The holds alone add up to 52.8 s.
@@ -238,6 +223,28 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 ### Done
 
 #### Done - Bugs
+
+- ✅ A folder rule with `*`, `?` or `[` in it binds repos in plain git that gitsby never matches.
+	- Closed: 20260915-120313
+	- Opened: 20260914-145514
+	- Reproduced: `path: "<home>/d*"` lists as a folder that can never match, and gitsby names no account in `<home>/dev/work/proj`. After `account apply`, plain git gives that repo the account's email. `pathcontains: "acme-*"` does the same under `.../acme-x/...`, and `pathcontains: "**"` gives every repo on the disk the account.
+	- Cause: gitsby compares a rule as literal text, and `account apply` writes it into an includeIf, which git matches as a glob.
+	- Note: found while designing Code Review 20260909 item 1, which closes the relative half of the same disagreement.
+	- Origin: `accountApplyPlan` since f48f89d (the port), and the scripted `account apply` before it. No earlier round saw it; fuzz.bash feeds `**` to `pathContains` and asserts only that nothing crashes. Confirmed.
+	- Fixed: `account apply` escapes `*`, `?`, `[` and `\` in both kinds of rule, so git reads a rule as the plain text gitsby does. Listing such a rule as ignored was the other choice. It would have dropped a working rule for a real folder with `[` in its name. Recorded in design.md.
+	- Sweep: `account apply` is the only place a rule goes to git. An include written by an earlier apply is still recognized as ours and replaced, since that match is on the fragment path.
+	- Decided against: a warning for a glob character in a rule. A `path` like `~/d*` already shows as a folder that can never match, and the `account set` help says `pathcontains` is a run of folder names.
+	- Verified: 4 new checks in test.bash, all failing on `gover`, for `path` and `pathcontains`. Each binds the folder with `[` in its name and not its twin without. `TestAccountApplyPlanEscapesGlobs` fails on `gover`. On vm925w the escaped rules bind the same folders in plain git, and the Go tests pass.
+
+- ✅ A relative `tokenfile` or `sshkey` is read from whatever folder a command runs in.
+	- Closed: 20260915-120313
+	- Opened: 20260914-145514
+	- Reproduced: with `tokenfile: tok.txt`, `account list` says `token ...: tok.txt` in a repo holding a `tok.txt` and `none` in a repo without one. `sshkey: id_work` goes into the account's git config fragment as `ssh -i id_work`, which ssh reads from each repo's own folder.
+	- Note: a repo someone else wrote can then decide which token or key a push uses. Same class as Code Review 20260909 item 1.
+	- Origin: `absorb` and `readTokenFile` since f48f89d (the port), and the scripted builds before it. No earlier round saw it. Confirmed for `tokenfile` and for what `sshkey` writes; the push with a relative key was not run.
+	- Fixed: both keys are held to the same absolute-or-`~` test as `path`. A relative one is listed as ignored, reads no token and writes no key. `account set` writes a relative value as the file it names from where it runs. A relative `gitsby.ghTokenFile` in git config reads no token.
+	- Sweep: `account set` now checks a key for shell characters after resolving it, since the folder it was typed in can hold a space. No other stored value names a file.
+	- Verified: 5 new checks in test.bash, all failing on `gover`, 941 -> 950 with the four above. `TestConfigIgnoresARelativeKeyFile` fails on `gover`. The same results on vm925w. fuzz.bash 301/0, parity.bash 27/0.
 
 - ✅ The Go unit tests fail on Windows.
 	- Closed: 20260915-113307

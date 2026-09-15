@@ -37,8 +37,8 @@ const configHeader = "# " + meName + ` accounts: which login, key and author to 
 #   path          an absolute folder this account owns, or ~/...; more than one: a, b
 #   pathcontains  a run of folder names found anywhere in a path
 #   ghaccount     the GitHub login to act as
-#   tokenfile     a file holding that login's token
-#   sshkey        a key to use instead of a token
+#   tokenfile     a file holding that login's token, absolute or ~/...
+#   sshkey        a key to use instead of a token, absolute or ~/...
 #   name, email   commit author
 #   protocol      https or ssh, for this account's new remotes
 #   host, user    the git host and the login there, when not github.com

@@ -222,9 +222,11 @@ const userEnvVar = "GITSBY_FORGE_USER"
 
 // readTokenFile pulls a token out of a file. Unset, missing, unreadable and empty
 // are all simply "no token": a machine never set up this way has to fall back to
-// gh's own account, never fail because a path is absent.
+// gh's own account, never fail because a path is absent. A relative name is "no
+// token" too: it would be read from whatever repo a command runs in, and
+// 'gitsby.ghTokenFile' comes from git config, which the loader never sees.
 func readTokenFile(file string) string {
-	if file == "" {
+	if file == "" || folderRuleProblem(file) != "" {
 		return ""
 	}
 	file = expandTilde(file)
