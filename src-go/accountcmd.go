@@ -20,6 +20,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"time"
 
 	shcl "github.com/jim-collier/shcl/source/go/v2"
 )
@@ -607,6 +608,7 @@ type accountSetTarget struct {
 	old      string // its value now, as typed
 	creates  bool   // the file itself does not exist yet
 	converts bool   // the file is in the old flat layout, and comes out in the current one
+	read     string // the file as the plan read it; the save refuses once it holds anything else
 }
 
 func (t accountSetTarget) path() string { return t.base + "." + t.field }
@@ -685,6 +687,11 @@ func configRefusal(file string, state candidateState, fi os.FileInfo, cause erro
 			noteLines("Fix", "Run this again. It will edit the file that is there now."),
 		}
 	}
+	return refusalBlock(head, notes, cause)
+}
+
+// refusalBlock lays a refusal out as its first line with the labeled notes under it.
+func refusalBlock(head string, notes [][]string, cause error) error {
 	lines := []string{head}
 	for _, note := range notes {
 		for _, l := range note {
@@ -767,6 +774,80 @@ func createAccountsFile(file, text string) (opened bool, err error) {
 	return true, err
 }
 
+// A run holds the lock only from its re-read to its save, which is milliseconds.
+const accountLockWait = 3 * time.Second
+
+// lockAccountsFile keeps two runs from saving over each other. Each reads the
+// whole file and saves it whole, so the later save dropped what the earlier one
+// wrote. The lock goes beside the file, not on it: the save renames a new file
+// over the name, and a lock on the old one guards nothing. An exclusive create is
+// the one lock every platform has. The func it returns removes the lock, but only
+// while it is still the one this run made.
+func lockAccountsFile(file string, wait time.Duration) (func(), error) {
+	// The save writes through a link, so two names for one file take one lock.
+	target := file
+	if resolved, err := filepath.EvalSymlinks(file); err == nil {
+		target = resolved
+	}
+	lock := target + ".lock"
+	deadline := time.Now().Add(wait)
+	for {
+		f, err := os.OpenFile(lock, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err == nil {
+			mine, serr := f.Stat()
+			_ = f.Close()
+			return func() {
+				if now, err := os.Lstat(lock); serr != nil || (err == nil && os.SameFile(mine, now)) {
+					_ = os.Remove(lock)
+				}
+			}, nil
+		}
+		// Windows refuses a create over a file whose delete is still pending, which is
+		// what another run's lock is for a moment after it lets go.
+		held := errors.Is(err, fs.ErrExist)
+		pending := runtime.GOOS == "windows" && errors.Is(err, fs.ErrPermission)
+		switch {
+		case !held && (!pending || time.Now().After(deadline)):
+			return nil, usagef("Couldn't make the lock '%s' beside the accounts file, so nothing was written. Check permissions on the folder it is in.", displayPath(lock))
+		case time.Now().After(deadline):
+			return nil, refusalBlock("Another run is editing the accounts file.", [][]string{
+				noteLines("File", displayPath(file)),
+				noteLines("Lock", displayPath(lock)),
+				noteLines("Why", "Edits go in one at a time, and the lock beside the file was still there after waiting for it."),
+				noteLines("Kept", "Nothing was written."),
+				noteLines("Fix", lockFix(runtime.GOOS, lock)...),
+			}, nil)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+}
+
+// lockFix is the Fix for a lock that stayed put. Takes the platform, so both are
+// testable from either.
+func lockFix(goos, lock string) []string {
+	const stale = "If no other " + meName + " is running, a run that was stopped left it behind. Remove it, then run this again"
+	if goos == "windows" || strings.Contains(lock, "'") {
+		return []string{stale + "."}
+	}
+	// A leading space makes it a literal line: indented, never wrapped.
+	return []string{stale + ":", "  rm '" + lock + "'"}
+}
+
+// changedRefusal: the file no longer holds what the plan read. Saving would put
+// back what it held then, and drop whatever went in since.
+func changedRefusal(file string, cause error) error {
+	why := "Something wrote it after this command read it, and saving now would undo that."
+	if cause != nil {
+		why = "Reading it again before the save failed with: " + causeText(cause) + "."
+	}
+	return refusalBlock("The accounts file changed while this ran.", [][]string{
+		noteLines("File", displayPath(file)),
+		noteLines("Why", why),
+		noteLines("Kept", "Nothing was written."),
+		noteLines("Fix", "Run this again. It will edit the file as it is now."),
+	}, cause)
+}
+
 // accountSetPlan resolves what 'account set' would do without doing any of it.
 // The value is validated here rather than at write time, so a refusal happens
 // before the plan is shown rather than after it has been agreed to.
@@ -816,10 +897,10 @@ func (a *app) accountSetPlan() (accountSetTarget, error) {
 		if err != nil {
 			return t, usagef("Couldn't read '%s'.", displayPath(a.cfg.file))
 		}
-		t.file, t.converts = a.cfg.file, true
+		t.file, t.converts, t.read = a.cfg.file, true, string(data)
 		t.doc = shcl.Parse(flatToSHCL(strings.TrimPrefix(string(data), utf8BOM)))
 	default:
-		t.file, t.doc = a.cfg.file, a.cfg.doc
+		t.file, t.doc, t.read = a.cfg.file, a.cfg.doc, a.cfg.raw
 	}
 	// The module saves a document by rewriting it whole, and refuses to when the
 	// read dropped something the rewrite would then lose. Said here, before the
@@ -873,6 +954,15 @@ func (a *app) cmdAccountSet() error {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return usagef("Couldn't create '%s' to put the accounts file in.", displayPath(dir))
 		}
+	}
+	// Over a create too: one between its open and its write holds an empty file,
+	// which an edit would read and save over.
+	unlock, err := lockAccountsFile(t.file, accountLockWait)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if t.creates {
 		// 0600 from the first byte: this file names your accounts and points at your
 		// token files. Opened so it cannot replace anything, since a file already
 		// there - even one this run could not read - holds someone's accounts.
@@ -888,6 +978,9 @@ func (a *app) cmdAccountSet() error {
 			return configRefusal(t.file, state, fi, perr)
 		}
 		return usagef("Couldn't write '%s'. Check permissions on it.", displayPath(t.file))
+	}
+	if now, err := os.ReadFile(t.file); err != nil || string(now) != t.read {
+		return changedRefusal(t.file, err)
 	}
 	if err := t.doc.SaveFile(t.file); err != nil {
 		var refused *shcl.SaveRefused

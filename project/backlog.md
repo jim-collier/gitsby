@@ -50,15 +50,6 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 ### Bugs
 
-- 🔘 Two `account set` runs at once on one accounts file keep only one of the two keys.
-	- Opened: 20260914-171139
-	- Reproduced: two runs started together on a file holding one account, one setting `email` and one setting `name`. Both said "Wrote" and exited 0, and in 30 of 30 tries the file held only one of the two keys. Two runs creating the file lose a key the same way.
-	- Cause: each run reads the file when it starts and saves the whole file back at the end, so the later save drops what the earlier one wrote.
-	- Note: found while designing Code Review 20260909 item 3, which stops the create from replacing a file but leaves two edits as they are.
-	- Note: a create stalled between its open and its write loses its key to an edit that runs in between. The edit reads the empty file and saves over it, so a lock has to cover the create as well as the edit.
-	- Probable fix: refuse the save when the file changed since the plan read it, and hold a lock beside the file from that check to the save.
-	- Origin: 9282c09 (`account set`), whose whole-file write the shcl save (8203670) kept. No earlier round saw it. Confirmed.
-
 - 🔘 `br prune` says to run it again for origin's copies it left alone, and the second run can't see them.
 	- Opened: 20260914-165245
 	- Reproduced: with origin unreachable, `br prune` deleted the local branch, kept origin's copy and said "'gitsby br prune' again once online". Once online, the second run said "Nothing to prune" and origin kept the branch. The warning for a branch origin has moved since the last fetch ("takes a fresh look") ends the same way.
@@ -285,6 +276,19 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 ### Done
 
 #### Done - Bugs
+
+- ✅ Two `account set` runs at once on one accounts file keep only one of the two keys.
+	- Closed: 20260915-104204
+	- Opened: 20260914-171139
+	- Reproduced: two runs started together on a file holding one account, one setting `email` and one setting `name`. Both said "Wrote" and exited 0, and in 30 of 30 tries the file held only one of the two keys. Two runs creating the file lose a key the same way.
+	- Cause: each run reads the file when it starts and saves the whole file back at the end, so the later save drops what the earlier one wrote.
+	- Note: found while designing Code Review 20260909 item 3, which stops the create from replacing a file but leaves two edits as they are.
+	- Note: a create stalled between its open and its write loses its key to an edit that runs in between. The edit reads the empty file and saves over it, so a lock has to cover the create as well as the edit.
+	- Probable fix: refuse the save when the file changed since the plan read it, and hold a lock beside the file from that check to the save.
+	- Origin: 9282c09 (`account set`), whose whole-file write the shcl save (8203670) kept. No earlier round saw it. Confirmed.
+	- Sweep: `account set` is the only writer of the accounts file, and the flat-file conversion saves through the same path. `account apply` writes its fragments whole, but two runs write the same text from one file, and its includeIf edits go through git, which locks its own config.
+	- Fixed: `account set` takes a lock beside the accounts file, reads the file again, and refuses if it changed since the plan read it. A create holds the same lock. A lock that stays put is waited on for three seconds, then refused by name, with the command that removes it.
+	- Verified: 3 new checks in test.bash, 922 -> 925. With the re-read taken out, two runs at once lost a key in 10 of 10 tries and both new Go tests on it fail. Go tests green, parity.bash 27/0. Linux only so far.
 
 - ✅ A Gitea remote's identity line says tea has no login for the host when tea failed to answer.
 	- Closed: 20260914-191247

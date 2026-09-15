@@ -2457,6 +2457,30 @@ GHEOF
 	if ! ((isWindows)); then
 		fAssert "and nobody else can read it"  bash -c "[[ \"\$(stat -c '%a' '${acNew}/.config/gitsby/config.shcl')\" == 600 ]]"
 	fi
+	## Two edits at once each read the whole file and save it whole, and the later save dropped the
+	## earlier one's key. Now the second waits on a lock beside the file and refuses if the file
+	## changed under it, so a run that says it wrote keeps its key.
+	local acPair="${ac}/pair"; mkdir -p "${acPair}"
+	fTwoSets(){
+		local try pidA pidB rcA rcB
+		for ((try = 0; try < 10; try++)); do
+			printf 'account: pair\n\tghaccount: pairacct\n' > "${acPair}/config.shcl"
+			(cd "${acWork}" && env GITSBY_CONFIG= XDG_CONFIG_HOME= APPDATA= HOME="${ac}/home" PATH="${ac}/bin:${PATH}" "${gitsby}" -q -NoFetch -Config "${acPair}/config.shcl" account set pair email p@example.com) & pidA=$!
+			(cd "${acWork}" && env GITSBY_CONFIG= XDG_CONFIG_HOME= APPDATA= HOME="${ac}/home" PATH="${ac}/bin:${PATH}" "${gitsby}" -q -NoFetch -Config "${acPair}/config.shcl" account set pair name PairPerson) & pidB=$!
+			rcA=0; wait "${pidA}" || rcA=$?
+			rcB=0; wait "${pidB}" || rcB=$?
+			[[ "${rcA}" == 0 || "${rcB}" == 0 ]] || return 1
+			[[ "${rcA}" != 0 ]] || grep -Fq 'email: p@example.com' "${acPair}/config.shcl" || return 1
+			[[ "${rcB}" != 0 ]] || grep -Fq 'name: PairPerson' "${acPair}/config.shcl" || return 1
+			[[ ! -e "${acPair}/config.shcl.lock" ]] || return 1
+		done
+	}
+	fAssert "two 'account set' runs at once keep every key they say they wrote"  fTwoSets
+	: > "${acPair}/config.shcl.lock"
+	fAssertOut "'account set' waits on a lock another run left, then refuses and names it"  'Lock: +[^ ]*pair/config\.shcl\.lock' \
+		bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q -NoFetch -Config '${acPair}/config.shcl' account set pair email q@example.com 2>&1"
+	fAssert "and leaves the file as it was"  bash -c "! grep -Fq 'q@example.com' '${acPair}/config.shcl'"
+	rm -f -- "${acPair:?}/config.shcl.lock"
 	## Reads pass over a discovered accounts file they can't read, and 'account set' won't create
 	## a file while it is there: the new one would replace it, or go in ahead of it and hide it. A
 	## dead link or a folder in its place is refused too. chmod can't take the read bit away under

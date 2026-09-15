@@ -41,6 +41,7 @@ type config struct {
 	file     string         // named by the identity block when the file held keys nothing reads
 	doc      *shcl.Document // the file as parsed, for 'account set' to edit; nil for a flat file or none
 	flat     bool           // the old 'key = value' layout: read as it always was, rewritten by the first edit
+	raw      string         // the file as read, so an edit can tell it changed since
 }
 
 func isWindows() bool { return runtime.GOOS == "windows" }
@@ -503,7 +504,7 @@ func (c *config) load(o options) error {
 		return nil
 	}
 	// Only once read: a file recorded with no document behind it crashed the edit.
-	c.file = file
+	c.file, c.raw = file, string(data)
 	// The byte-order mark a Windows editor writes by default, off the front of the
 	// first line. Left on, it landed on the first key in the file, which then read
 	// as one nothing understands - and the line that reports those printed the mark

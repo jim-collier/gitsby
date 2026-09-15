@@ -371,6 +371,9 @@ The Bash and PowerShell files were ports of each other, and were kept in step fo
 	- It never replaces a file it could not read. Reads pass over a discovered file that can't be read, as if it were not there, since nobody asserted it was. `account set` is the one thing that would act on that absence, so it refuses to create a file while anything is at a place gitsby looks, and names it. Decided 2026-09-14.
 		- An unreadable file had read as no file, and the create truncated it. With `XDG_CONFIG_HOME` set, the new file went in ahead of the old one instead and hid it from every later command.
 		- The create opens exclusively, so a file that turns up while it runs, or a link to a file that isn't there, is refused rather than written over or through.
+	- Two runs never save over each other. Each one reads the whole file and saves it whole, so the later save used to drop the earlier one's key. A run takes a `.lock` file beside the accounts file, reads the file again, and refuses if it changed since the plan read it. Decided 2026-09-15.
+		- The lock goes beside the file, not on it, since the save renames a new file over the name. An exclusive create is the one lock every platform has.
+		- It is held for milliseconds, so a run that finds one waits three seconds and then refuses, naming the lock. One left behind by a run that was stopped is removed by hand.
 
 - The accounts file lives where the platform in hand keeps one, and the place it used to live is never taken away.
 	- Gitsby searched `$XDG_CONFIG_HOME`, then `~/.config`, then `%APPDATA%`, on every platform. That is a Linux convention applied everywhere: a Windows user's file landed under a dot-directory in their profile, a macOS user's outside `Application Support`, and both only because nothing had been found first.
