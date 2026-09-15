@@ -128,13 +128,6 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- Probable fix: remember the answer per login for the length of the run.
 		- Origin: 0a3ef88; 7abe3f7 widened the listing two days after the 20260818 memoization round. Confirmed, measured.
 
-	- 🔘 Code Review 20260909 item 20: the hotfix warning about changing shipped code can never fire in anyone else's repo.
-		- The path it watches is this project's own source folder. In any other repo the check matches nothing and stays quiet.
-		- Note: read rather than reproduced. The comment above it records that it used to watch a folder that had been renamed away, so this is the second turn of the same trap.
-		- Also, the check cannot tell "nothing changed" from "the comparison could not run".
-		- Origin: 75c2c7c. Fourth patch to this path (`bin/` -> `src-go/` -> `:(top)src-go/`). Plausible: read, not run.
-		- Keep: decide what the warning means in a repo that is not this one before the constant changes again.
-
 ### Features and enhancements
 
 - 🔘 No UI and UX style guide exists, and README points at none.
@@ -358,6 +351,16 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 - ✅ Code review 20260909 - the closed part of the pass against the standing directives. The rest is still open under Bugs.
 	- Opened: 20260909-184419
+
+	- ✅ Code Review 20260909 item 20: the hotfix warning about changing shipped code can never fire in anyone else's repo.
+		- Closed: 20260915-131144
+		- The path it watches is this project's own source folder. In any other repo the check matches nothing and stays quiet.
+		- Also, the check cannot tell "nothing changed" from "the comparison could not run".
+		- Origin: 75c2c7c. Fourth patch to this path (`bin/` -> `src-go/` -> `:(top)src-go/`). Confirmed: a code hotfix outside `src-go/` printed nothing, and so did a comparison that failed.
+		- Fixed: the note fires when a hotfix changes anything that doesn't look like documentation by its file name. A repo with no release tags gets no note, and a failed comparison says it couldn't tell. Recorded in design.md.
+		- Decided against: watching a named folder, and naming the folder in config.
+		- Note: in this project a hotfix to an installer or to `cicd/` now gets the note too, though neither goes into a release asset.
+		- Verified: 3 new checks in test.bash and `TestDocsOnly`. The three older warning checks match the new wording. All six fail on `gover`, where `TestDocsOnly` doesn't build, and the docs-only check still passes. 966 -> 969.
 
 	- ✅ Code Review 20260909 item 10: a conflicted `br merge` leaves the merge in progress and says nothing useful.
 		- Closed: 20260915-124817

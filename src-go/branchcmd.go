@@ -11,19 +11,10 @@
 package main
 
 import (
+	"path"
 	"runtime"
 	"strings"
 )
-
-// Where the code that becomes a release asset lives. The release builds every
-// binary from here, so a hotfix that touches it is the kind the warning below is
-// about; documentation is not. It was 'bin/' when the deliverable was a script,
-// and went on watching a folder that no longer existed.
-//
-// ':(top)' anchors it at the repo root. A bare path is read relative to the
-// current directory, so run from anywhere but the top the pathspec matched
-// nothing, git exited 0 with no output, and the warning silently never fired.
-const shippedCodeDir = ":(top)src-go/"
 
 // checkNewBranchName vets the name given to br create/hotfix. Git owns the rules
 // for what a ref may be called, so ask git rather than keep a second copy of them.
@@ -297,15 +288,53 @@ func (a *app) backMergeToDev() error {
 	return nil
 }
 
-// warnHotfixTouchedCode: a hotfix that changes shipped code leaves the default
-// branch carrying something no tag contains, so the latest release's assets stop
-// matching it. Documentation does not.
+// warnHotfixTouchedCode: a hotfix that changes more than documentation leaves the
+// default branch carrying something no tag contains, so the latest release may
+// stop matching it. Documentation is read from the branch and needs no release.
+// It used to watch this project's own source folder, which no other repo has.
 func (a *app) warnHotfixTouchedCode(workBranch, targetBranch string) {
-	if runOut("git", "diff", "--name-only", targetBranch+"..."+workBranch, "--", shippedCodeDir) == "" {
+	// A repo that never tagged a release has none to fall out of step with.
+	if newestReleaseTag(runLines("git", "tag", "--list", "v[0-9]*", "[0-9]*")) == "" {
 		return
 	}
-	a.out.clean("")
-	a.out.status("NOTE: this hotfix changes shipped code, not just documentation.")
-	a.out.clean("  '" + targetBranch + "' will carry code that no tag contains, so the latest release's")
-	a.out.clean("  downloads no longer match it. Cut a patch release when you're ready: " + meName + " release")
+	// Full refs, since a tag of the same name wins over the branch.
+	base := "refs/heads/" + targetBranch
+	if !branchExistsLocal(targetBranch) {
+		base = "refs/remotes/origin/" + targetBranch
+	}
+	// Paths come back from the top of the tree, wherever this runs from.
+	out, ok := runOutOK("git", "diff", "--name-only", base+"...refs/heads/"+workBranch)
+	switch {
+	case !ok:
+		a.out.clean("")
+		a.out.status("NOTE: couldn't tell whether this hotfix changes more than documentation.")
+		a.out.clean("  If it does, '" + targetBranch + "' will carry changes that no tag contains.")
+		a.out.clean("  Cut a patch release when you're ready: " + meName + " release")
+	case !docsOnly(splitLines(out)):
+		a.out.clean("")
+		a.out.status("NOTE: this hotfix changes more than documentation.")
+		a.out.clean("  '" + targetBranch + "' will carry changes that no tag contains, so the latest release's")
+		a.out.clean("  downloads may no longer match it. Cut a patch release when you're ready: " + meName + " release")
+	}
+}
+
+// docsOnly guesses from the names alone whether every changed file is
+// documentation. A wrong guess costs one note too many or too few.
+func docsOnly(files []string) bool {
+	for _, file := range files {
+		lower := strings.ToLower(file)
+		if lower == "" || strings.HasPrefix(lower, "docs/") || strings.HasPrefix(lower, "doc/") {
+			continue
+		}
+		switch path.Ext(lower) {
+		case ".md", ".markdown", ".txt", ".rst", ".adoc":
+			continue
+		}
+		switch path.Base(lower) {
+		case "license", "copying", "notice":
+			continue
+		}
+		return false
+	}
+	return true
 }
