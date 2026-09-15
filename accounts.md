@@ -41,7 +41,7 @@ The format is [SHCL](https://github.com/jim-collier/shcl): `key: value`, blocks 
 
 A file written for the 2.x scripts - flat `account.work.path = ~/dev/work` lines - is still read as it is. The first `account set` rewrites it in the layout above, comments included.
 
-Gitsby reads the first of these that exists, and `account set` creates the first one when there is no file yet:
+Gitsby reads the first of these it can read, and `account set` creates the first one when none of them is there:
 
 | Platform | Where it looks
 | :--      | :--
@@ -52,6 +52,8 @@ Gitsby reads the first of these that exists, and `account set` creates the first
 Each platform is asked in its own terms and nobody else's, `~/.config` included - that is a Linux spelling, not a Mac or Windows one. `XDG_CONFIG_HOME` is a Linux and BSD variable, set by a desktop session rather than by you, so it is read there alone; `%APPDATA%` likewise is read on Windows alone. macOS and Windows each have exactly one location, and fall back to `~/.config` only in the odd case where the native one can't be worked out at all.
 
 `--config FILE` (`-Config FILE`) overrides all of them, and so does the `GITSBY_CONFIG` environment variable.
+
+If one of them is there but can't be read, other commands carry on without it. `account set` won't create a file in that case, since the new one would replace or hide it. It names the file and says what to do instead.
 
 Per-account keys, all optional except a `path` to match on:
 
