@@ -50,6 +50,22 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 ### Bugs
 
+- 🔘 Two `account set` runs at once on one accounts file keep only one of the two keys.
+	- Opened: 20260914-171139
+	- Reproduced: two runs started together on a file holding one account, one setting `email` and one setting `name`. Both said "Wrote" and exited 0, and in 30 of 30 tries the file held only one of the two keys. Two runs creating the file lose a key the same way.
+	- Cause: each run reads the file when it starts and saves the whole file back at the end, so the later save drops what the earlier one wrote.
+	- Note: found while designing Code Review 20260909 item 3, which stops the create from replacing a file but leaves two edits as they are.
+	- Probable fix: refuse the save when the file changed since the plan read it, and hold a lock beside the file from that check to the save.
+	- Origin: 9282c09 (`account set`), whose whole-file write the shcl save (8203670) kept. No earlier round saw it. Confirmed.
+
+- 🔘 `account set` crashes when the accounts file opens but its read fails.
+	- Opened: 20260914-171139
+	- Reproduced: with `GITSBY_CONFIG=/proc/self/mem`, which opens and then fails to read, `account set work email a@example.com` panics with a nil pointer dereference in `accountSetPlan`, exit 2, before the plan's first line.
+	- Cause: the loader records the file before reading it, and a failed read leaves no parsed document for the edit to use.
+	- Note: a file on a disk or mount that returns read errors reaches the same place. Found while designing Code Review 20260909 item 3.
+	- Probable fix: record the file only once it has been read, and refuse a named file whose read fails the way one that can't be opened is refused.
+	- Origin: `load` sets the file ahead of the read since f48f89d (the port). The edit took the parsed document from it in 8203670 (shcl config). No earlier round saw it. Confirmed.
+
 - 🔘 `br prune` says to run it again for origin's copies it left alone, and the second run can't see them.
 	- Opened: 20260914-165245
 	- Reproduced: with origin unreachable, `br prune` deleted the local branch, kept origin's copy and said "'gitsby br prune' again once online". Once online, the second run said "Nothing to prune" and origin kept the branch. The warning for a branch origin has moved since the last fetch ("takes a fresh look") ends the same way.
@@ -155,6 +171,8 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- Probable fix: keep the two cases apart and refuse the second by name. Open the create so it cannot truncate.
 		- Origin: 8203670 (shcl) meets the older decision that a discovered unreadable file is skipped, not refused. Confirmed.
 		- Keep: reads still skip an unreadable candidate. Only the create path refuses when a candidate exists and cannot be read.
+		- Note: with `XDG_CONFIG_HOME` set, the new file goes ahead of the unreadable one instead, and every later command reads the new one. A link to a file that isn't there is written through. On Windows the same state is a file another program holds open, where the write fails too and the message blames permissions.
+		- Sweep: two `account set` runs at once on one file keep one key, and a file that opens but can't be read through crashes `account set`. Both filed as their own bugs.
 
 	- ✅ Code Review 20260909 item 4: the pipeline cannot finish, because the committed Windows resources no longer match their generator.
 		- Reproduced: the resource check fails for both architectures, and stage 1 stops the run.
