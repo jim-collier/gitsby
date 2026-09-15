@@ -50,15 +50,6 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 ### Bugs
 
-- 🔘 A `core.sshCommand` holding a quote is dropped from every fetch gitsby runs.
-	- Opened: 20260915-121200
-	- Reproduced: with `core.sshCommand = ssh -i "/k y/key"`, plain `git fetch` runs ssh with `-i /k y/key`. The fetch before `status` runs it with `-o ConnectTimeout=3` and no key.
-	- Cause: `gitSSHCommand` reads a quoted command as plain `ssh`, which suits the probe it was written for. `remoteEnv` then exports that as `GIT_SSH_COMMAND`, which outranks `core.sshCommand` for the fetch, the origin check and the repo probe.
-	- Note: a private repo whose key is only named there fails to fetch, and reads as offline. Pushes are not affected, since they don't go through `remoteEnv`.
-	- Probable fix: leave `GIT_SSH_COMMAND` unset when the command can't be split, and let git use its own.
-	- Note: found while working Code Review 20260909 item 6.
-	- Origin: 0a3ef88 (the port), with its copies gathered into `remoteEnv` by cd2a527. No earlier round saw it. Confirmed.
-
 - 🔘 The demo gif runs about two minutes, against a budget of twenty to thirty seconds.
 	- Opened: 20260914-140251
 	- Reproduced: the committed gif loops in 123.8 s over nine scenes. The shortest scene, a one-line `echo`, takes 8.6 s, and `br merge` takes 20.9 s. The holds alone add up to 52.8 s.
@@ -218,6 +209,18 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 ### Done
 
 #### Done - Bugs
+
+- ✅ A `core.sshCommand` holding a quote is dropped from every fetch gitsby runs.
+	- Closed: 20260915-124019
+	- Opened: 20260915-121200
+	- Reproduced: with `core.sshCommand = ssh -i "/k y/key"`, plain `git fetch` runs ssh with `-i /k y/key`. The fetch before `status` runs it with `-o ConnectTimeout=3` and no key.
+	- Cause: `gitSSHCommand` reads a quoted command as plain `ssh`, which suits the probe it was written for. `remoteEnv` then exports that as `GIT_SSH_COMMAND`, which outranks `core.sshCommand` for the fetch, the origin check and the repo probe.
+	- Note: a private repo whose key is only named there fails to fetch, and reads as offline. Pushes are not affected, since they don't go through `remoteEnv`.
+	- Note: found while working Code Review 20260909 item 6.
+	- Origin: 0a3ef88 (the port), with its copies gathered into `remoteEnv` by cd2a527. No earlier round saw it. Confirmed.
+	- Fixed: a quoted ssh command is left for git to run as is, so the fetch uses the repo's key and goes without the connect timeout. Adding the timeout would mean re-shelling the value. Recorded in design.md.
+	- Sweep: `remoteEnv` is the only place gitsby exports an ssh command for git. The account's `sshkey` can't carry a quote, and a caller's own `GIT_SSH_COMMAND` was already left alone.
+	- Verified: `TestRemoteEnvLeavesAQuotedSSHCommandToGit` fails on `gover`. With the quoted command above, `status` now fetches with `-i /k y/key`.
 
 - ✅ A failing `py_compile` passes lint stage 1, and the pre-push gate with it.
 	- Closed: 20260915-121200
