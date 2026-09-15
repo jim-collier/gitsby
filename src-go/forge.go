@@ -11,7 +11,9 @@
 package main
 
 import (
+	"bytes"
 	"os"
+	"os/exec"
 	"strings"
 	"unicode"
 )
@@ -234,26 +236,43 @@ func (a *app) forgeCLIHint() string {
 		" Some distributions install it as 'tea-cli'; either name is found."
 }
 
-// forgeLogin names the account tea holds for a host, or nothing. Read from the
-// login list rather than from 'tea whoami' for two reasons: whoami reports the
-// DEFAULT login, which on a machine with two instances configured is as likely as
-// not to be the other one; and with no login at all it prints "no gitea login
-// configured" to stdout and exits 0, so neither its status nor a naive read of its
-// output says anything. Asked once - it is live enough to be worth not repeating.
-func (a *app) forgeLogin(cli, host string) string {
-	return a.forge.login.get(func() string {
+// forgeAnswer is what tea said about a host: the login it holds, or why it could
+// not be asked. Both empty means it was asked and holds none there.
+type forgeAnswer struct {
+	user    string
+	failure string
+}
+
+// forgeLogin names the account tea holds for a host, or nothing, plus tea's reason
+// when it failed to answer. Read from the login list rather than from 'tea whoami'
+// for two reasons: whoami reports the DEFAULT login, which on a machine with two
+// instances configured is as likely as not to be the other one; and with no login
+// at all it prints "no gitea login configured" to stdout and exits 0, so neither
+// its status nor a naive read of its output says anything. Asked once - it is live
+// enough to be worth not repeating.
+func (a *app) forgeLogin(cli, host string) (user, failure string) {
+	answer := a.forge.login.get(func() forgeAnswer {
 		if cli == "" || host == "" {
-			return ""
+			return forgeAnswer{}
 		}
-		out, ok := runOutOK(cli, "logins", "list", "--output", "tsv")
-		if !ok {
-			return ""
+		list := exec.Command(cli, "logins", "list", "--output", "tsv")
+		var errText bytes.Buffer
+		list.Stderr = &errText
+		out, err := list.Output()
+		if err != nil {
+			for _, line := range splitLines(errText.String()) {
+				if line = strings.TrimSpace(line); line != "" {
+					return forgeAnswer{failure: line}
+				}
+			}
+			return forgeAnswer{failure: err.Error()}
 		}
-		for _, record := range parseForgeTable(out) {
+		for _, record := range parseForgeTable(strings.TrimRight(string(out), "\r\n")) {
 			if strings.EqualFold(parseRemote(record["url"]).host, host) {
-				return record["user"]
+				return forgeAnswer{user: record["user"]}
 			}
 		}
-		return ""
+		return forgeAnswer{}
 	})
+	return answer.user, answer.failure
 }

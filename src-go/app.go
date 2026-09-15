@@ -94,8 +94,8 @@ func (r *repoState) forget() {
 // the account side: which CLI is installed for the forge origin lives on. Looking
 // it up is two LookPath calls for a name that cannot change mid-run.
 type forgeState struct {
-	tea   cached[string] // Gitea's CLI as this machine spells it, "" when absent
-	login cached[string] // who that CLI holds a login for on origin's host
+	tea   cached[string]      // Gitea's CLI as this machine spells it, "" when absent
+	login cached[forgeAnswer] // who that CLI holds a login for on origin's host
 }
 
 // ghState is what this run knows about the two accounts a remote command can act
