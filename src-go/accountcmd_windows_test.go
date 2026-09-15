@@ -24,7 +24,9 @@ func TestAccountSetRefusesAFileHeldOpen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := syscall.CreateFile(name, syscall.GENERIC_READ, 0, nil, syscall.OPEN_EXISTING, syscall.FILE_ATTRIBUTE_NORMAL, 0)
+	// Read and write, as an editor holds a file. A handle opened for reading alone
+	// with no sharing still let this same process open the file to read.
+	h, err := syscall.CreateFile(name, syscall.GENERIC_READ|syscall.GENERIC_WRITE, 0, nil, syscall.OPEN_EXISTING, syscall.FILE_ATTRIBUTE_NORMAL, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

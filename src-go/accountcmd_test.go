@@ -607,7 +607,7 @@ func TestAccountSetRefusesAFileThatAppeared(t *testing.T) {
 func TestAccountSetRefusesALinkToNothing(t *testing.T) {
 	a := createApp(t, newPrinter())
 	file := defaultConfigFile()
-	target := filepath.Join(os.Getenv("HOME"), "dot", "config.shcl")
+	target := filepath.Join(homeDir(), "dot", "config.shcl")
 	for _, dir := range []string{filepath.Dir(file), filepath.Dir(target)} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			t.Fatal(err)

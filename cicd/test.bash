@@ -2427,7 +2427,7 @@ GHEOF
 			bash -c "cd '${acWork}' && env ${acUnrEnv} ${acUnrSet}"
 		fAssertOut "and names the file"  'File: +~/\.config/gitsby/config\.shcl' \
 			bash -c "cd '${acWork}' && env ${acUnrEnv} ${acUnrSet} 2>&1"
-		fAssertOut "and says why"  'permission denied' \
+		fAssertOut "and says why it can't read it"  'permission denied' \
 			bash -c "cd '${acWork}' && env ${acUnrEnv} ${acUnrSet} 2>&1"
 		fAssertOut "and gives the command that makes it readable"  "chmod u\\+r '${acUnrFile//./\\.}'" \
 			bash -c "cd '${acWork}' && env ${acUnrEnv} ${acUnrSet} 2>&1"
@@ -2435,7 +2435,7 @@ GHEOF
 		fAssert "and leaves the file as it was" \
 			bash -c "chmod 600 '${acUnrFile}'; cmp -s '${acUnrFile}' '${acUnr}/body.shcl'; rc=\$?; chmod 200 '${acUnrFile}'; exit \${rc}"
 		fAssertOut "reads still pass over a file they can't read"  'Config file \.+: \(none found\)' \
-			bash -c "cd '${acWork}' && env ${acUnrEnv} '${gitsby}' -q -NoFetch status 2>&1"
+			bash -c "cd '${acWork}' && env ${acUnrEnv} '${gitsby}' -q -NoFetch account 2>&1"
 		fAssert "and no file is created ahead of it in XDG_CONFIG_HOME" \
 			bash -c "cd '${acWork}' && ! env ${acNoDiscovery} XDG_CONFIG_HOME='${acUnr}/xdg' HOME='${acUnr}/home' PATH='${ac}/bin:${PATH}' ${acUnrSet} >/dev/null 2>&1 && [[ ! -e '${acUnr}/xdg/gitsby/config.shcl' ]]"
 		fAssertOut "a link to a file that isn't there is refused"  "is a link to something that isn't there" \
