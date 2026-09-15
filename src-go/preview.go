@@ -12,6 +12,7 @@ package main
 
 import (
 	"strconv"
+	"strings"
 )
 
 const pad = "    "
@@ -83,8 +84,11 @@ func (a *app) preview(what string) {
 		t, err := a.accountSetPlan()
 		if err != nil {
 			// Nothing here can refuse - the plan is display. Whatever is wrong with
-			// the arguments is reported by the command itself, a moment later.
-			a.out.clean(pad + "(nothing: " + err.Error() + ")")
+			// the arguments is reported by the command itself, a moment later. A
+			// labeled refusal shows its first line here, and the rest when the command
+			// refuses: its labels would come out broken inside the parenthesis.
+			head, _, _ := strings.Cut(err.Error(), "\n")
+			a.out.clean(pad + "(nothing: " + head + ")")
 			return
 		}
 		switch {
