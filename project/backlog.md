@@ -50,30 +50,25 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 ### Bugs
 
+- 🔘 A `core.sshCommand` holding a quote is dropped from every fetch gitsby runs.
+	- Opened: 20260915-121200
+	- Reproduced: with `core.sshCommand = ssh -i "/k y/key"`, plain `git fetch` runs ssh with `-i /k y/key`. The fetch before `status` runs it with `-o ConnectTimeout=3` and no key.
+	- Cause: `gitSSHCommand` reads a quoted command as plain `ssh`, which suits the probe it was written for. `remoteEnv` then exports that as `GIT_SSH_COMMAND`, which outranks `core.sshCommand` for the fetch, the origin check and the repo probe.
+	- Note: a private repo whose key is only named there fails to fetch, and reads as offline. Pushes are not affected, since they don't go through `remoteEnv`.
+	- Probable fix: leave `GIT_SSH_COMMAND` unset when the command can't be split, and let git use its own.
+	- Note: found while working Code Review 20260909 item 6.
+	- Origin: 0a3ef88 (the port), with its copies gathered into `remoteEnv` by cd2a527. No earlier round saw it. Confirmed.
+
 - 🔘 The demo gif runs about two minutes, against a budget of twenty to thirty seconds.
 	- Opened: 20260914-140251
 	- Reproduced: the committed gif loops in 123.8 s over nine scenes. The shortest scene, a one-line `echo`, takes 8.6 s, and `br merge` takes 20.9 s. The holds alone add up to 52.8 s.
 	- Note: split from Code Review 20260909 item 16. The budget leaves room for two or three scenes, so this waits on a decision about which ones the README keeps.
 	- Origin: aa63736, the first demo, looped in 18.4 s. 7096bdd took it to 67 s, 9e16dd5 to 84 s and 48089c6 to 122 s. The directives have asked for twenty to thirty seconds since at least 2026-08-22. Confirmed.
 
-- 🔘 A failing `py_compile` passes lint stage 1, and the pre-push gate with it.
-	- Opened: 20260914-130334
-	- Reproduced: with a `python3` on PATH that exits 1, a full run exits 0 and prints `OK: py_compile`. `cicd.bash --gate` does the same.
-	- Cause: the compile is the first half of an `&&` list. Under `set -e` a failure there neither stops the script nor fires the error trap.
-	- Probable fix: fail on the compile on its own line, then clear the cache. Add a failing `python3` case to the gate checks in test.bash.
-	- Note: the line clears `cicd/utility/__pycache__`, but `py_compile` writes `cicd/utility/demo/__pycache__`, beside the file it compiles, so the cache stays. The same on `gover`.
-	- Origin: e014c29, the first pipeline. No earlier round saw it. Confirmed.
-
 - 🛠️ Code review 20260909 - a pass against the standing directives, aimed at the work since the last round. Twenty defects, twelve enhancements.
 	- Opened: 20260909-184419
 	- Fix order: by class, each class across all its sites in one group of commits. 5 with 11 (unknown is listed, unknown is not missing); 9 with 19 (preview follows command, one spawn per run); 3 and 8 without moving the decisions they sit on; 12 and 20 only once reproduced. 15 and 16 early, since the pipeline is what proves the rest.
 	- Note: about twelve of the twenty sit in code that rounds 20260819b, c, d and 20260821 declared clean. Those rounds read the Go and grepped the rest.
-
-	- 🔘 Code Review 20260909 item 6: a whitespace-only ssh command crashes the program.
-		- Cause: an ssh command taken from the environment or from git config is passed through whenever it is not empty and carries no quotes, so a single space survives. Splitting it yields nothing, and the first element is read anyway.
-		- Note: it fires while printing the identity block, so every mutating command dies ahead of its plan.
-		- Probable fix: split first, and fall back to plain `ssh` when the split comes back empty.
-		- Origin: ae16451 (the port). Plausible: read, not run.
 
 	- 🔘 Code Review 20260909 item 7: `release` invents version 0.1.0 in a repo whose tags carry no leading `v`.
 		- Cause: the tag scan matches a `v` followed by a digit, so a tag like `1.0.0` is invisible and the next version starts from nothing. The duplicate-tag guard below it does see those tags, so the two halves of one command disagree about which tags exist.
@@ -223,6 +218,17 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 ### Done
 
 #### Done - Bugs
+
+- ✅ A failing `py_compile` passes lint stage 1, and the pre-push gate with it.
+	- Closed: 20260915-121200
+	- Opened: 20260914-130334
+	- Reproduced: with a `python3` on PATH that exits 1, a full run exits 0 and prints `OK: py_compile`. `cicd.bash --gate` does the same.
+	- Cause: the compile is the first half of an `&&` list. Under `set -e` a failure there neither stops the script nor fires the error trap.
+	- Note: the line clears `cicd/utility/__pycache__`, but `py_compile` writes `cicd/utility/demo/__pycache__`, beside the file it compiles, so the cache stays. The same on `gover`.
+	- Origin: e014c29, the first pipeline. No earlier round saw it. Confirmed.
+	- Fixed: a failed compile stops lint with `FAILED: py_compile`. The cache goes to a temporary folder that is removed after, so nothing is written beside the file.
+	- Sweep: no other lint check sits at the head of an `&&` list.
+	- Verified: 1 new check in test.bash, the gate failing when `python3` does, which fails on `gover`. 950 -> 953 with item 6's two. A real lint run leaves the tree's own cache untouched.
 
 - ✅ A folder rule with `*`, `?` or `[` in it binds repos in plain git that gitsby never matches.
 	- Closed: 20260915-120313
@@ -427,6 +433,15 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- Fixed: the loader lists every key it does not read, at any depth. A key indented under another key is named by the path that reaches it and the key it sits under, such as `account[w].email.sshkey (indented under email)`. The key above it still applies. A stacked list and a raw block list nothing.
 		- Verified: 6 new checks in test.bash, 899 -> 905. Four fail on `gover`, and two are regression guards: the key above still applies, and a stacked list lists nothing. Two new Go tests and a fuzz target. The table fails on `gover` for every nested row and passes there for a stacked list, a raw block and a refused name. The depth cap test and every fuzz seed fail on `gover`. `FuzzConfigLoadDoc` passes over a 60 s run. fuzz.bash 301/0, parity.bash 27/0, and the quick pipeline and the pre-push gate are green. On vm925w the same Go tests fail on `gover` and pass on the branch. macOS and the BSDs untested.
 		- Reviewed before merge: nothing found.
+
+	- ✅ Code Review 20260909 item 6: a whitespace-only ssh command crashes the program.
+		- Closed: 20260915-121200
+		- Cause: an ssh command taken from the environment or from git config is passed through whenever it is not empty and carries no quotes, so a single space survives. Splitting it yields nothing, and the first element is read anyway.
+		- Note: it fires where a push is compared against the account, and for a write through gh. `sync` with an account named panicked before its plan, with the blank command set either way.
+		- Origin: ae16451 (the port). Filed as Plausible, since read from the identity block; reproduced through the identity check instead. Confirmed.
+		- Fixed: a blank ssh command counts as none, so the probe and the fetch use plain `ssh`. The probe also falls back to `ssh` if a split ever comes back empty.
+		- Sweep: the other splits of a command line either check the length first or only loop over the words.
+		- Verified: 2 new checks in test.bash on the `sync` comparison, one per spelling, both failing on `gover`. `TestGitSSHCommandBlank` fails on `gover`.
 
 	- ✅ Code Review 20260909 item 11: being offline reads as "that repo doesn't exist".
 		- Closed: 20260914-190531
