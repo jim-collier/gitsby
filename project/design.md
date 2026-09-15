@@ -475,6 +475,8 @@ See also the release policy under Architecture, which covers how releases are pu
 
 ### UI
 
+The rules these entries lead to are collected in [style-guide_cli.md](style-guide_cli.md). This section keeps the reasons.
+
 - Terminal text, one screen at a time. Output opens and closes with a blank line, and sections are separated by blank lines rather than rules.
 
 - Lists of files are one per line, truncated to the terminal width and capped, so a large working tree cannot scroll the prompt out of view.
