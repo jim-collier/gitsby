@@ -50,29 +50,6 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 ### Bugs
 
-- 🔘 `br prune` says to run it again for origin's copies it left alone, and the second run can't see them.
-	- Opened: 20260914-165245
-	- Reproduced: with origin unreachable, `br prune` deleted the local branch, kept origin's copy and said "'gitsby br prune' again once online". Once online, the second run said "Nothing to prune" and origin kept the branch. The warning for a branch origin has moved since the last fetch ("takes a fresh look") ends the same way.
-	- Cause: prune takes its candidates from local branches, and both warnings print after the local branch is gone.
-	- Probable fix: name what deletes that copy on origin once it has been checked, instead of a second run.
-	- Origin: the unreachable line from 75c2c7c (Code Review 20260819a item 7), the moved line from Code Review 20260909 item 2. No earlier round saw it. Confirmed.
-
-- 🔘 A tag on origin with a branch's name stops every remote delete in `br prune`.
-	- Opened: 20260914-165245
-	- Reproduced: with branches `amb` and `other` merged and a tag `amb` on origin, the delete push failed with "dst refspec amb matches more than one" and sent nothing. gitsby said it couldn't delete either, and origin kept both.
-	- Cause: each delete names the branch by its short name, which git matches against every ref on origin.
-	- Probable fix: name each delete by its full ref, `refs/heads/<branch>`.
-	- Note: `br merge` names its delete the same way. Read, not run.
-	- Origin: bb60cc5 (the port). No earlier round saw it. Confirmed.
-
-- 🔘 `br merge --no-fetch` deletes its branch on origin after someone else pushed to it.
-	- Opened: 20260914-160947
-	- Reproduced: with `feat` pushed from one clone and a further commit pushed to it from a second, `br merge --no-fetch` in the first said "Nothing to push.", merged, pushed `dev` and deleted `feat` on origin. The second clone's commit is on no branch there.
-	- Cause: with the fetch declined, the park push reads the local copy of origin and finds nothing ahead, and the delete push removes whatever origin holds.
-	- Note: with the fetch on, the pull brings the commit in first and the merge keeps it. Found while designing Code Review 20260909 item 2.
-	- Probable fix: ask origin and lease the delete, reusing what `br prune` does for Code Review 20260909 item 2.
-	- Origin: `cmdMerge` since 53c6c0f (go branch commands). No earlier round saw it. Confirmed.
-
 - 🔘 The Go unit tests fail on Windows.
 	- Opened: 20260914-152134
 	- Reproduced: built for Windows and run on vm925w, `TestCanonPath` and `TestDisplayPath` fail on `gover`, since they expect Linux spellings.
@@ -276,6 +253,52 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 ### Done
 
 #### Done - Bugs
+
+- ✅ `br prune` says to run it again for origin's copies it left alone, and the second run can't see them.
+	- Closed: 20260915-111338
+	- Opened: 20260914-165245
+	- Reproduced: with origin unreachable, `br prune` deleted the local branch, kept origin's copy and said "'gitsby br prune' again once online". Once online, the second run said "Nothing to prune" and origin kept the branch. The warning for a branch origin has moved since the last fetch ("takes a fresh look") ends the same way.
+	- Cause: prune takes its candidates from local branches, and both warnings print after the local branch is gone.
+	- Probable fix: name what deletes that copy on origin once it has been checked, instead of a second run.
+	- Origin: the unreachable line from 75c2c7c (Code Review 20260819a item 7), the moved line from Code Review 20260909 item 2. No earlier round saw it. Confirmed.
+	- Sweep: `br merge` with origin unreachable said `br prune` clears origin's copy later, and deleted the local branch that prune would need. Confirmed, and fixed here: the branch stays with origin's copy until the merge is pushed.
+	- Fixed: prune asks origin before it deletes anything. A copy origin has moved keeps its local branch, so the second run the warning names can look again. When origin can't be reached the local branches still go, as decided 2026-09-14, and the warning prints a leased delete to type for each copy.
+	- Keep: offline, prune still deletes the local branch and holds origin's copy.
+	- Verified: 5 new checks in test.bash, all failing on `gover`. The first prune's count check now expects one local delete fewer.
+
+- ✅ A tag on origin with a branch's name stops every remote delete in `br prune`.
+	- Closed: 20260915-111338
+	- Opened: 20260914-165245
+	- Reproduced: with branches `amb` and `other` merged and a tag `amb` on origin, the delete push failed with "dst refspec amb matches more than one" and sent nothing. gitsby said it couldn't delete either, and origin kept both.
+	- Cause: each delete names the branch by its short name, which git matches against every ref on origin.
+	- Probable fix: name each delete by its full ref, `refs/heads/<branch>`.
+	- Note: `br merge` names its delete the same way. Read, not run.
+	- Origin: bb60cc5 (the port). No earlier round saw it. Confirmed.
+	- Sweep: once the tag is fetched, git lists the branch here as `heads/amb`, so prune tried to delete a branch that doesn't exist. Prune's listings and the default-branch lookup now read the name whole. `br merge`'s delete names the full ref too.
+	- Fixed: every remote delete names `refs/heads/<branch>`.
+	- Verified: 3 new checks in test.bash. Two fail on `gover`; the kept tag is a regression guard.
+
+- ✅ `br merge` merges a tag that has the branch's name, instead of the branch.
+	- Closed: 20260915-111338
+	- Opened: n/a
+	- Reproduced: with a branch `tagged` pushed one commit past `dev` and a tag `tagged` on `dev`, `br merge --no-fetch` merged the tag, and the branch's commit never reached `dev` on origin.
+	- Cause: `git merge` reads a short name as a tag before a branch. `git checkout` does the opposite, so the switch before it looked right.
+	- Note: found in the sweep for the tag on origin above. The `br merge --no-fetch` fix below leases on the merged tip, which only holds if the branch is what was merged.
+	- Origin: `cmdMerge` since 53c6c0f. Confirmed.
+	- Sweep: `release` merges `dev`, fast-forwards `dev` and checks ancestry by short name, and the hotfix back-merge merges `main` or `origin/main` the same way. All now name full refs. Checkouts stay as they are.
+	- Fixed: `br merge`, `release` and the back-merge name the full ref of what they merge.
+	- Verified: 2 new checks in test.bash, both failing on `gover`.
+
+- ✅ `br merge --no-fetch` deletes its branch on origin after someone else pushed to it.
+	- Closed: 20260915-111338
+	- Opened: 20260914-160947
+	- Reproduced: with `feat` pushed from one clone and a further commit pushed to it from a second, `br merge --no-fetch` in the first said "Nothing to push.", merged, pushed `dev` and deleted `feat` on origin. The second clone's commit is on no branch there.
+	- Cause: with the fetch declined, the park push reads the local copy of origin and finds nothing ahead, and the delete push removes whatever origin holds.
+	- Note: with the fetch on, the pull brings the commit in first and the merge keeps it. Found while designing Code Review 20260909 item 2.
+	- Probable fix: ask origin and lease the delete, reusing what `br prune` does for Code Review 20260909 item 2.
+	- Origin: `cmdMerge` since 53c6c0f (go branch commands). No earlier round saw it. Confirmed.
+	- Fixed: `br merge` asks origin before deleting its copy, and leases the delete on the tip it merged. A copy holding commits the merge doesn't have is left alone, and the warning names the `br switch` and `br merge` that bring them in. A copy already gone is reported as gone.
+	- Verified: 4 new checks in test.bash. Three fail on `gover`, including following the advice; the merge's push is a regression guard. Across the four items test.bash went 925 -> 939, with parity.bash 27/0 and the Go tests green. Linux only.
 
 - ✅ Two `account set` runs at once on one accounts file keep only one of the two keys.
 	- Closed: 20260915-104204

@@ -59,8 +59,8 @@ func (a *app) preview(what string) {
 		a.out.clean(pad + "git pull --ff-only *")
 		a.out.clean(pad + "git merge --no-ff " + a.currentBranch())
 		a.out.clean(pad + "git push *")
-		a.out.clean(pad + "git branch -d " + a.currentBranch())
-		a.out.clean(pad + "git push origin --delete " + a.currentBranch() + " *")
+		a.out.clean(pad + "git branch -d " + a.currentBranch() + " *")
+		a.out.clean(pad + "git push --force-with-lease origin --delete " + a.currentBranch() + " *")
 		a.out.clean(pad + "git pull --ff-only *")
 		// A hotfix owes dev the same change, or the next release undoes it.
 		if a.isHotfixBranch("") {

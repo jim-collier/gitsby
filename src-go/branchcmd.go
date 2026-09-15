@@ -10,6 +10,11 @@
 
 package main
 
+import (
+	"runtime"
+	"strings"
+)
+
 // Where the code that becomes a release asset lives. The release builds every
 // binary from here, so a hotfix that touches it is the kind the warning below is
 // about; documentation is not. It was 'bin/' when the deliverable was a script,
@@ -118,7 +123,9 @@ func (a *app) cmdMerge() error {
 	if err := a.pullIfOnline(); err != nil {
 		return err
 	}
-	if err := a.step("git", "merge", "--no-ff", workBranch, "-m", mergeMessage); err != nil {
+	// By full ref: git merge reads a tag of the same name ahead of the branch, and the
+	// remote delete below is leased on the branch's tip.
+	if err := a.step("git", "merge", "--no-ff", "refs/heads/"+workBranch, "-m", mergeMessage); err != nil {
 		return err
 	}
 	// The merge must reach origin before the remote work branch goes away, or origin
@@ -146,22 +153,30 @@ func (a *app) cmdMerge() error {
 		}
 		mergePublished = true
 	}
-	if err := a.step("git", "branch", "-d", workBranch); err != nil {
-		return err
+	// Read before the local delete: whether origin has a copy, and the tip that was
+	// merged, which is all origin's copy may hold when it goes.
+	mergedTip, tracked := "", false
+	for _, line := range runLines("git", "for-each-ref", "--format=%(objectname) %(refname)", "refs/heads/"+workBranch, "refs/remotes/origin/"+workBranch) {
+		object, ref, _ := strings.Cut(line, " ")
+		switch ref {
+		case "refs/heads/" + workBranch:
+			mergedTip = object
+		case "refs/remotes/origin/" + workBranch:
+			tracked = true
+		}
 	}
-	if branchExistsRemote(workBranch) {
-		if !mergePublished {
-			// The same rule as above, from the other side: with the merge still
-			// unpublished, origin's copy of the branch is its only ref to those commits.
-			a.out.status("Leaving origin's '" + workBranch + "' alone until the merge is pushed; '" + meName + " br prune' clears it later.")
-		} else {
-			// Non-fatal: someone (a PR merge, another clone) may have deleted it already.
-			a.out.clean("")
-			a.out.status("git push origin --delete " + workBranch + " ...")
-			if !a.inheritOK("git", "push", "origin", "--delete", workBranch) {
-				a.out.status("WARNING: couldn't delete the remote branch (already gone?); continuing.")
-			}
-			a.out.resetBlank()
+	if tracked && !mergePublished {
+		// The same rule as above, from the other side: with the merge still
+		// unpublished, origin's copy of the branch is its only ref to those commits.
+		// The branch stays here too, since br prune looks for what to clear among
+		// local branches.
+		a.out.status("Leaving origin's '" + workBranch + "' alone until the merge is pushed, and the branch here with it; '" + meName + " br prune' deletes both after that.")
+	} else {
+		if err := a.step("git", "branch", "-d", workBranch); err != nil {
+			return err
+		}
+		if tracked {
+			a.mergeDeleteRemote(workBranch, mergedTip)
 		}
 	}
 	if err := a.pullIfOnline(); err != nil {
@@ -172,6 +187,40 @@ func (a *app) cmdMerge() error {
 		return a.backMergeToDev()
 	}
 	return nil
+}
+
+// mergeDeleteRemote deletes origin's copy of the branch br merge just merged, the
+// way br prune does. With --no-fetch the pull before the merge is skipped, and
+// anyone can push while the prompt waits, so origin may hold commits the merge
+// doesn't have. It is asked first, and the delete is leased on the merged tip.
+func (a *app) mergeDeleteRemote(branch, mergedTip string) {
+	tested := map[string]string{branch: mergedTip}
+	onOrigin, asked := a.askOriginHeads()
+	if !asked {
+		a.out.status("WARNING: couldn't ask origin about its '" + branch + "'; left it alone.")
+		a.out.clean("  Once origin can be reached, this deletes it. It stops if that branch has moved:")
+		a.out.clean(pad + leaseDeleteLine(branch, mergedTip, runtime.GOOS))
+		return
+	}
+	send, changed, gone := sortRemoteDeletes([]string{branch}, tested, onOrigin)
+	switch {
+	case len(gone) > 0:
+		a.out.status("Already gone from origin: " + branch + ".")
+	case len(changed) > 0:
+		fetch := ""
+		if !a.opt.fetch {
+			fetch = " without --no-fetch"
+		}
+		a.out.status("WARNING: origin's '" + branch + "' has commits this merge doesn't; left it alone - '" + meName + " br switch " + typedArg(branch, runtime.GOOS) + "'" + fetch + ", then '" + meName + " br merge', brings them in.")
+	case len(send) > 0:
+		a.out.clean("")
+		a.out.status("git push --force-with-lease origin --delete " + branch + " ...")
+		// Non-fatal: the lease can still refuse, if the branch moved after the ask.
+		if !a.inheritOK("git", leaseDeleteBatches(send, tested, leasePushBudget)[0]...) {
+			a.out.status("WARNING: couldn't delete origin's '" + branch + "'; left it alone.")
+		}
+		a.out.resetBlank()
+	}
 }
 
 // backMergeRef is what the back-merge actually merges. 'pr ok' lands the hotfix on
@@ -211,7 +260,12 @@ func (a *app) backMergeToDev() error {
 		return err
 	}
 	a.out.status("git merge " + mergeRef + " ...")
-	if a.inheritOK("git", "merge", mergeRef, "-m", "Merge "+mainBranch) {
+	// By full ref, so a tag of the same name isn't merged in its place.
+	fullRef := "refs/heads/" + mergeRef
+	if remote, ok := strings.CutPrefix(mergeRef, "origin/"); ok {
+		fullRef = "refs/remotes/origin/" + remote
+	}
+	if a.inheritOK("git", "merge", fullRef, "-m", "Merge "+mainBranch) {
 		a.out.resetBlank()
 		return a.pushIfOnline()
 	}

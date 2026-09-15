@@ -790,9 +790,21 @@ fRunSuite(){
 		bash -c "[[ \"\$(git -C '${pnOrigin}' rev-parse refs/heads/moved)\" == \"\$(cat '${work}/$1-pn1moved')\" ]]"
 	fAssert    "and still deletes the one origin hasn't moved"  bash -c "! git -C '${pnOrigin}' show-ref --verify --quiet refs/heads/plain"
 	fAssertOut "and says origin's copy changed"  'have changed since this clone last fetched'  cat "${work}/$1-pn1.out"
-	fAssertOut "and counts only what it deleted there"  'Pruned 2 local, 1 on origin'  cat "${work}/$1-pn1.out"
+	fAssertOut "and counts only what it deleted there"  'Pruned 1 local, 1 on origin'  cat "${work}/$1-pn1.out"
 	fAssert    "the delete is leased on the value that was checked" \
 		bash -c "grep -qF -- \"--force-with-lease=refs/heads/plain:\$(cat '${work}/$1-pn1plain')\" '${work}/$1-pn1.trace'"
+	fAssert    "and keeps the moved branch here too"  bash -c "git -C '${pnA}' show-ref --verify --quiet refs/heads/moved"
+	## The warning says a second run takes a fresh look. Once the new commit is merged on origin,
+	## that run has to find the branch and clear both copies.
+	(
+		cd "${pnB}"
+		git checkout --quiet dev; git pull --quiet --ff-only
+		git merge --quiet --no-ff moved -m "merge moved again"; git push --quiet
+	)
+	( cd "${pnA}" && "${gitsby}" -q br prune ) > "${work}/$1-pn1b.out" 2>&1 || true
+	fAssert    "and a second run, as the warning says, clears it once merged" \
+		bash -c "! git -C '${pnA}' show-ref --verify --quiet refs/heads/moved && ! git -C '${pnOrigin}' show-ref --verify --quiet refs/heads/moved"
+	git -C "${pnA}" pull --quiet --ff-only
 	## Someone already deleted one of them on origin. A batched delete with one missing ref sends
 	## none of them.
 	(
@@ -819,6 +831,56 @@ fRunSuite(){
 	( cd "${pnA}" && GIT_TRACE="${work}/$1-pn3.trace" "${gitsby}" -q -NoFetch br prune ) > "${work}/$1-pn3.out" 2>&1 || true
 	fAssert    "origin isn't asked when nothing goes there" \
 		bash -c "! git -C '${pnA}' show-ref --verify --quiet refs/heads/solo && [[ -s '${work}/$1-pn3.trace' ]] && ! grep -qF 'ls-remote' '${work}/$1-pn3.trace'"
+	## A tag with a branch's name, here and on origin. Origin matches a short name against its tags
+	## too, and git shortens the branch here to 'heads/amb'.
+	(
+		cd "${pnA}"
+		for pnBranch in amb other; do
+			git checkout --quiet -b "${pnBranch}" dev; echo "${pnBranch}" > "${pnBranch}.txt"; git add --all
+			git commit --quiet -m "${pnBranch}"; git push --quiet -u origin "${pnBranch}"
+		done
+		git checkout --quiet dev
+		git merge --quiet --no-ff amb -m "merge amb"; git merge --quiet --no-ff other -m "merge other"
+		git push --quiet; git tag amb dev; git push --quiet origin refs/tags/amb
+	)
+	( cd "${pnA}" && "${gitsby}" -q -NoFetch br prune ) > "${work}/$1-pn6.out" 2>&1 || true
+	fAssert    "a tag with a branch's name doesn't stop br prune's deletes" \
+		bash -c "! git -C '${pnOrigin}' show-ref --verify --quiet refs/heads/amb && ! git -C '${pnOrigin}' show-ref --verify --quiet refs/heads/other"
+	fAssert    "and leaves the tag"  bash -c "git -C '${pnOrigin}' show-ref --verify --quiet refs/tags/amb"
+	fAssertOut "and deletes both here too"  'Pruned 2 local, 2 on origin'  cat "${work}/$1-pn6.out"
+	## git merge reads a tag ahead of a branch with the same name. Merging the tag leaves the
+	## branch's commit out, and the delete after it takes origin's only copy.
+	(
+		cd "${pnA}"
+		git checkout --quiet -b tagged dev; echo tagged > tagged.txt; git add --all
+		git commit --quiet -m tagged; git push --quiet -u origin tagged; git tag tagged dev
+		git rev-parse refs/heads/tagged > "${work}/$1-pn7tip"
+	)
+	( cd "${pnA}" && GIT_TRACE="${work}/$1-pn7.trace" "${gitsby}" -q -NoFetch br merge "merge tagged" ) > "${work}/$1-pn7.out" 2>&1 || true
+	fAssert    "br merge merges the branch, not a tag with its name" \
+		bash -c "git -C '${pnOrigin}' merge-base --is-ancestor \"\$(cat '${work}/$1-pn7tip')\" refs/heads/dev"
+	fAssert    "and deletes origin's copy, leased on the tip it merged" \
+		bash -c "! git -C '${pnOrigin}' show-ref --verify --quiet refs/heads/tagged && grep -qF -- \"--force-with-lease=refs/heads/tagged:\$(cat '${work}/$1-pn7tip')\" '${work}/$1-pn7.trace'"
+	## Someone else pushes to the branch, and br merge --no-fetch never pulls it in. Origin's copy
+	## is then the only ref to that commit.
+	(
+		cd "${pnA}"
+		git checkout --quiet -b shared dev; echo shared > shared.txt; git add --all
+		git commit --quiet -m shared; git push --quiet -u origin shared
+	)
+	(
+		cd "${pnB}"
+		git fetch --quiet; git checkout --quiet shared; echo more >> shared.txt
+		git commit --quiet -am "more"; git push --quiet; git rev-parse shared > "${work}/$1-pn8shared"
+	)
+	( cd "${pnA}" && "${gitsby}" -q -NoFetch br merge "merge shared" ) > "${work}/$1-pn8.out" 2>&1 || true
+	fAssert    "br merge --no-fetch keeps its branch on origin after someone else pushed to it" \
+		bash -c "[[ \"\$(git -C '${pnOrigin}' rev-parse refs/heads/shared)\" == \"\$(cat '${work}/$1-pn8shared')\" ]]"
+	fAssert    "and still merges and pushes what it had"  bash -c "git -C '${pnOrigin}' log -1 --format=%s refs/heads/dev | grep -q 'merge shared'"
+	fAssertOut "and names what brings the commit in"  "has commits this merge doesn't; left it alone - '[^']*br switch shared' without --no-fetch, then '[^']*br merge'"  cat "${work}/$1-pn8.out"
+	( cd "${pnA}" && "${gitsby}" -q br switch shared && "${gitsby}" -q br merge "merge shared again" ) > "${work}/$1-pn8b.out" 2>&1 || true
+	fAssert    "and that advice, followed, brings it in and clears origin's copy" \
+		bash -c "git -C '${pnOrigin}' merge-base --is-ancestor \"\$(cat '${work}/$1-pn8shared')\" refs/heads/dev && ! git -C '${pnOrigin}' show-ref --verify --quiet refs/heads/shared"
 	## With the fetch on, someone pushes while the prompt waits. The second clone's output is kept
 	## off the pipe, since everything on it is typed at the prompt.
 	if ((hasPty)); then
@@ -855,9 +917,26 @@ fRunSuite(){
 	mv "${pnOrigin}" "${pnOrigin}.away"
 	( cd "${pnA}" && "${gitsby}" -q -NoFetch br prune ) > "${work}/$1-pn5.out" 2>&1 || true
 	mv "${pnOrigin}.away" "${pnOrigin}"
-	fAssertOut    "br prune --no-fetch holds origin's deletes when it can't reach origin"  "left origin's copies of far alone"  cat "${work}/$1-pn5.out"
+	## 'late' is still here when there is a pty, since a copy moved on origin keeps its local branch.
+	fAssertOut    "br prune --no-fetch holds origin's deletes when it can't reach origin"  "left origin's copies of ([^ ]+, )*far(, [^ ]+)* alone"  cat "${work}/$1-pn5.out"
 	fAssertNotOut "and doesn't blame the branch"  'already gone'  cat "${work}/$1-pn5.out"
 	fAssert       "and still deletes the local branch without origin"  bash -c "! git -C '${pnA}' show-ref --verify --quiet refs/heads/far"
+	fAssert       "and the delete it names, typed as shown once origin is back, clears origin's copy" \
+		bash -c "cd '${pnA}' && line=\"\$(grep -E '^ +git push .*refs/heads/far\$' '${work}/$1-pn5.out')\" && [[ -n \"\${line}\" ]] && bash -c \"\${line}\" >/dev/null 2>&1 && ! git -C '${pnOrigin}' show-ref --verify --quiet refs/heads/far"
+	## br merge with origin unreachable says br prune clears origin's copy later. Prune looks for
+	## what to clear among local branches, so the branch has to stay here too.
+	(
+		cd "${pnA}"
+		git checkout --quiet -b later dev; echo later > later.txt; git add --all
+		git commit --quiet -m later; git push --quiet -u origin later
+	)
+	mv "${pnOrigin}" "${pnOrigin}.away"
+	( cd "${pnA}" && "${gitsby}" -q br merge "merge later" ) > "${work}/$1-pn9.out" 2>&1 || true
+	mv "${pnOrigin}.away" "${pnOrigin}"
+	fAssertOut "br merge offline names br prune for origin's copy"  "Leaving origin's 'later' alone.*br prune' deletes both"  cat "${work}/$1-pn9.out"
+	( cd "${pnA}" && "${gitsby}" -q sync "publish later" && "${gitsby}" -q br prune ) > "${work}/$1-pn9b.out" 2>&1 || true
+	fAssert    "and once online, sync then br prune clears both" \
+		bash -c "! git -C '${pnA}' show-ref --verify --quiet refs/heads/later && ! git -C '${pnOrigin}' show-ref --verify --quiet refs/heads/later"
 
 	## clone: derives the dir, checks out dev when the repo has one, no-op re-run, collision guards
 	local cl="${work}/$1-clone"
@@ -3949,3 +4028,5 @@ echo "passed: ${pass}, failed: ${fail}"
 ##		- 20260914 JC: repo connect and a remote it can't reach: refused as unknown, with ssh's reason, no pointer at repo create, and nothing set up. A local path that isn't a repo still reads as missing, and a credential in an unreachable url is not printed. Four of the seven fail against the tree before them; three are regression guards. 905 -> 912.
 ##		- 20260914 JC: A tea that fails to list its logins: the Git host line says tea couldn't be asked and repeats why, not that tea holds no login, and a host tea has no login for still says so. Two of the three fail against the tree before them; the no-login check is a regression guard. 912 -> 915.
 ##		- 20260914 JC: account set and a place it can't look: a folder that can't be searched is refused by name, with the chmod that fixes it, and nothing goes in ahead of it in XDG_CONFIG_HOME. A file that opens and then fails to read is refused when named and when found, where it crashed. Linux only. 915 -> 922.
+##		- 20260915 JC: Two account set runs at once keep both keys, and a lock another run left is waited on, then refused by name. 922 -> 925.
+##		- 20260915 JC: Origin's copies of merged branches. A prune warning's advice, followed, clears the branch. A tag with a branch's name stops nothing, and br merge merges the branch rather than the tag. br merge --no-fetch keeps a copy someone else pushed to, and an offline br merge keeps the branch here so prune can clear both. Twelve of the fourteen fail against the tree before them; the kept tag and the merge's push are regression guards. The first prune's count drops by one, since the moved branch now stays here. 925 -> 939.

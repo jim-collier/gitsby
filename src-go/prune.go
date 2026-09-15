@@ -45,7 +45,7 @@ func (a *app) resolvePrune() error {
 	// than the survey.
 	mergedLocal := map[string]bool{}
 	for _, ref := range a.prune.targetRefs {
-		for _, branch := range runLines("git", "for-each-ref", "--format=%(refname:short)", "--merged", ref, "refs/heads/") {
+		for _, branch := range runLines("git", "for-each-ref", "--format=%(refname:lstrip=2)", "--merged", ref, "refs/heads/") {
 			mergedLocal[branch] = true
 		}
 	}
@@ -53,7 +53,9 @@ func (a *app) resolvePrune() error {
 	if haveTargetRemote {
 		mergedRemote = originTips(runLines("git", "for-each-ref", "--format=%(objectname) %(refname)", "--merged", targetRemoteRef, "refs/remotes/origin/"))
 	}
-	for _, branch := range runLines("git", "for-each-ref", "--format=%(refname:short)", "refs/heads/") {
+	// lstrip, not :short, which prints 'heads/<name>' for a branch that shares its name
+	// with a tag.
+	for _, branch := range runLines("git", "for-each-ref", "--format=%(refname:lstrip=2)", "refs/heads/") {
 		// The branch we're standing on can't be deleted, and protected ones never are.
 		// But if it WOULD have qualified, say so - otherwise it just vanishes from
 		// every list.
@@ -151,8 +153,10 @@ const leasePushBudget = 16384
 // leaseDeleteBatches builds the argument list of each delete push. Every branch is
 // leased on the value that was tested, spelled out: a bare --force-with-lease reads
 // the tracking ref and follows push.useForceIfIncludes, which refuses a delete once
-// the local branch is gone. A batch closes before the next branch would take its
-// arguments past budget; a branch too long for any budget still goes, alone.
+// the local branch is gone. Each delete names the full ref, since origin matches a
+// short name against its tags too, and one match too many sends none of them. A
+// batch closes before the next branch would take its arguments past budget; a
+// branch too long for any budget still goes, alone.
 func leaseDeleteBatches(branches []string, tested map[string]string, budget int) [][]string {
 	const fixedLen = len("push") + len("origin") + len("--delete") + 3
 	var batches [][]string
@@ -168,11 +172,14 @@ func leaseDeleteBatches(branches []string, tested map[string]string, budget int)
 			args = append(args, leaseArg(branch, tested[branch]))
 		}
 		args = append(args, "origin", "--delete")
-		batches = append(batches, append(args, group...))
+		for _, branch := range group {
+			args = append(args, "refs/heads/"+branch)
+		}
+		batches = append(batches, args)
 		group, size = nil, fixedLen
 	}
 	for _, branch := range branches {
-		cost := len(leaseArg(branch, tested[branch])) + 1 + len(branch) + 1
+		cost := len(leaseArg(branch, tested[branch])) + 1 + len("refs/heads/"+branch) + 1
 		if len(group) > 0 && size+cost > budget {
 			flush()
 		}
@@ -186,6 +193,33 @@ func leaseDeleteBatches(branches []string, tested map[string]string, budget int)
 // leaseArg: a ref name cannot hold ':', so git splits this one correctly.
 func leaseArg(branch, object string) string {
 	return "--force-with-lease=refs/heads/" + branch + ":" + object
+}
+
+// leaseDeleteLine is one branch's leased delete as a line to type later, once
+// origin can be reached.
+func leaseDeleteLine(branch, object, goos string) string {
+	return "git push " + typedArg(leaseArg(branch, object), goos) + " origin --delete " + typedArg("refs/heads/"+branch, goos)
+}
+
+// typedArg spells a word for a line someone will paste. A branch name can hold ;
+// or $, and it came from whoever pushed it, so anything a shell reads gets single
+// quotes, in the form this platform's shell takes them. PowerShell also splits an
+// unquoted dash-led word at a dot.
+func typedArg(word, goos string) string {
+	shellReads := func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && !strings.ContainsRune("-_./:=@+", r)
+	}
+	plain := word != "" && !strings.ContainsFunc(word, shellReads)
+	if goos == "windows" {
+		if plain && (!strings.HasPrefix(word, "-") || !strings.Contains(word, ".")) {
+			return word
+		}
+		return "'" + strings.ReplaceAll(word, "'", "''") + "'"
+	}
+	if plain {
+		return word
+	}
+	return "'" + strings.ReplaceAll(word, "'", `'\''`) + "'"
 }
 
 // pruneNothingToDo says WHY the plan is empty - "no branch is merged" would be a

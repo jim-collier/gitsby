@@ -125,7 +125,7 @@ func resolveDefaultBranch() string {
 	// Nothing conventional to go on: a lone branch is the default by elimination.
 	// A named one has to stay stable as feature branches come and go, which is why
 	// the list above is checked first.
-	locals := runLines("git", "for-each-ref", "--format=%(refname:short)", "refs/heads")
+	locals := runLines("git", "for-each-ref", "--format=%(refname:lstrip=2)", "refs/heads")
 	if len(locals) == 1 {
 		return locals[0]
 	}
