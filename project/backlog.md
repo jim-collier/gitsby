@@ -50,7 +50,7 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 ### Bugs
 
-- 🔘 The demo gif runs about two minutes, against a budget of twenty to thirty seconds.
+- 🛠️ The demo gif runs about two minutes, against a budget of twenty to thirty seconds.
 	- Opened: 20260914-140251
 	- Reproduced: the committed gif loops in 123.8 s over nine scenes. The shortest scene, a one-line `echo`, takes 8.6 s, and `br merge` takes 20.9 s. The holds alone add up to 52.8 s.
 	- Note: split from Code Review 20260909 item 16. The budget leaves room for two or three scenes, so this waits on a decision about which ones the README keeps.
@@ -100,7 +100,7 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 - 🔘 No UI and UX style guide exists, and README points at none.
 	- Opened: 20260914-122353
-	- Note: the output rules are in design.md's UI section and nowhere else. This item writes `project/style-guide_ui-ux.md` from them and links it from README.
+	- Note: the output rules are in design.md's UI section and nowhere else. This item writes `project/style-guide_cli.md` from them and links it from README.
 	- Note: bringing the output into line with the guide is a separate item, filed once the guide exists.
 
 - 🛠️ Code review 20260909 - enhancements from the same pass. Twelve items, none of them urgent.
