@@ -81,20 +81,18 @@ if ((check)) && ((! noMark)) && [[ -n "$ts" ]]; then
 	printf '%s\n' "$ts" > "$marker" 2>/dev/null || echo "lint-report: could not write marker: $marker" >&2
 fi
 
-##	Distil warnings/advisories from the shell toolchain. shellcheck emits
-##	"SCxxxx" findings with an "In file line N" locus; markdownlint prints
-##	"file.md:line MDxxx/rule description"; the engine itself prints "WARNING:"
-##	lines for probe-gated skips. A hard error only shows in a failed run's log
-##	(a passing run aborts on the first error). The excludes drop the clean-run
-##	noise: the "[ OK: ... ]" status lines and 0-warning summaries.
-##	The harness lines are excluded by SHAPE, not by wording: the suites print one
-##	"  ok: <check label>" per check, and several labels contain the words "warning"
-##	and "error" because that is what they are about. Matching those made a green run
-##	report seven findings that did not exist, which is worse than reporting none -
-##	it trains you to ignore the channel, and this one sat unread for three weeks.
-warns="$(grep -inE 'warning|SC[0-9]{4}|MD[0-9]{3}|error' "$log" 2>/dev/null \
-	| grep -viE '0 issues|no problems|0 warnings|found no|\[ OK:' \
-	| grep -viE '^[0-9]+:[[:space:]]*(ok|FAIL|parity ok|parity FAIL):' || true)"
+##	Findings are matched by each tool's own output format: the engine's "WARNING:"
+##	lines, shellcheck's SCxxxx, markdownlint's MDxxx/rule, the go tools' file.go:line
+##	locus, govulncheck's GO-yyyy-n ids, PSScriptAnalyzer's rule and severity columns,
+##	and py_compile's traceback. A hard error only shows in a failed run's log (a
+##	passing run aborts on the first error).
+##	Matching the words "warning" and "error" reported findings that did not exist,
+##	twice: the suites' check labels, then the publish stage's archive listing of
+##	errors.go. A report that cries wolf gets ignored, and this one sat unread for
+##	three weeks. The suites' "  ok: <label>" lines are still dropped, since a label
+##	can quote any of these forms.
+warns="$(grep -nE 'WARNING:|\bSC[0-9]{4}\b|\bMD[0-9]{3}/[a-z]|\.go:[0-9]+(:[0-9]+)?: |\bGO-[0-9]{4}-[0-9]+|\bPS[A-Z][A-Za-z]+ +(ParseError|Error|Warning|Information)\b|\.py", line [0-9]+' "$log" 2>/dev/null \
+	| grep -vE '^[0-9]+:[[:space:]]*(ok|FAIL|parity ok|parity FAIL):' || true)"
 if [[ -n "$warns" ]]; then n=$(printf '%s\n' "$warns" | grep -c .); else n=0; fi
 
 tag="FLAG"; ((check)) && tag="NEW"
@@ -109,3 +107,4 @@ fi
 
 ##	Script history:
 ##		- 20260709: Created.
+##		- 20260915: Matches each tool's output format rather than the words warning and error, which matched a file named errors.go in the archive listing.

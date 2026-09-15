@@ -147,15 +147,17 @@ fi
 git rev-parse -q --verify "refs/tags/${version}" >/dev/null && fDie "tag ${version} already exists."
 
 ## The history footers are maintained by hand and are missed most rounds, so check rather than
-## trust. The two builds that used to carry one are frozen; what is left is the harnesses.
-lastTagForFooter="${lastTag}"
-if [[ -n "${lastTagForFooter}" ]]; then
-	for f in "${here}/test.bash" "${here}/fuzz.bash"; do
-		newest="$(grep -oE '^##[[:space:]]+- 20[0-9]{6}' "${f}" | grep -oE '20[0-9]{6}' | sort | tail -n 1)"
-		tagDate="$(git log -1 --format=%cd --date=format:%Y%m%d "${lastTagForFooter}" 2>/dev/null || echo 0)"
-		[[ -n "${newest}" && "${newest}" -ge "${tagDate}" ]] \
-			|| fEcho_Clean "WARNING: ${f##*/} has no history entry since ${lastTagForFooter} (${tagDate}); add one before releasing."
-	done
+## trust. Every pipeline or installer script that keeps one and has changed since the last
+## release; a footer's dates are written 20260819 or 2026-08-19.
+if [[ -n "${lastTag}" ]]; then
+	tagDate="$(git log -1 --format=%cd --date=format:%Y%m%d "${lastTag}" 2>/dev/null || echo 0)"
+	while IFS= read -r f; do
+		[[ -f "${f}" ]] || continue
+		newest="$(grep -oE '^##[[:space:]]+- 20[0-9]{2}-?[0-9]{2}-?[0-9]{2}' "${f}" | grep -oE '20[0-9-]+' | tr -d - | sort | tail -n 1 || true)"
+		[[ -n "${newest}" ]] || continue
+		[[ "${newest}" -ge "${tagDate}" ]] \
+			|| fEcho_Clean "WARNING: ${f} has no history entry since ${lastTag} (${tagDate}); add one before releasing."
+	done < <(git diff --name-only "${lastTag}" HEAD -- cicd install.bash install.ps1)
 fi
 
 ## State: clean tree, on the merge target, nothing unpushed.
@@ -264,7 +266,7 @@ awk -v ver="## ${version} " -v start="$(fpChangelogStart)" \
 [[ -s "${notes}" ]] || fEcho_Clean "WARNING: no changelog section found for ${version}; the release body will be empty."
 nativeAsset="${EXE_NAME}-$(go env GOOS)-$(go env GOARCH)"; [[ "$(go env GOOS)" == windows ]] && nativeAsset="${nativeAsset}.exe"
 buildLine=""
-[[ -x "${assets}/${nativeAsset}" ]] && buildLine="$("${assets}/${nativeAsset}" --version 2>/dev/null | sed -n 's/^\('"${EXE_NAME}"' v[^,]*\),.*/\1/p')"
+[[ -x "${assets}/${nativeAsset}" ]] && buildLine="$("${assets}/${nativeAsset}" --version 2>/dev/null | awk -v want="${EXE_NAME} v" 'index($0, want) == 1 && !seen {print; seen = 1}')"
 if [[ -n "${buildLine}" ]]; then
 	printf '\n---\n\n%s\n' "${buildLine}" >> "${notes}"
 else
@@ -338,3 +340,6 @@ echo
 ##		  installable when it was - GitHub was still serving the tag without its assets, and the
 ##		  installer stops rather than skip verification. A warning that fires on a good release is
 ##		  worse than none, because the next one is read the same way.
+##		- 20260821 JC: -q runs the release unattended, with the phase 1 pipeline quiet too.
+##		- 20260826 JC: Phase 3 rebuilds the assets from the tagged commit, since the build number comes from that commit's date. The phase 1 build is only a compile gate now.
+##		- 20260915 JC: The footer check covers every pipeline and installer script that keeps a history and changed since the last release, not only the two harnesses. Three pipeline files had gone a month without an entry. The notes' build line is the banner's first line, now that the copyright has a line of its own.

@@ -118,7 +118,10 @@ fi
 
 ## Everything the resource says, in one place. Written to a temp file rather than committed as a
 ## versioninfo.json, so the version in it cannot go stale against the one being generated for.
-## No ID marker in LegalCopyright, on purpose: Explorer shows it on the Properties tab.
+## No ID marker in LegalCopyright, on purpose: Explorer shows it on the Properties tab. The years
+## come from the program, so the Properties tab and --about can't disagree.
+copyrightYear="$(sed -n 's/^[[:space:]]*copyrightYear[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "${root}/${GO_MODULE_DIR}/main.go" || true)"
+[[ -n "${copyrightYear}" ]] || fDie "couldn't read copyrightYear from ${GO_MODULE_DIR}/main.go."
 fpWriteJson(){
 	cat > "$1" <<-JSON
 		{
@@ -136,7 +139,7 @@ fpWriteJson(){
 				"FileDescription": "A simple, safe, opinionated Git wrapper for everyday work",
 				"FileVersion": "${verStr}",
 				"InternalName": "${EXE_NAME}",
-				"LegalCopyright": "Copyright © 2026 Jim Collier. Licensed under the MIT License.",
+				"LegalCopyright": "Copyright © ${copyrightYear} Jim Collier. Licensed under the MIT License.",
 				"OriginalFilename": "${EXE_NAME}.exe",
 				"ProductName": "${APP_NAME}",
 				"ProductVersion": "${verStr}"
@@ -205,3 +208,4 @@ exit 0
 ##		- 20260819 JC: Created. The Windows builds had no icon and no version details; this writes
 ##		  the resource that gives them both. Committed rather than generated at build time, so the
 ##		  published .exe can be rebuilt from its tag without the tool.
+##		- 20260915 JC: LegalCopyright takes its years from the program, which printed 2014-2026 while the resource said 2026.

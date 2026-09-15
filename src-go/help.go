@@ -11,7 +11,8 @@ package main
 
 func (a *app) printCopyright() {
 	a.out.clean("")
-	a.out.cleanf("%s %s, Copyright © %s %s.", meName, versionText(), copyrightYear, author)
+	a.out.cleanf("%s %s", meName, versionText())
+	a.out.cleanf("Copyright © %s %s.", copyrightYear, author)
 	a.out.clean("Licensed under The MIT License (MIT). Full text at:")
 	a.out.clean("  https://mit-license.org/")
 	a.out.clean("No Warranty.")
