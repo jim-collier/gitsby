@@ -142,7 +142,7 @@ func (a *app) originHost() string { return a.originRef().host }
 
 // onGitHub: this repo's origin is one gh serves. The single question every gh call
 // site now asks - a gh that is installed and logged in still has no business being
-// run against somebody else's forge, where at best it errors in its own vocabulary
+// run against somebody else's git host, where at best it errors in its own vocabulary
 // about a repo it was never looking at.
 func (a *app) onGitHub() bool { return isGitHubHost(a.originHost()) }
 
@@ -203,7 +203,7 @@ const (
 )
 
 // forgeToolFor picks the CLI for a host. gh for GitHub and for nothing else: it is
-// a GitHub client, and pointing it at somebody else's forge gets an error in
+// a GitHub client, and pointing it at somebody else's git host gets an error in
 // GitHub's vocabulary about a repo it was never looking at. tea for any other host
 // that has it installed - it is Gitea's client, and it says so itself when the host
 // turns out not to be one.

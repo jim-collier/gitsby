@@ -1,7 +1,7 @@
-// Host detection and the forge CLIs' vocabulary. What these cover is the seam
+// Host detection and the host CLIs' vocabulary. What these cover is the seam
 // where a GitHub-only program learned there are other hosts: getting it wrong
-// means running a GitHub client against somebody else's forge, or refusing work
-// that never needed a forge client at all.
+// means running a GitHub client against somebody else's git host, or refusing work
+// that never needed a host-specific client at all.
 
 // Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
 // Licensed under The MIT License (MIT). Full text at:
@@ -31,7 +31,7 @@ func TestParseRemote(t *testing.T) {
 		// and the instance routing above that says nothing about who owns it.
 		{"https://git.example.com/gitea/octocat/hello.git", "git.example.com", "octocat", "hello"},
 		// A host with no repo under it still names the host - which is what decides
-		// whether a forge CLI is the right tool, independently of the repo.
+		// whether a git host CLI is the right tool, independently of the repo.
 		{"https://git.example.com/octocat", "git.example.com", "", ""},
 		{"/srv/local/repo.git", "", "", ""},
 		{`C:\srv\repo`, "", "", ""},

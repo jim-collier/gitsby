@@ -158,7 +158,7 @@ func (a *app) remoteEnv() []string {
 	return env
 }
 
-// The greeting each forge answers an ssh -T with. GitHub says 'Hi <user>!';
+// The greeting each git host answers an ssh -T with. GitHub says 'Hi <user>!';
 // Gitea (and Forgejo, which kept the wording) says 'Hi there, <user>!' - close
 // enough to look handled by the first pattern and different enough not to be, so
 // the identity line read 'unknown' on every Gitea remote while looking correct.
@@ -268,7 +268,7 @@ func (a *app) isOffline() bool { return !a.gh.reachable }
 // ghProtocol: which transport gh hands to git for github.com ('ssh' or 'https').
 // Host-specific, not the global default - they can disagree, and the host one is
 // what github.com operations use. Only asked for a host gh actually serves: gh's
-// preference says nothing about somebody else's forge, and asking it anyway spends
+// preference says nothing about somebody else's git host, and asking it anyway spends
 // a process to mis-answer a question about a machine gh has never heard of.
 func (a *app) ghProtocol(host string) string {
 	if !isGitHubHost(host) {

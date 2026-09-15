@@ -484,7 +484,7 @@ const utf8BOM = "\ufeff"
 
 var acctNameOK = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
-// What a hostname or a forge login may contain. Deliberately narrower than either
+// What a hostname or a git host login may contain. Deliberately narrower than either
 // spec allows: these two reach a shell through the credential helper, and nothing
 // legitimate is being excluded.
 var forgeWordOK = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)

@@ -306,7 +306,7 @@ func (a *app) preflight() error {
 	// raw git text - and far better than "succeeding" having sent nothing. The rest
 	// degrade instead: they mean something locally, so they run and say what they
 	// skipped.
-	// Which forge this repo lives on, and which CLI can speak to it - settled before
+	// Which git host this repo lives on, and which CLI can speak to it - settled before
 	// any pr refusal, so the reason a pr command can't run is the real one rather
 	// than whichever tool happened to be missing.
 	if a.cmd.name == "pr" {
@@ -444,7 +444,7 @@ func (a *app) settleTarget() (bool, error) {
 func (a *app) settleGh() error {
 	switch a.cmd.name {
 	case "whoami":
-		// Reads the forge, writes nothing: the whole point of the command is to name
+		// Reads the git host, writes nothing: the whole point of the command is to name
 		// every account involved. gh answers for a GitHub remote and for no remote at
 		// all - with nothing to take a host from, its account is still the only one
 		// that can be asked. Any other host is the Git host line's business.
@@ -458,7 +458,7 @@ func (a *app) settleGh() error {
 		a.gh.tool, a.gh.cli = a.pr.tool, a.pr.cli
 		a.gh.isCommand = a.pr.tool != toolNone
 		// A write is a write whichever CLI makes it: 'pr create' and 'pr ok' act as
-		// the forge account while git pushes as the key, and those two disagreeing is
+		// the git host account while git pushes as the key, and those two disagreeing is
 		// the same wrong-account mistake on any host.
 		if a.pr.sub != "" && a.gh.isCommand {
 			a.gh.isWrite = true
@@ -520,7 +520,7 @@ func (a *app) forgeCLIWho() string {
 	return "?"
 }
 
-// identityGate: a forge write acting as a different account than the key git pushes
+// identityGate: a write through a host's CLI, acting as another account than the key git pushes
 // with is a wrong-account mistake waiting to happen, and it is outward-facing.
 // Refuse it unattended (nobody is there to read a warning); warn interactively,
 // right before the prompt. --any-identity means the difference is intended.
@@ -535,7 +535,7 @@ func (a *app) identityGate() (identityMismatch, error) {
 		}
 	}
 	// The same question for the commands that push with git rather than write
-	// through a forge CLI - 'sync' above all, which sends your work to a remote and
+	// through a git host CLI - 'sync' above all, which sends your work to a remote and
 	// compared nothing at all. Asked of the account's login ON THIS HOST: 'ghAccount'
 	// is a GitHub login and says nothing about who you are anywhere else, so keying
 	// this on it alone left every non-GitHub account uncompared. Only for an account

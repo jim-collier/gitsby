@@ -29,8 +29,8 @@ import (
 // them. An account can be declared by its keys alone, with no folder rule - it is
 // then only reachable by name, through GITSBY_ACCOUNT, which is a legitimate way
 // to use one.
-// anyHostStated: whether any account in this config names a forge. What makes the
-// host worth a line in the listing - with one forge configured there is nothing to
+// anyHostStated: whether any account in this config names a git host. What makes the
+// host worth a line in the listing - with one git host configured there is nothing to
 // compare, and a machine that only ever talks to github.com should not have the
 // key advertised at it.
 func (c *config) anyHostStated() bool {
@@ -254,7 +254,7 @@ func (a *app) cmdAccountList() {
 		resolvedLine = "'" + a.acct.name + "' - it names no login" + a.accountFallbackNote()
 	default:
 		// Nothing beyond that: this says what gitsby is configured to do here, and
-		// whatever git and the forge CLI fall back to is their own business.
+		// whatever git and the git host CLI fall back to is their own business.
 		resolvedLine = "(nothing configured)"
 	}
 	// Status's label for the same answer. "Resolves to" named no actor, so the first
@@ -276,7 +276,7 @@ func (a *app) cmdAccountList() {
 	names := a.cfg.accountNames()
 	if len(names) == 0 {
 		a.out.clean("")
-		a.out.clean("No accounts defined. See the Multiple accounts section of the README for the file format.")
+		a.out.clean("No accounts defined. '" + meName + " account set' adds one; run it with no arguments for the keys it takes.")
 		warnStale()
 		return
 	}
@@ -327,10 +327,10 @@ func (a *app) showAccount(name string, isHere bool) {
 	// The host leads, because it decides whether anything under it applies at all.
 	// Leaving the deciding field off the listing made 'account list' - the command
 	// that always says - silent about the one key that had refused an account.
-	// Shown only once some account names a forge, and then for every account,
+	// Shown only once some account names a git host, and then for every account,
 	// including the ones that never said: it is the comparison that answers "why did
 	// this one apply and that one not", and it is meaningless where every account is
-	// on the same host. A config with one forge in it reads exactly as it always did.
+	// on the same host. A config with one git host in it reads exactly as it always did.
 	if host := a.cfg.value(name, "host"); host != "" {
 		a.out.clean("     host ....: " + host)
 	} else if a.cfg.anyHostStated() {

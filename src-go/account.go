@@ -91,7 +91,7 @@ func (a *app) resolveAccount(dir, url string) error {
 
 // remoteOwner names the GitHub account a remote belongs to, or nothing when that
 // cannot be said. Only a host gh serves counts: the owner of a repo on somebody
-// else's forge is a login on THAT host, and handing it to 'gh auth token --user'
+// else's git host is a login on THAT host, and handing it to 'gh auth token --user'
 // asks about an account which was never going to exist. Nothing for local paths or
 // anything that doesn't parse either - the caller treats empty as "no opinion", so
 // a remote we don't understand can never trigger a refusal.
@@ -136,7 +136,7 @@ func ghTokenFor(who string) string {
 	return runOut("gh", "auth", "token", "--user", who)
 }
 
-// accountHost is the forge the resolved account belongs to. Unstated means
+// accountHost is the git host the resolved account belongs to. Unstated means
 // github.com: every account that existed before this key did was a GitHub one, and
 // a config that never mentions a host has to keep behaving exactly as it always did.
 func (a *app) accountHost() string {
@@ -147,7 +147,7 @@ func (a *app) accountHost() string {
 }
 
 // accountServesHost: whether the account we resolved holds credentials for this
-// host. A token is a credential for the forge that ISSUED it and for nowhere else,
+// host. A token is a credential for the git host that ISSUED it and for nowhere else,
 // so handing a GitHub token to a Gitea push authenticates nothing - and does it
 // while looking thoroughly configured, which is the part that costs an afternoon.
 func (a *app) accountServesHost(host string) bool {
@@ -180,7 +180,7 @@ func (a *app) accountLogin() string {
 	return "x"
 }
 
-// authHost is the forge this run will authenticate to, which is what decides
+// authHost is the git host this run will authenticate to, which is what decides
 // whether the account's token is any use and which host the helper is written for.
 // A clone resolves from the URL it was given for the same reason it resolves its
 // account from the destination: the directory we are standing in is not what the

@@ -3892,10 +3892,10 @@ EOF
 	fi
 
 	##••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
-	## Other forges. gitsby was a GitHub program that reached for gh whenever it wanted anything from
+	## Other git hosts. gitsby was a GitHub program that reached for gh whenever it wanted anything from
 	## a remote; most of what it does is git, and git does not care whose server it is. What is
 	## covered here is the seam: the host decides the tool, the tool is only reached for once the
-	## host is known to be one it serves, and everything that never needed a forge CLI keeps working
+	## host is known to be one it serves, and everything that never needed a git host CLI keeps working
 	## without one. A '.test' host is reserved and resolves nowhere, so -NoFetch keeps it all local.
 	##••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 	local fg="${work}/$1-forge"
@@ -3937,7 +3937,7 @@ GHEOF
 	)
 	local fgPath="${fg}/bin:${PATH}"
 	local fgDeb="${fg}/debbin:${PATH}"
-	## A path with git on it and no forge CLI at all. Not an empty directory: that takes git away
+	## A path with git on it and no git host CLI at all. Not an empty directory: that takes git away
 	## too, and then 'Not found in path: git' comes first and the refusal under test never runs -
 	## the exit-code check passes for a reason that has nothing to do with what it is checking.
 	## Linked, not wrapped: a '#!/usr/bin/env bash' wrapper needs bash found on the very PATH we are
@@ -4003,7 +4003,7 @@ GHEOF
 	fAssertOut    "a tea with no login for the host still says so"  "unknown - 'tea login add' has no login for this host" \
 		bash -c "cd '${fgRepo}' && PATH='${fgPath}' FAKE_TEA_URL='https://other.example.test' '${gitsby}' -q -NoFetch identity 2>&1"
 
-	## A token is a credential for the forge that issued it. An account that banks at github.com must
+	## A token is a credential for the git host that issued it. An account that banks at github.com must
 	## not have its token handed to a Gitea push - and the block has to say why, not report a missing
 	## token that would have been the wrong one anyway.
 	cat > "${fg}/gh-acct.shcl" <<-EOF
@@ -4184,9 +4184,9 @@ GHEOF
 	## applies has to be in it - stated or assumed.
 	fAssertOut "account list names the host an account is on"  'host \.+: git\.example\.test' \
 		bash -c "cd '${fgRepo}' && PATH='${fgPath}' '${gitsby}' -q -NoFetch --config '${fg}/tea-acct.shcl' account list 2>&1"
-	## Shown for every account once one of them names a forge, including the ones that never said -
+	## Shown for every account once one of them names a git host, including the ones that never said -
 	## that comparison is what answers "why did this one apply and that one not". A config with a
-	## single forge in it has nothing to compare and reads exactly as it did before the key existed.
+	## single git host in it has nothing to compare and reads exactly as it did before the key existed.
 	cat > "${fg}/mixed.shcl" <<-EOF
 		account.tea.path = $(fWinPath "${fgRepo}")
 		account.tea.host = git.example.test
@@ -4274,7 +4274,7 @@ SSHEOF
 		bash -c "cd '${fgSsh}' && PATH='${fgPath}' FAKE_TEA_USER=keyowner FAKE_SSH_LOGIN=keyowner '${gitsby}' -q -NoFetch pr create 'T' 2>&1 || true"
 	( cd "${fgSsh}" && git checkout --quiet main )
 
-	## An unparseable remote is not a forge we ruled out - it is one we could not name. The standing
+	## An unparseable remote is not a git host we ruled out - it is one we could not name. The standing
 	## rule is that such a remote never triggers a refusal, so gh keeps the last word exactly as before.
 	git init --quiet -b main "${fg}/localorigin"
 	( cd "${fg}/localorigin" && echo a > a.txt && git add --all && git commit --quiet -m init && git remote add origin "${fg}/bare.git" )

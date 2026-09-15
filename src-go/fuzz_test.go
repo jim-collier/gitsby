@@ -1,5 +1,5 @@
 // Coverage-guided fuzzing of the pure parsers - the functions that read text this
-// program did not write: remote URLs, forge-table output, tags, config lines. Each
+// program did not write: remote URLs, tea's table output, tags, config lines. Each
 // asserts the cheap invariants; mostly they exist so a malformed input panics here
 // rather than in someone's terminal. The seed corpus runs under plain 'go test';
 // stage 3 of the pipeline hunts briefly past it with -fuzz.

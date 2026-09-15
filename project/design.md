@@ -83,7 +83,7 @@ Non-goals, each one deliberate:
 
 - `cicd/` - the local pipeline, its config, and the test, fuzz and comparison suites. Everything the demo gif is built from lives together under `cicd/utility/demo/`.
 
-- `project/` - this file and the backlog.
+- `project/` - this file, the backlog, and the CLI style guide.
 
 - `assets/` - the logo and the demo shown at the top of the README.
 
@@ -128,13 +128,13 @@ The Bash and PowerShell files were ports of each other, and were kept in step fo
 ## Direction decisions
 
 - The host decides the tool, and the tool is reached for only once the host is known to be one it serves.
-	- Gitsby began as a GitHub program and reached for `gh` whenever it wanted anything from a remote. Most of what it does is Git, and Git does not care whose server it is - so among these options, it was decided that everything answerable with Git alone must work on any host with no forge client installed.
+	- Gitsby began as a GitHub program and reached for `gh` whenever it wanted anything from a remote. Most of what it does is Git, and Git does not care whose server it is - so among these options, it was decided that everything answerable with Git alone must work on any host with no host-specific client installed.
 	- Where `origin` points is established first, from the remote URL, with any `ssh_config` alias resolved. `gh` serves `github.com` and whatever `GH_HOST` names, so Enterprise stays on the `gh` path; `tea` serves Gitea and Forgejo. Some distributions install tea as `tea-cli`, and both spellings are looked for.
-	- A remote whose host cannot be named - a local path, or a URL shape not parsed - is deliberately *not* a refusal. "We could not tell" and "it is definitely not a forge" are different answers, and only one of them is gitsby's to assert; such a remote falls through to `gh` exactly as before. This follows the rule already standing for remote owners.
+	- A remote whose host cannot be named - a local path, or a URL shape not parsed - is deliberately *not* a refusal. "We could not tell" and "it is definitely not GitHub" are different answers, and only one of them is gitsby's to assert; such a remote falls through to `gh` exactly as before. This follows the rule already standing for remote owners.
 	- `repo create` and `repo connect owner/name` stay GitHub-only. They are about GitHub specifically rather than about whichever host a repository happens to use.
 
 - The identity gate asks about the host in question, not about GitHub.
-	- Two accounts disagreeing about who you are is the same outward-facing mistake wherever it happens, so a write through any forge CLI is compared against the key Git pushes with, and the message names the tool that would have acted rather than always saying `gh`.
+	- Two accounts disagreeing about who you are is the same outward-facing mistake wherever it happens, so a write through any host's CLI is compared against the key Git pushes with, and the message names the tool that would have acted rather than always saying `gh`.
 	- The push-side check reads the account's login on the host being pushed to. `ghaccount` is a GitHub login and answers for GitHub alone; `user` answers anywhere. Keyed on `ghaccount` alone the gate silently stopped guarding every non-GitHub account.
 	- An account naming no login on this host makes no claim, so there is nothing to compare - and that is deliberately not read as a match. Unknown stays unknown on both sides: a `tea` with no login configured, like an unreachable `gh`, has said nothing about who you are, and refusing on that would refuse every unconfigured machine.
 
@@ -363,7 +363,7 @@ The Bash and PowerShell files were ports of each other, and were kept in step fo
 
 - A diagnostic explains itself in the reader's vocabulary, and offers its fix as a command.
 	- The identity block's unapplied-account notes, read on a real Gitea repository, raised more questions than they answered: which token, applied to what, what the quoted string even was, and what a "forge" is. Among these options, it was decided that the block must answer all four without the reader knowing anything about how gitsby resolves accounts.
-	- "Forge" is gone from the whole tool, the status line included - it is a word for people who already know the answer. The line is `Git host`, and the notes name the host outright wherever they can.
+	- "Forge" is gone from everything the tool prints and from its docs, the status line included - it is a word for people who already know the answer. A few names in the code still carry it. The line is `Git host`, and the notes name the host outright wherever they can.
 	- `From:` says what the name *is* and which of several possible sources produced it, rather than repeating the name already on the line above. That was the question the old wording could not answer.
 	- Every note names only what is actually on screen. `Kept:` pointed at "the SSH and Author lines" whichever half of the account applied, which sent readers looking for an SSH line that was never printed - a second thing gone wrong, apparently.
 	- Advice that can be a command is a command. `Fix:` names `gitsby account set <account> <key> <value>`, which makes the edit itself, rather than a config line to retype. It cannot be mistyped and cannot name a key the parser does not take, which the advice had already done once.
@@ -381,7 +381,7 @@ The Bash and PowerShell files were ports of each other, and were kept in step fo
 		- The lock goes beside the file, not on it, since the save renames a new file over the name. An exclusive create is the one lock every platform has.
 		- It is held for milliseconds, so a run that finds one waits three seconds and then refuses, naming the lock. One left behind by a run that was stopped is removed by hand.
 
-- The accounts file lives where the platform in hand keeps one, and the place it used to live is never taken away.
+- The accounts file lives where the platform in hand keeps one, even where it used to be found somewhere else.
 	- Gitsby searched `$XDG_CONFIG_HOME`, then `~/.config`, then `%APPDATA%`, on every platform. That is a Linux convention applied everywhere: a Windows user's file landed under a dot-directory in their profile, a macOS user's outside `Application Support`, and both only because nothing had been found first.
 	- Among these options, it was decided that each platform is asked in its own terms and in nobody else's: `%APPDATA%` on Windows, `~/Library/Application Support` on macOS, `$XDG_CONFIG_HOME` on Linux and the BSDs.
 	- A platform's variable is read on that platform alone. `XDG_CONFIG_HOME` is set by a desktop session rather than by the person running gitsby, so reading it under Windows let an MSYS shell's leftovers decide where a Windows run looked for credentials; `APPDATA` read under Linux did the same for anything that leaves it set, Wine and Samba included.
@@ -528,6 +528,8 @@ The rules these entries lead to are collected in [style-guide_cli.md](style-guid
 ### Release policy
 
 GitHub's `releases/latest` returns the newest release not flagged as a pre-release, and both installers resolve through that redirect. Among the options - flag candidates as pre-releases and teach the installers a `--pre` switch, or publish everything as a full release - we decided on the latter. The semver suffix in the tag already tells a reader that `v2.0.0-rc1` is a candidate, and it keeps the documented one-liner installs working with no extra arguments. `--tag`/`-Tag` covers anyone who wants a specific release.
+
+The installers read the release list rather than that redirect. They take the highest full release, and the newest pre-release only when there is no full one, so a repo whose only publication is a pre-release still installs.
 
 ### Automating a release
 

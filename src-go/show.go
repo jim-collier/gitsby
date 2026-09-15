@@ -446,7 +446,7 @@ func (a *app) showAccountLine() {
 }
 
 // accountFallbackNote says what happens instead when an account names no login:
-// whichever forge CLI serves the account's own host goes on using its own. Named
+// whichever git host CLI serves the account's own host goes on using its own. Named
 // only where there is one to name - asserting gh on a Gitea host is the same
 // mistake as assuming every account is a GitHub one.
 func (a *app) accountFallbackNote() string {
