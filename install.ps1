@@ -16,7 +16,7 @@
         -Ref TAG              The older name for -Tag.
         -Yes                  Don't ask for confirmation.
         -Help                 Show the options and exit. '--help' works too.
-        -Release              Took 'dev' or 'stable' when gitsby was a script; takes neither now.
+        -Release stable       The older name for the default. -Release dev is gone.
     The Bash installer's spellings work as well, such as --target=system and --yes.
 
     The options are listed here rather than as parameter help. They belong to the function
@@ -82,9 +82,10 @@ function Install-Gitsby {
         Write-Host '  -System               The same thing as -Target system.'
         Write-Host '  -Arch amd64|arm64     Which binary to fetch. Detected from this machine by default.'
         Write-Host '  -Tag TAG              A published release tag (default: the latest release).'
+        Write-Host '  -Ref TAG              The older name for -Tag.'
         Write-Host '  -Yes                  Do not ask for confirmation.'
         Write-Host '  -Help                 This.'
-        Write-Host "  -Release              Took 'dev' or 'stable' when gitsby was a script; takes neither now."
+        Write-Host "  -Release stable       The older name for the default. '-Release dev' is gone."
         Write-Host ''
         return
     }
@@ -97,7 +98,7 @@ function Install-Gitsby {
         throw "There is no '-Release dev' any more: gitsby is a compiled binary, and a branch has no published build. Take a release with '-Tag TAG', or build the tip yourself: git clone https://github.com/${repo}.git; cd gitsby/src-go; go build -o gitsby ."
     }
     if ($Release -and $Release -ne 'stable') {
-        throw "-Release only ever took 'dev' or 'stable', and now takes neither; use '-Tag TAG' for a specific release."
+        throw "-Release takes only 'stable' now, which is the default; use '-Tag TAG' for a specific release."
     }
     # The tag lands in a download URL, so a path-shaped one walks out of this repo and installs
     # somebody else's binary while the plan on screen still names ours. ValidatePattern admits
@@ -187,6 +188,7 @@ function Install-Gitsby {
             $tagName = [string]$newestFull.tag_name
         } elseif ($releases.Count -gt 0) {
             $tagName = [string](@($releases | Sort-Object -Property @{Expression = $tagVersion} -Descending)[0].tag_name)
+            Write-Host ''
             Write-Host "[ No full release yet; taking the newest pre-release, ${tagName}. ]"
         } else {
             throw "${repo} has published no releases, so there is nothing to install. Build the tip yourself: git clone https://github.com/${repo}.git; cd gitsby/src-go; go build -o gitsby ."
@@ -256,7 +258,8 @@ function Install-Gitsby {
     Write-Host 'This will:'
     Write-Host "  - Download ${asset} (${tagName}) from github.com/${repo}"
     Write-Host '  - Verify it against the release''s published SHA256SUMS'
-    Write-Host "  - Install it to ${destPath}"
+    if (Test-Path -LiteralPath $destPath) { Write-Host "  - Install it to ${destPath}, replacing the one already there" }
+    else { Write-Host "  - Install it to ${destPath}" }
     # Windows puts nothing on PATH for you, so without this the install finishes with a program
     # that cannot be run by name. On *nix the destination is a conventional bin dir already.
     if ($onWindows -and (($env:PATH -split [IO.Path]::PathSeparator) -notcontains $destDir)) {
@@ -413,8 +416,12 @@ try {
     # Run from a file: report plainly and exit nonzero, so callers and CI see the failure -
     # a parameter-binding error against @args would otherwise leave the exit code at 0.
     # Evaluated as text (iex / scriptblock): rethrow, because 'exit' would end the session.
+    # A blank line either side, like every other block of output. Rethrown, PowerShell prints
+    # the error itself, so only the line before it is ours.
+    [Console]::Error.WriteLine('')
     if ($PSCommandPath) {
         [Console]::Error.WriteLine("install.ps1: $($_.Exception.Message)")
+        [Console]::Error.WriteLine('')
         exit 1
     }
     throw

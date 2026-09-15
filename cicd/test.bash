@@ -125,7 +125,8 @@ fAnswerPrompt(){ local answer="$1"; shift; printf '%s\n' "${answer}" | script -q
 fPwshText(){ "${noTty[@]}" pwsh -NoProfile -Command "$1" </dev/null 2>&1 ;}
 ## install.ps1 as a script file, with the web cmdlets replaced by the functions in <dir>/stubs.ps1,
 ## which PowerShell finds before a cmdlet of the same name. <shape> picks the redirect's error
-## object: 7, 51, or odd for one with no readable Location. Each URL asked for goes to <dir>/calls.
+## object: 7, 51, or odd for one with no readable Location. pre is odd with only a pre-release
+## in the list. Each URL asked for goes to <dir>/calls.
 fPsInstall(){ local dir="$1" home="$2" shape="$3" inst="$4"; shift 4; : > "${dir}/calls"; mkdir -p "${home}"
 	env HOME="${home}" FAKE_DIR="${dir}" FAKE_SHAPE="${shape}" "${noTty[@]}" pwsh -NoProfile -Command ". '${dir}/stubs.ps1'; & '${inst}' $*" </dev/null 2>&1 ;}
 ## Succeeds when a help text for install.ps1 names every parameter and alias of the function that
@@ -141,6 +142,28 @@ fPsHelpNamesAll(){ local inst="$1" which="$2" help="" opts="" opt=""
 		grep -qE -- "(^|[^A-Za-z])-${opt}([^A-Za-z]|\$)" <<< "${help}" || { echo "not in ${which}: ${opt}"; return 1; }
 	done <<< "${opts}"
 }
+## Succeeds when install.bash's --help names every option its argument loop takes.
+fBashHelpNamesAll(){ local inst="$1" help="" opts="" opt=""
+	help="$(bash "${inst}" --help)"
+	opts="$(sed -n '/^while \[\[ \$# -gt 0 \]\]; do/,/^done/p' "${inst}" | sed -n 's/^[[:space:]]*\(-[^)]*\)).*/\1/p' | tr '|' '\n' | sed 's/=\*$//')"
+	[[ -n "${opts}" ]] || return 1
+	while IFS= read -r opt; do
+		grep -qE -- "(^|[ ,])${opt}([ ,=]|\$)" <<< "${help}" || { echo "not in --help: ${opt}"; return 1; }
+	done <<< "${opts}"
+}
+## Succeeds when the command's output, both streams, starts and ends on a blank line.
+fFramed(){ local out=""; out="$("$@" 2>&1; printf x)"; out="${out%x}"; [[ "${out}" == $'\n'* && "${out}" == *$'\n\n' ]] ;}
+## Succeeds when the first output line matching <pattern> has a blank line either side of it.
+fBlankAround(){ local pat="$1"; shift; { "$@" 2>&1 || true; } | tr -d '\r' | PAT="${pat}" awk '
+	seen && !found { found = 1; ok = ok && $0 == "" }
+	$0 ~ ENVIRON["PAT"] && !seen { seen = 1; ok = NR > 1 && prev == "" }
+	{ prev = $0 }
+	END { exit !(found && ok) }' ;}
+## Succeeds when the first output line matching <pattern> has a blank line after it.
+fBlankAfter(){ local pat="$1"; shift; { "$@" 2>&1 || true; } | tr -d '\r' | PAT="${pat}" awk '
+	seen && !found { found = 1; ok = $0 == "" }
+	$0 ~ ENVIRON["PAT"] { seen = 1 }
+	END { exit !(found && ok) }' ;}
 fAssertPlan(){    local desc="$1"; local pat="$2"; shift 2; local out=""; out="$("$@" 2>&1 || true)"
 	if     grep -qE "$pat" <<< "$(fPlanOf <<< "${out}")"; then fOk "$desc"; else fFail "$desc"; fi; }
 fAssertNotPlan(){ local desc="$1"; local pat="$2"; shift 2; local out=""; out="$("$@" 2>&1 || true)"
@@ -1933,6 +1956,8 @@ GHEOF
 	fAssertOut  "and documents --target"                      '\-\-target user\|system'  bash -c "bash '${goInst}' --help"
 	fAssertOut  "and documents --arch"                        '\-\-arch amd64\|arm64'    bash -c "bash '${goInst}' --help"
 	fAssertOut  "and documents --tag"                         '\-\-tag TAG'               bash -c "bash '${goInst}' --help"
+	## The header says --help lists every option the parser takes, and --ref was left out.
+	fAssert     "and names every option the parser takes"     fBashHelpNamesAll "${goInst}"
 	fAssertOut  "go installer refuses a bad --target"         "\-\-target takes"          bash -c "bash '${goInst}' --target bogus"
 	fAssertOut  "go installer refuses a valueless --target"   "\-\-target needs a value"  bash -c "bash '${goInst}' --target"
 	## --arch names the asset now rather than being accepted and ignored, so the two spellings
@@ -1943,7 +1968,9 @@ GHEOF
 	## unknown option - the same treatment --offline got.
 	fAssertOut  "go installer names the dropped --release dev" 'no .--release dev. any more' bash -c "bash '${goInst}' --release dev"
 	fAssertOut  "and says so before touching the network"      'build the tip yourself'      bash -c "bash '${goInst}' --release dev"
-	fAssertOut  "go installer refuses any other --release"     'now takes neither'           bash -c "bash '${goInst}' --release beta"
+	## 'stable' named the default and still does, so the text says it takes that one.
+	fAssertOut  "go installer refuses any other --release"     "takes only 'stable'"         bash -c "bash '${goInst}' --release beta"
+	fAssertNotOut "and --help doesn't say it takes neither"    'takes neither'               bash -c "bash '${goInst}' --help"
 	## A tag is interpolated into a download URL, so a path-shaped one installs a binary from
 	## some other repo while the printed plan still names this one.
 	fAssertOut  "go installer refuses a path-shaped --tag"     'not a path'                  bash -c "bash '${goInst}' -y --tag '../../evil/repo/main'"
@@ -1965,6 +1992,8 @@ GHEOF
 	printf '#!/usr/bin/env bash\nexit 6\n' > "${lk}/bin/curl"; chmod +x "${lk}/bin/curl"
 	fAssertOut  "go installer survives a failing curl"        'work out the latest release' \
 		bash -c "PATH='${lk}/bin:${PATH}' bash '${goInst}' -y"
+	fAssertOut  "go installer still takes --release stable"   'work out the latest release' \
+		bash -c "PATH='${lk}/bin:${PATH}' bash '${goInst}' --release stable -y"
 	## wget-only box: wget answers a declined redirect with exit 8 even though the header it was
 	## sent for is right there, so success looked like failure. curl has to be genuinely absent
 	## to reach that arm, hence a PATH of just the tools the installer gets that far on.
@@ -2004,6 +2033,8 @@ GHEOF
 		bash -c "PATH='${prl}/bin:${PATH}' bash '${goInst}' -y 2>&1"
 	fAssertOut "and says that is what it did"  'No full release yet' \
 		bash -c "PATH='${prl}/bin:${PATH}' bash '${goInst}' -y 2>&1"
+	fAssert    "and sets that notice off with blank lines"  fBlankAround 'No full release yet' \
+		env PATH="${prl}/bin:${PATH}" bash "${goInst}" -y
 
 	## The list endpoint is ordered by publish date, so a backported fix cut after a newer
 	## release lists first: the fallback has to version-sort rather than take the head. The
@@ -2056,6 +2087,41 @@ GHEOF
 	## Reproducing either needs a signal or a live process, so the staging is pinned here.
 	fAssert    "go installer stages beside the target rather than writing in place" \
 		bash -c "grep -q 'staged=\"\${destDir}/' '${goInst}' && grep -qE 'mv -f \"\\\$\{staged\}\"' '${goInst}'"
+	## The plan named the install path whether or not a copy was already there.
+	fAssertOut "go installer's plan says it replaces the one already there"  'replacing the one already there' \
+		bash -c "env ${eiEnv} bash '${goInst}' -y 2>&1"
+	local eu="${work}/instcase"; mkdir -p "${eu}"
+	fAssertNotOut "and says nothing of replacing on a first install"  'replacing' \
+		bash -c "env HOME='${eu}/fresh' PATH='${ei}/bin:${PATH}' FAKE_SUMS='${ei}/SHA256SUMS' FAKE_ASSET='${ei}/asset' bash '${goInst}' -y 2>&1"
+	## An upper-case hash read as no binary for this platform, and then named none that was
+	## published. sha256sum -c and the PowerShell installer both take one, and CRLF too.
+	awk '{ print toupper($1) "  " $2 }' "${ei}/SHA256SUMS" > "${eu}/upper"
+	awk '{ printf "%s\r\n", $0 }' "${ei}/SHA256SUMS" > "${eu}/crlf"
+	printf '%s  gitsby-plan9-mips\n' "$( head -c 64 "${eu}/upper" )" > "${eu}/other"
+	fAssertOut "go installer takes an upper-case hash"  'gitsby v1\.2\.3 \(stand-in\)' \
+		bash -c "env HOME='${eu}/h1' PATH='${ei}/bin:${PATH}' FAKE_SUMS='${eu}/upper' FAKE_ASSET='${ei}/asset' bash '${goInst}' -y 2>&1"
+	fAssertOut "and CRLF line ends"                     'gitsby v1\.2\.3 \(stand-in\)' \
+		bash -c "env HOME='${eu}/h2' PATH='${ei}/bin:${PATH}' FAKE_SUMS='${eu}/crlf' FAKE_ASSET='${ei}/asset' bash '${goInst}' -y 2>&1"
+	fAssertOut "and names an upper-case platform it doesn't take"  'It publishes: plan9-mips' \
+		bash -c "env HOME='${eu}/h3' PATH='${ei}/bin:${PATH}' FAKE_SUMS='${eu}/other' FAKE_ASSET='${ei}/asset' bash '${goInst}' -y 2>&1"
+	## Every exit starts and ends on a blank line, the way fErr's do.
+	fAssert    "go installer frames the no-binary refusal with blank lines" \
+		fFramed env HOME="${eu}/h3" PATH="${ei}/bin:${PATH}" FAKE_SUMS="${eu}/other" FAKE_ASSET="${ei}/asset" bash "${goInst}" -y
+	## A piped answer's Enter is never echoed, so the line above is the prompt. Aborted. on a line
+	## of its own is then the blank line a terminal shows.
+	if command -v script >/dev/null 2>&1; then
+		fAssert    "and a declined prompt"  fBlankAfter '^Aborted\.$' \
+			fAnswerPrompt n "env HOME='${eu}/h4' PATH='${ei}/bin:${PATH}' FAKE_SUMS='${ei}/SHA256SUMS' FAKE_ASSET='${ei}/asset' bash '${goInst}'"
+	fi
+	## A binary that ran and failed ended the run on its own exit code, with nothing said.
+	local eb="${work}/instbad"; mkdir -p "${eb}"
+	printf '#!/usr/bin/env bash\nexit 3\n' > "${eb}/asset"
+	local ebHash=""; ebHash="$( sha256sum "${eb}/asset" | cut -d' ' -f1 )"
+	for eiOs in linux darwin freebsd; do
+		for eiArch in amd64 arm64; do echo "${ebHash}  gitsby-${eiOs}-${eiArch}"; done
+	done > "${eb}/SHA256SUMS"
+	fAssertOut "go installer says when the installed binary won't run"  'but it would not run \(exit 3\)' \
+		bash -c "env HOME='${eb}/home' PATH='${ei}/bin:${PATH}' FAKE_SUMS='${eb}/SHA256SUMS' FAKE_ASSET='${eb}/asset' bash '${goInst}' -y 2>&1"
 	if command -v pwsh >/dev/null 2>&1; then
 		local goInstPs="${root}/install.ps1"
 		fAssertFail "go ps installer refuses a bad -Target"    pwsh -NoProfile -File "${goInstPs}" -Target bogus
@@ -2092,6 +2158,10 @@ GHEOF
 			bash -c "pwsh -NoProfile -File '${goInstPs}' --help 2>&1"
 		fAssertOut "and -Help too"                   'Usage: install\.ps1' \
 			bash -c "pwsh -NoProfile -File '${goInstPs}' -Help 2>&1"
+		fAssert    "and -Help names every option"    fPsHelpNamesAll "${goInstPs}" -Help
+		fAssertOut "go ps installer refuses any other -Release"  "takes only 'stable'" \
+			bash -c "pwsh -NoProfile -File '${goInstPs}' -Release beta 2>&1"
+		fAssert    "and frames the refusal with blank lines"  fFramed pwsh -NoProfile -File "${goInstPs}" -Release beta
 		## A native command's nonzero exit does not trip $ErrorActionPreference, and nothing read
 		## $LASTEXITCODE - so a binary that would not run at all was reported as installed.
 		## Reaching it needs a real install, so it is pinned in the source.
@@ -2133,7 +2203,7 @@ GHEOF
 					if ($Uri -like '*/releases/latest') {
 						$to = 'https://github.com/jim-collier/gitsby/releases/tag/v1.2.3'
 						if ($env:FAKE_SHAPE -eq '51') { $headers = [Net.WebHeaderCollection]::new(); $headers.Add('Location', $to) }
-						elseif ($env:FAKE_SHAPE -eq 'odd') { $headers = [pscustomobject]@{ Server = 'stub' } }
+						elseif ($env:FAKE_SHAPE -in 'odd', 'pre') { $headers = [pscustomobject]@{ Server = 'stub' } }
 						else { $headers = [pscustomobject]@{ Location = [uri]$to } }
 						$redirect = [Exception]::new('302 Found')
 						$redirect | Add-Member -NotePropertyName Response -NotePropertyValue ([pscustomobject]@{ Headers = $headers })
@@ -2146,7 +2216,7 @@ GHEOF
 				function Invoke-RestMethod {
 					param($Uri, [switch]$UseBasicParsing)
 					Add-Content -LiteralPath "$env:FAKE_DIR/calls" -Value $Uri
-					[pscustomobject]@{ tag_name = 'v1.2.3'; prerelease = $false }
+					[pscustomobject]@{ tag_name = 'v1.2.3'; prerelease = ($env:FAKE_SHAPE -eq 'pre') }
 				}
 			PSEOF
 			## 5.1's redirect error holds a WebHeaderCollection. Reading Location off it as a
@@ -2188,6 +2258,10 @@ GHEOF
 			done > "${psb}/SHA256SUMS"
 			fAssertOut "go ps installer says when the installed binary can't start"  'but it would not run' \
 				fPsInstall "${psb}" "${psb}/home" 7 "${goInstPs}" -Yes
+			fAssertOut "go ps installer's plan says it replaces the one already there"  'replacing the one already there' \
+				fPsInstall "${psi}" "${psi}/h7" 7 "${goInstPs}" -Yes
+			fAssert    "go ps installer sets the pre-release notice off with blank lines"  fBlankAround 'No full release yet' \
+				fPsInstall "${psi}" "${psi}/hpre" pre "${goInstPs}" -Yes
 		fi
 	fi
 
