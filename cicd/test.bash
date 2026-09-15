@@ -2410,6 +2410,41 @@ GHEOF
 	if ! ((isWindows)); then
 		fAssert "and nobody else can read it"  bash -c "[[ \"\$(stat -c '%a' '${acNew}/.config/gitsby/config.shcl')\" == 600 ]]"
 	fi
+	## Reads pass over a discovered accounts file they can't read, and 'account set' won't create
+	## a file while it is there: the new one would replace it, or go in ahead of it and hide it. A
+	## dead link or a folder in its place is refused too. chmod can't take the read bit away under
+	## MSYS, and root reads a 0200 file anyway.
+	if ! ((isWindows)) && [[ "$(id -u)" != 0 ]]; then
+		local acUnr="${ac}/unreadable"
+		mkdir -p "${acUnr}/home/.config/gitsby" "${acUnr}/xdg" "${acUnr}/dot" "${acUnr}/linkhome/.config/gitsby" "${acUnr}/dirhome/.config/gitsby/config.shcl"
+		printf 'account: kept\n\tghaccount: keptacct\n' > "${acUnr}/body.shcl"
+		local acUnrFile="${acUnr}/home/.config/gitsby/config.shcl"
+		cp "${acUnr}/body.shcl" "${acUnrFile}"; chmod 200 "${acUnrFile}"
+		ln -s "${acUnr}/dot/config.shcl" "${acUnr}/linkhome/.config/gitsby/config.shcl"
+		local acUnrEnv="${acNoDiscovery} HOME='${acUnr}/home' PATH='${ac}/bin:${PATH}'"
+		local acUnrSet="'${gitsby}' -q -NoFetch account set kept email k@example.com"
+		fAssertFail "'account set' refuses to create over an accounts file it can't read" \
+			bash -c "cd '${acWork}' && env ${acUnrEnv} ${acUnrSet}"
+		fAssertOut "and names the file"  'File: +~/\.config/gitsby/config\.shcl' \
+			bash -c "cd '${acWork}' && env ${acUnrEnv} ${acUnrSet} 2>&1"
+		fAssertOut "and says why it can't read it"  'permission denied' \
+			bash -c "cd '${acWork}' && env ${acUnrEnv} ${acUnrSet} 2>&1"
+		fAssertOut "and gives the command that makes it readable"  "chmod u\\+r '${acUnrFile//./\\.}'" \
+			bash -c "cd '${acWork}' && env ${acUnrEnv} ${acUnrSet} 2>&1"
+		## Put back to 0200 whatever cmp says, so the checks after this one still see it unreadable.
+		fAssert "and leaves the file as it was" \
+			bash -c "chmod 600 '${acUnrFile}'; cmp -s '${acUnrFile}' '${acUnr}/body.shcl'; rc=\$?; chmod 200 '${acUnrFile}'; exit \${rc}"
+		fAssertOut "reads still pass over a file they can't read"  'Config file \.+: \(none found\)' \
+			bash -c "cd '${acWork}' && env ${acUnrEnv} '${gitsby}' -q -NoFetch account 2>&1"
+		fAssert "and no file is created ahead of it in XDG_CONFIG_HOME" \
+			bash -c "cd '${acWork}' && ! env ${acNoDiscovery} XDG_CONFIG_HOME='${acUnr}/xdg' HOME='${acUnr}/home' PATH='${ac}/bin:${PATH}' ${acUnrSet} >/dev/null 2>&1 && [[ ! -e '${acUnr}/xdg/gitsby/config.shcl' ]]"
+		fAssertOut "a link to a file that isn't there is refused"  "is a link to something that isn't there" \
+			bash -c "cd '${acWork}' && env ${acNoDiscovery} HOME='${acUnr}/linkhome' PATH='${ac}/bin:${PATH}' ${acUnrSet} 2>&1"
+		fAssert "and nothing is created where it points"  bash -c "[[ ! -e '${acUnr}/dot/config.shcl' ]]"
+		fAssertOut "something that isn't a file is named as that"  "isn't a file is where the accounts file goes" \
+			bash -c "cd '${acWork}' && env ${acNoDiscovery} HOME='${acUnr}/dirhome' PATH='${ac}/bin:${PATH}' ${acUnrSet} 2>&1"
+		chmod 600 "${acUnrFile}"
+	fi
 	## A named file that isn't there is a typo, not a reason to fall back silently.
 	fAssertFail "a named config that isn't there is refused"        bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q -NoFetch --config '${ac}/nope.shcl' status"
 	fAssertOut  "and says which file"  'No readable config file'    bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q -NoFetch --config '${ac}/nope.shcl' status 2>&1"
@@ -3805,3 +3840,4 @@ echo "passed: ${pass}, failed: ${fail}"
 ##		- 20260914 JC: The demo stage renders from its own build, stamped with the newest release rather than the commit: no tag, a tag that is not a version, a release candidate beside its release, the build removed, a later commit left alone, and a failed build. -q reaches the generator, which renders one scenario to the same bytes twice, and the committed gif ends on three seconds of black. The two build-site pins count four sites. The fixture checks are Linux only, and the renderer checks need Pillow. Nine of the eleven fail against the tree before them; two are regression guards. 852 -> 863.
 ##		- 20260914 JC: A relative folder rule. account set resolves one from the folder it runs in, and plain git then applies the account there and nowhere else under home. A relative path already in a file, block or flat, is listed as ignored, shown as no folder, and named by the identity block; account apply writes no rule for one, and account list warns about one an earlier apply left behind until apply removes it. Another user's '~' is refused. Twelve of the thirteen fail against the tree before them; the warning going away is a regression guard. 863 -> 876.
 ##		- 20260914 JC: br prune asks origin before deleting there, and leases the delete: a branch moved or already deleted on origin since the last fetch, one moved during the prompt, and origin unreachable under --no-fetch.
+##		- 20260914 JC: account set and an accounts file it can't read: refused, named, kept, still passed over by reads, not shadowed from XDG_CONFIG_HOME, and a dead link or a folder in its place. Linux only. Nine of the ten fail against the tree before them; the read check is a regression guard. 889 -> 899.

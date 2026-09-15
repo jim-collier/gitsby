@@ -14,8 +14,10 @@ package main
 import (
 	"cmp"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 
@@ -609,6 +611,130 @@ type accountSetTarget struct {
 
 func (t accountSetTarget) path() string { return t.base + "." + t.field }
 
+// configInTheWay refuses a create while anything is at a place an accounts file
+// can live. Reads pass over such a file as if it were not there, and a create
+// taking that at its word would replace it, or go in ahead of it and hide it from
+// every later command. Every candidate counts, not only the one written.
+func (a *app) configInTheWay() error {
+	for _, c := range configCandidates() {
+		if state, fi, err := probeConfigCandidate(c); state != candidateAbsent {
+			return configRefusal(c, state, fi, err)
+		}
+	}
+	return nil
+}
+
+// configRefusal says why a create was refused, by what is at the path. The fix
+// differs for each, so they don't share one message. Absent and usable both mean
+// a file arrived after the load: absent is reached only when the exclusive open
+// said something was there, and it has gone again since.
+func configRefusal(file string, state candidateState, fi os.FileInfo, cause error) error {
+	kept := noteLines("Kept", "Nothing was written.")
+	var head string
+	var notes [][]string
+	switch state {
+	case candidateUnreadable:
+		head = "An accounts file is already there, and it can't be read."
+		notes = [][]string{
+			noteLines("File", displayPath(file)),
+			noteLines("Why", "A new file here would replace it. Opening it failed with: "+causeText(cause)+"."),
+			kept,
+			noteLines("Fix", unreadableFix(runtime.GOOS, file, cause)...),
+		}
+	case candidateBrokenLink:
+		head = "The accounts file is a link to something that isn't there."
+		notes = [][]string{noteLines("File", displayPath(file))}
+		if target, err := os.Readlink(file); err == nil {
+			notes = append(notes, noteLines("Link", target))
+		}
+		notes = append(notes,
+			noteLines("Why", "Writing through it would create a new file where it points, and whatever belongs there is missing right now."),
+			kept,
+			noteLines("Fix", "Put back what the link points to, or remove the link, then run this again."),
+		)
+	case candidateNotFile:
+		kind := "special file"
+		if fi != nil && fi.IsDir() {
+			kind = "folder"
+		}
+		head = "Something that isn't a file is where the accounts file goes."
+		notes = [][]string{
+			noteLines("File", displayPath(file)),
+			noteLines("Why", "It is a "+kind+", and the accounts file has to go in its place."),
+			kept,
+			noteLines("Fix", "Move it out of the way, then run this again."),
+		}
+	default:
+		head = "An accounts file turned up while this ran."
+		notes = [][]string{
+			noteLines("File", displayPath(file)),
+			noteLines("Why", "This command read the accounts before the file was there, so its edit would replace what the file holds now."),
+			kept,
+			noteLines("Fix", "Run this again. It will edit the file that is there now."),
+		}
+	}
+	lines := []string{head}
+	for _, note := range notes {
+		for _, l := range note {
+			lines = append(lines, "  "+l)
+		}
+	}
+	return &usageError{msg: strings.Join(lines, "\n"), cause: cause}
+}
+
+// causeText is the OS's reason alone. The path is already on its own line, and a
+// PathError repeats it.
+func causeText(err error) string {
+	if err == nil {
+		return "no reason given"
+	}
+	var pe *fs.PathError
+	text := err.Error()
+	if errors.As(err, &pe) {
+		text = pe.Err.Error()
+	}
+	return strings.TrimSuffix(text, ".")
+}
+
+// unreadableFix is the Fix for a file that can't be read. A command only where the
+// answer is known: gitsby makes this file 0600 as you, so off Windows a missing
+// read bit is the usual cause, and chmod says so itself when the file is somebody
+// else's. On Windows it is an ACL entry or a program holding the file, and no one
+// command is right. Takes the platform, so both are testable from either.
+func unreadableFix(goos, file string, cause error) []string {
+	switch {
+	case !errors.Is(cause, fs.ErrPermission):
+		return []string{"Run this again once it can be read."}
+	case goos == "windows":
+		return []string{"Give your account read access to it, then run this again."}
+	case strings.Contains(file, "'"):
+		return []string{"Make it readable, then run this again."}
+	}
+	// A leading space makes it a literal line: indented, never wrapped.
+	return []string{"Make it readable, then run this again:", "  chmod u+r '" + file + "'"}
+}
+
+// createAccountsFile makes the file and writes it through one handle. The open
+// fails on anything already at the path, a link included, so it can never
+// truncate - and writing through that same handle means no empty file sits there
+// for another run to load in between. opened says whether the file now exists
+// because of this call, which a failed write leaves in place: removing it by name
+// could delete a file another run has since renamed over it.
+func createAccountsFile(file, text string) (opened bool, err error) {
+	f, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return false, err
+	}
+	_, err = f.WriteString(text)
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	return true, err
+}
+
 // accountSetPlan resolves what 'account set' would do without doing any of it.
 // The value is validated here rather than at write time, so a refusal happens
 // before the plan is shown rather than after it has been agreed to.
@@ -642,6 +768,9 @@ func (a *app) accountSetPlan() (accountSetTarget, error) {
 	case a.cfg.file == "":
 		if t.file = defaultConfigFile(); t.file == "" {
 			return t, usagef("There is nowhere to put an accounts file: this machine names no home directory. Set HOME, or name a file with --config.")
+		}
+		if err := a.configInTheWay(); err != nil {
+			return t, err
 		}
 		t.creates = true
 		// The block goes in as text, ahead of the key: a header comment attaches to
@@ -713,11 +842,20 @@ func (a *app) cmdAccountSet() error {
 			return usagef("Couldn't create '%s' to put the accounts file in.", displayPath(dir))
 		}
 		// 0600 from the first byte: this file names your accounts and points at your
-		// token files. The module creates a file at the umask's mercy but keeps the
-		// mode of one that exists, so it is made first, empty, with the mode wanted.
-		if err := os.WriteFile(t.file, nil, 0o600); err != nil {
-			return usagef("Couldn't write '%s'. Check permissions on it.", displayPath(t.file))
+		// token files. Opened so it cannot replace anything, since a file already
+		// there - even one this run could not read - holds someone's accounts.
+		opened, err := createAccountsFile(t.file, t.doc.ToCanonical())
+		switch {
+		case err == nil:
+			a.out.status("Wrote " + displayPath(t.file))
+			return nil
+		case opened:
+			return usagef("Couldn't finish writing '%s', so it may be incomplete. Check the disk it is on before running this again.", displayPath(t.file))
+		case errors.Is(err, fs.ErrExist):
+			state, fi, perr := probeConfigCandidate(t.file)
+			return configRefusal(t.file, state, fi, perr)
 		}
+		return usagef("Couldn't write '%s'. Check permissions on it.", displayPath(t.file))
 	}
 	if err := t.doc.SaveFile(t.file); err != nil {
 		var refused *shcl.SaveRefused

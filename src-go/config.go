@@ -266,8 +266,10 @@ func (o options) resolveConfigFile() (string, error) {
 	}
 	for _, c := range configCandidates() {
 		// A discovered candidate is skipped rather than refused - unlike one named
-		// explicitly, nobody asserted it was there.
-		if isRegularFile(c) && isReadableFile(c) {
+		// explicitly, nobody asserted it was there. One that is there and can't be
+		// used is skipped for reads too; only 'account set' refuses on it, since its
+		// create would replace or hide it.
+		if state, _, _ := probeConfigCandidate(c); state == candidateUsable {
 			return c, nil
 		}
 	}
@@ -396,6 +398,41 @@ func isReadableFile(p string) bool {
 	// Opened only to probe readability; nothing was written, so Close has nothing to say.
 	_ = f.Close()
 	return true
+}
+
+// candidateState is what is at one place an accounts file can live. Kept apart
+// because "nothing there" and "something there that can't be read" call for
+// opposite answers from a command that would create the file.
+type candidateState int
+
+const (
+	candidateAbsent     candidateState = iota // os.Lstat failed
+	candidateUsable                           // a regular file that opens for reading
+	candidateUnreadable                       // a regular file that does not
+	candidateBrokenLink                       // os.Lstat works and os.Stat does not
+	candidateNotFile                          // a folder, pipe, socket or device
+)
+
+// probeConfigCandidate says what is at p. The FileInfo is there for a caller that
+// needs to say what kind of thing is in the way; the error is the one that decided.
+func probeConfigCandidate(p string) (candidateState, os.FileInfo, error) {
+	if _, err := os.Lstat(p); err != nil {
+		return candidateAbsent, nil, err
+	}
+	fi, err := os.Stat(p)
+	if err != nil {
+		return candidateBrokenLink, nil, err
+	}
+	if !fi.Mode().IsRegular() {
+		return candidateNotFile, fi, nil
+	}
+	f, err := os.Open(p)
+	if err != nil {
+		return candidateUnreadable, fi, err
+	}
+	// Opened only to probe readability; nothing was written, so Close has nothing to say.
+	_ = f.Close()
+	return candidateUsable, fi, nil
 }
 
 // The byte-order mark a Windows editor writes at the top of a file it saves.

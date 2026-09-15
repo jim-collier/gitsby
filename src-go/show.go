@@ -262,20 +262,30 @@ func upperFirst(text string) string {
 // with a leading indent is a literal - a config line to type - and is printed as it
 // stands, since wrapping one would make it wrong.
 func (a *app) showAccountNote(label string, lines ...string) {
+	for _, l := range noteLines(label, lines...) {
+		a.out.clean(acctCont + l)
+	}
+}
+
+// noteLines lays out one labeled note, so a refusal can use the same layout as
+// the identity block without printing through it.
+func noteLines(label string, lines ...string) []string {
 	const labelWidth, bodyWidth = 4, 56 // 'Kept', the longest label; 78 columns in all
 	head := label + ":" + strings.Repeat(" ", labelWidth-len(label)) + " "
 	pad := strings.Repeat(" ", len(head))
 	prefix := head
+	var out []string
 	for _, line := range lines {
 		if strings.HasPrefix(line, " ") {
-			a.out.clean(acctCont + pad + line)
+			out = append(out, pad+line)
 			continue
 		}
 		for _, wrapped := range wrapWords(line, bodyWidth) {
-			a.out.clean(acctCont + prefix + wrapped)
+			out = append(out, prefix+wrapped)
 			prefix = pad
 		}
 	}
+	return out
 }
 
 // showAccountFix prints the edit that repairs the account. The file to make it in
