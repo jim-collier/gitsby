@@ -145,7 +145,7 @@ func probedConnect(url string, state repoExistence, reason string) error {
 		return usagef("'%s' already has history; clone it instead (%s repo clone %s), or reconcile with raw git.", maskURL(url), meName, maskURL(url))
 	default:
 		// Nothing but reaching the host settles it, so no command is offered.
-		return usagef("Couldn't reach '%s', so there is no telling whether it exists: %s", maskURL(url), reason)
+		return usagef("Couldn't get an answer from '%s', so there is no telling whether it exists: %s", maskURL(url), reason)
 	}
 }
 

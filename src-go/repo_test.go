@@ -49,6 +49,8 @@ func TestLsRemoteFailure(t *testing.T) {
 		{"an ssh command that won't start", "fatal: cannot exec '/nonexistent/ssh': No such file or directory\nfatal: ssh variant 'simple' does not support setting port\n", nil, repoUnknown, "fatal: cannot exec '/nonexistent/ssh': No such file or directory"},
 		// A loose "not found" would read this one as missing.
 		{"ssh not installed", "ssh: command not found\n" + advice, nil, repoUnknown, "ssh: command not found"},
+		// The host answered, but before any repo was named, so it says nothing about one.
+		{"ssh key refused", "git@github.com: Permission denied (publickey).\r\n" + advice, nil, repoUnknown, "git@github.com: Permission denied (publickey)."},
 		{"no git at all", "", noGit, repoUnknown, noGit.Error()},
 		{"nothing said", "", nil, repoUnknown, "git gave no reason"},
 	}
@@ -75,8 +77,9 @@ func TestProbedConnectRefusesUnlessEmpty(t *testing.T) {
 	}{
 		{"missing", repoMissing, []string{"doesn't exist, or you have no access", "repo create"}, []string{"Can't reach", "no telling"}},
 		{"history", repoNonEmpty, []string{"already has history"}, []string{"repo create"}},
-		{"unknown", repoUnknown, []string{"no telling whether it exists", reason}, []string{"repo create"}},
-		{"unlisted", repoExistence(99), []string{"no telling whether it exists", reason}, []string{"repo create"}},
+		// A refused key reaches this answer too, so it can't claim the host was never reached.
+		{"unknown", repoUnknown, []string{"no telling whether it exists", reason}, []string{"repo create", "Couldn't reach"}},
+		{"unlisted", repoExistence(99), []string{"no telling whether it exists", reason}, []string{"repo create", "Couldn't reach"}},
 	}
 	for _, tc := range cases {
 		err := probedConnect(url, tc.state, reason)
