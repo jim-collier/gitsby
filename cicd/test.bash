@@ -128,6 +128,19 @@ fPwshText(){ "${noTty[@]}" pwsh -NoProfile -Command "$1" </dev/null 2>&1 ;}
 ## object: 7, 51, or odd for one with no readable Location. Each URL asked for goes to <dir>/calls.
 fPsInstall(){ local dir="$1" home="$2" shape="$3" inst="$4"; shift 4; : > "${dir}/calls"; mkdir -p "${home}"
 	env HOME="${home}" FAKE_DIR="${dir}" FAKE_SHAPE="${shape}" "${noTty[@]}" pwsh -NoProfile -Command ". '${dir}/stubs.ps1'; & '${inst}' $*" </dev/null 2>&1 ;}
+## Succeeds when a help text for install.ps1 names every parameter and alias of the function that
+## does the work. <which> is -Help for the installer's own, or get-help for its comment help.
+# shellcheck disable=SC2016  ## pwsh's own variables; pwsh does the expanding.
+fPsHelpNamesAll(){ local inst="$1" which="$2" help="" opts="" opt=""
+	opts="$(PS_FILE="${inst}" pwsh -NoProfile -Command '$fn = [Management.Automation.Language.Parser]::ParseFile($env:PS_FILE, [ref]$null, [ref]$null).Find({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq "Install-Gitsby" }, $true)
+		foreach ($p in $fn.Body.ParamBlock.Parameters) { $p.Name.VariablePath.UserPath; foreach ($a in $p.Attributes) { if ($a.TypeName.Name -eq "Alias") { $a.PositionalArguments.Value } } }')"
+	if [[ "${which}" == get-help ]]; then help="$(PS_FILE="${inst}" pwsh -NoProfile -Command 'Get-Help $env:PS_FILE -Full | Out-String -Width 300')"
+	else help="$(pwsh -NoProfile -File "${inst}" -Help 2>&1)"; fi
+	[[ -n "${opts}" ]] || return 1
+	while IFS= read -r opt; do
+		grep -qE -- "(^|[^A-Za-z])-${opt}([^A-Za-z]|\$)" <<< "${help}" || { echo "not in ${which}: ${opt}"; return 1; }
+	done <<< "${opts}"
+}
 fAssertPlan(){    local desc="$1"; local pat="$2"; shift 2; local out=""; out="$("$@" 2>&1 || true)"
 	if     grep -qE "$pat" <<< "$(fPlanOf <<< "${out}")"; then fOk "$desc"; else fFail "$desc"; fi; }
 fAssertNotPlan(){ local desc="$1"; local pat="$2"; shift 2; local out=""; out="$("$@" 2>&1 || true)"
@@ -2145,6 +2158,36 @@ GHEOF
 				fPsInstall "${psi}" "${psi}/hodd" odd "${goInstPs}" -Yes
 			fAssertOut "go ps installer still reads 7's redirect"  'gitsby v1\.2\.3 \(stand-in\)' \
 				fPsInstall "${psi}" "${psi}/h7" 7 "${goInstPs}" -Yes
+			## A system install promised write access, checked nothing, and failed at the copy
+			## after the download with PowerShell's own error.
+			if [[ ! -w /usr/local/bin ]]; then
+				fAssertOut "go ps installer refuses a system install it can't write, before the plan"  "which this shell doesn't have" \
+					fPsInstall "${psi}" "${psi}/hsys" 7 "${goInstPs}" -Target system -Yes
+				fAssert    "and downloads nothing first"  bash -c "! grep -q '/gitsby-' '${psi}/calls'"
+			fi
+			## The options belong to the function inside, so Get-Help on the file listed none.
+			fAssert    "go install.ps1's comment help names every option"  fPsHelpNamesAll "${goInstPs}" get-help
+			## The Bash installer's long spellings were refused by the binder.
+			fAssertOut "go ps installer takes --tag=TAG and --yes"  'gitsby v1\.2\.3 \(stand-in\)' \
+				fPsInstall "${psi}" "${psi}/hgnu" 7 "${goInstPs}" --tag=v1.2.3 --yes
+			fAssert    "and looks up no latest release"  bash -c "! grep -q 'releases/latest' '${psi}/calls'"
+			fAssertOut "go ps installer takes --target and --arch with the value apart"  'gitsby v1\.2\.3 \(stand-in\)' \
+				fPsInstall "${psi}" "${psi}/hgnu2" 7 "${goInstPs}" --target user --arch amd64 -Yes
+			fAssertOut "go ps installer says a --tag needs a value"  '\-\-tag needs a value' \
+				fPsInstall "${psi}" "${psi}/hgnu3" 7 "${goInstPs}" -Yes --tag
+			## The compare passed only because -ne ignores case.
+			fAssert    "go install.ps1 compares checksums with case spelled out"  bash -c "grep -q 'ToLowerInvariant() -cne' '${goInstPs}'"
+			## A binary that can't start throws, so the message for one that won't run was reached
+			## only by one that started and failed.
+			local psb="${work}/psbad"; mkdir -p "${psb}"
+			cp "${psi}/stubs.ps1" "${psb}/"
+			printf '\177ELF not a binary' > "${psb}/asset"
+			local psbHash=""; psbHash="$( sha256sum "${psb}/asset" | cut -d' ' -f1 )"
+			for eiOs in linux darwin freebsd; do
+				for eiArch in amd64 arm64; do echo "${psbHash}  gitsby-${eiOs}-${eiArch}"; done
+			done > "${psb}/SHA256SUMS"
+			fAssertOut "go ps installer says when the installed binary can't start"  'but it would not run' \
+				fPsInstall "${psb}" "${psb}/home" 7 "${goInstPs}" -Yes
 		fi
 	fi
 

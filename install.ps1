@@ -6,22 +6,25 @@
 .DESCRIPTION
     Shows the plan and asks first. Runs on Windows PowerShell 5.1 as well as PowerShell 7+,
     since 5.1 is what a fresh Windows install has; what it installs is a static binary and
-    needs no PowerShell at all. Meant for one-liner use:
-        irm https://raw.githubusercontent.com/jim-collier/gitsby/main/install.ps1 | iex
-    With options:
-        & ([scriptblock]::Create((irm https://raw.githubusercontent.com/jim-collier/gitsby/main/install.ps1))) -System -Yes
-.PARAMETER Target
-    'user' for a per-user install (default), or 'system' for all users.
-.PARAMETER Arch
-    Which binary to fetch: 'amd64' or 'arm64'. Detected from this machine by default.
-.PARAMETER System
-    Install for all users. The same thing as -Target system.
-.PARAMETER Yes
-    Don't ask for confirmation.
-.PARAMETER Tag
-    Install a specific published release tag instead of the latest.
-.PARAMETER Help
-    Show the options and exit. '--help' is accepted too.
+    needs no PowerShell at all.
+
+    Options:
+        -Target user|system   Install for you (default) or for all users.
+        -System               The same thing as -Target system.
+        -Arch amd64|arm64     Which binary to fetch. Detected from this machine by default.
+        -Tag TAG              A published release tag (default: the latest release).
+        -Ref TAG              The older name for -Tag.
+        -Yes                  Don't ask for confirmation.
+        -Help                 Show the options and exit. '--help' works too.
+        -Release              Took 'dev' or 'stable' when gitsby was a script; takes neither now.
+    The Bash installer's spellings work as well, such as --target=system and --yes.
+
+    The options are listed here rather than as parameter help. They belong to the function
+    inside, since a script-level param() block breaks the iex one-liner.
+.EXAMPLE
+    irm https://raw.githubusercontent.com/jim-collier/gitsby/main/install.ps1 | iex
+.EXAMPLE
+    & ([scriptblock]::Create((irm https://raw.githubusercontent.com/jim-collier/gitsby/main/install.ps1))) -System -Yes
 .NOTES
     Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
     Licensed under The MIT License (MIT). Full text at: https://mit-license.org/
@@ -231,13 +234,29 @@ function Install-Gitsby {
         $destPath = Join-Path -Path $destDir -ChildPath 'gitsby'
     }
 
+    # Found out here rather than at the copy, after the download. Elevating was passed over:
+    # the iex and scriptblock forms have no file to start again as administrator.
+    function Test-Writable([string]$dir) {
+        $probeDir = $dir
+        while ($probeDir -and -not (Test-Path -LiteralPath $probeDir -PathType Container)) { $probeDir = Split-Path -Path $probeDir -Parent }
+        if (-not $probeDir) { return $false }
+        try {
+            $probe = [IO.File]::Create((Join-Path -Path $probeDir -ChildPath ('.gitsby.probe.' + [IO.Path]::GetRandomFileName())), 1, [IO.FileOptions]::DeleteOnClose)
+            $probe.Dispose()
+            return $true
+        } catch { return $false }
+    }
+    if ($installSystemWide -and -not (Test-Writable $destDir)) {
+        $elevate = if ($onWindows) { 'Run PowerShell as administrator' } else { 'Run it with sudo' }
+        throw "Installing for all users needs write access to ${destDir}, which this shell doesn't have. ${elevate}, or install for this account alone, which is the default."
+    }
+
     Write-Host ''
     Write-Host '[ gitsby installer (PowerShell) ]'
     Write-Host 'This will:'
     Write-Host "  - Download ${asset} (${tagName}) from github.com/${repo}"
     Write-Host '  - Verify it against the release''s published SHA256SUMS'
     Write-Host "  - Install it to ${destPath}"
-    if ($installSystemWide) { Write-Host '  - Need write access to that directory (run elevated / via sudo)' }
     # Windows puts nothing on PATH for you, so without this the install finishes with a program
     # that cannot be run by name. On *nix the destination is a conventional bin dir already.
     if ($onWindows -and (($env:PATH -split [IO.Path]::PathSeparator) -notcontains $destDir)) {
@@ -277,7 +296,8 @@ function Install-Gitsby {
         }
 
         $got = (Get-FileHash -Algorithm SHA256 -LiteralPath $tmpFile).Hash
-        if ($got -ne $want) { throw "Checksum mismatch for ${asset}; aborting. (Corrupted download or tampering.)" }
+        # Get-FileHash answers in upper case and SHA256SUMS is written in lower.
+        if ($got.ToLowerInvariant() -cne $want.ToLowerInvariant()) { throw "Checksum mismatch for ${asset}; aborting. (Corrupted download or tampering.)" }
         Write-Host '[ Checksum verified. ]'
 
         Write-Host ''
@@ -310,11 +330,13 @@ function Install-Gitsby {
 
         Write-Host ''
         Write-Host '[ Verifying ... ]'
-        & $destPath --version
-        # A native command's nonzero exit does not trip $ErrorActionPreference, and nothing here
-        # read $LASTEXITCODE - so a binary that could not run at all was reported as installed.
-        if ($LASTEXITCODE -ne 0) {
-            throw "Installed ${destPath}, but it would not run (exit ${LASTEXITCODE}). The download verified against the release checksum, so this is the binary not being runnable on this machine rather than a bad download."
+        # Two ways to fail here. A binary that can't start at all throws, and one that starts and
+        # fails only sets $LASTEXITCODE, which $ErrorActionPreference never sees.
+        $startError = ''
+        try { & $destPath --version } catch { $startError = $_.Exception.Message }
+        if ($startError -or $LASTEXITCODE -ne 0) {
+            $how = if ($startError) { $startError } else { "exit ${LASTEXITCODE}" }
+            throw "Installed ${destPath}, but it would not run (${how}). The download verified against the release checksum, so this is the binary not being runnable on this machine rather than a bad download."
         }
 
         $pathSep = [IO.Path]::PathSeparator
@@ -365,7 +387,28 @@ try {
     # '--help' is what the README documents for both installers, and what anyone types out of
     # habit. PowerShell's binder would only ever report it as a parameter nobody has heard of.
     if (@($args) | Where-Object { $_ -in '--help', '-h', '/?', '-?' }) { Install-Gitsby -Help }
-    else { Install-Gitsby @args }
+    else {
+        # The Bash installer's long options, with the value joined by '=' or apart. In a child
+        # scope, since under iex a variable set at this level is set in the caller's session.
+        & {
+            $named = @{}
+            $rest = @()
+            for ($i = 0; $i -lt $args.Count; $i++) {
+                $word = $args[$i]
+                if ($word -is [string] -and $word -match '^--(target|arch|tag|ref|release)(=(.*))?$') {
+                    $name = $Matches[1]
+                    if ($Matches[2]) { $named[$name] = $Matches[3] }
+                    elseif ($i + 1 -lt $args.Count) { $i++; $named[$name] = [string]$args[$i] }
+                    else { throw "--${name} needs a value." }
+                } elseif ($word -is [string] -and $word -match '^--(system|yes)$') {
+                    $named[$Matches[1]] = $true
+                } else {
+                    $rest += $word
+                }
+            }
+            Install-Gitsby @named @rest
+        } @args
+    }
 } catch {
     # Run from a file: report plainly and exit nonzero, so callers and CI see the failure -
     # a parameter-binding error against @args would otherwise leave the exit code at 0.
