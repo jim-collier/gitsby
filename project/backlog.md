@@ -5,7 +5,7 @@
 <!-- markdownlint-disable MD041 -- First line in a file should be a top-level heading -->
 # Gitsby backlog
 
-This is a product backlog for the run-up to v2.0.0. After that release, bugs, features, and enhancements move to GitHub Issues.
+This is the product backlog, until bugs, features, and enhancements move to GitHub Issues.
 
 ## Table of contents
 
@@ -61,23 +61,6 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 	- Fix order: by class, each class across all its sites in one group of commits. 5 with 11 (unknown is listed, unknown is not missing); 9 with 19 (preview follows command, one spawn per run); 3 and 8 without moving the decisions they sit on; 12 and 20 only once reproduced. 15 and 16 early, since the pipeline is what proves the rest.
 	- Note: about twelve of the twenty sit in code that rounds 20260819b, c, d and 20260821 declared clean. Those rounds read the Go and grepped the rest.
 
-	- 🔘 Code Review 20260909 item 18: public documents contradict the code.
-		- The recipe for checking a published binary against its checksum leaves out the build stamp, so it can never produce the published bytes. That is the one section whose whole point is that nobody has to take our word for it.
-		- Every config file the program creates carries a link to the account documentation on `main`, which still describes the old flat format that the new file is deliberately not in.
-		- The code of conduct's enforcement contact is an empty pair of angle brackets. `main` has the address, and so does contributing.md here.
-		- design.md says everything is published as a full release, while both installers, the release badge and the changelog all assume pre-releases.
-		- design.md heads the config-location block with "the place it used to live is never taken away" and says the opposite five lines down.
-		- "Uninstalling is deleting it" is wrong on Windows, where the installer also writes a PATH entry.
-		- A diagnostic points at a README section that does not exist, for a file format the README does not document.
-		- The pipeline settings file numbers its stages one lower than the run prints, from stage four on.
-		- The backlog still opens by calling itself the run-up to v2.0.0, two releases ago.
-		- design.md says the word forge is gone from the whole tool. The printed output is clean and guarded, but the word is still in about thirty comments and in design.md itself.
-		- The style guide covers three languages and calls them "Both languages" in two places. The private pointer to it still says Bash and PowerShell.
-		- Two British spellings in the code of conduct, in lines that match neither upstream nor `main`.
-		- contributing.md and the code of conduct both advertise being produced by a generator.
-		- trademark.md holds the only hard-wrapped paragraph in a first-party document, and writes its contact address with a circled letter A in place of the at sign.
-		- Origin: mixed. Recipe from cb367a4, outdated by 3b16d8d. design.md:494 outdated by 20260819a item 12. design.md:356 is the cfgloc heading (5ef5201) whose sub-bullets a38eda1 reversed the same day. Code of conduct spellings are from 0d94ec6 and were fixed on `main` only (f2a0b9a). Confirmed.
-
 	- 🔘 Code Review 20260909 item 19: `account list` runs one `gh` per configured account.
 		- The token lookup sits inside the listing loop. One account costs one process and twenty cost twenty, and `account set` pays the same bill before its edit, because it prints the listing first.
 		- Note: this is the only per-item process spawn left in the program, and the style guide states the rule it breaks.
@@ -108,6 +91,7 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- How to ask for a pre-release, which is what the first Go publication will be.
 		- The real check counts. "Several hundred" rounds down from eight hundred and ten, plus the fuzz and comparison suites.
 		- Origin: new.
+		- Note: release.bash publishes full releases, as design.md's release policy says. Nothing decides that the first Go publication is a pre-release, so the second bullet waits on that.
 
 	- 🔘 Code Review 20260909 enhancement 6: record that goreleaser is not being adopted, and why, so the question stops coming back. The hand-rolled build is already byte-identical from one flag set, goreleaser would have to be talked out of its own stamps, and packaging is the only thing it would add.
 		- Origin: the 2026-09-07 directives ask for the decision to be recorded.
@@ -308,6 +292,30 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 - ✅ Code review 20260909 - the closed part of the pass against the standing directives. The rest is still open under Bugs.
 	- Opened: 20260909-184419
+
+	- ✅ Code Review 20260909 item 18: public documents contradict the code.
+		- Closed: 20260915-155308
+		- The recipe for checking a published binary against its checksum leaves out the build stamp, so it can never produce the published bytes.
+		- Every config file the program creates links to the account documentation on `main`, which still describes the old flat format.
+		- The code of conduct's enforcement contact is an empty pair of angle brackets.
+		- design.md says everything is published as a full release, while both installers, the release badge and the changelog all handle pre-releases.
+		- design.md heads the config-location block with "the place it used to live is never taken away" and says the opposite five lines down.
+		- "Uninstalling is deleting it" is wrong on Windows, where the installer also writes a PATH entry.
+		- A diagnostic points at a README section that does not exist.
+		- The pipeline settings file numbers its stages one lower than the run prints, from stage four on.
+		- The backlog still opens by calling itself the run-up to v2.0.0.
+		- design.md says the word forge is gone from the whole tool, but it is still in about thirty comments and in design.md itself.
+		- The style guide calls its three languages "Both languages", and the private pointer to it still says Bash and PowerShell.
+		- Two British spellings in the code of conduct.
+		- contributing.md and the code of conduct both advertise being produced by a generator.
+		- trademark.md holds a hard-wrapped paragraph, and writes its contact address with a circled letter A in place of the at sign.
+		- Origin: mixed. Recipe from cb367a4, outdated by 3b16d8d. design.md:494 outdated by 20260819a item 12. design.md:356 is the cfgloc heading (5ef5201) whose sub-bullets a38eda1 reversed the same day. Code of conduct spellings are from 0d94ec6 and were fixed on `main` only (f2a0b9a). Confirmed.
+		- Fixed: the recipe carries the build number. The code of conduct has `main`'s contact line and spellings, and neither it nor contributing.md names a generator. design.md says how the installers pick a release, and its config-location heading matches what follows. README names the Windows PATH entry. `account list` with no accounts names `account set`. config.bash numbers its stages as the run prints them. The backlog no longer opens on v2.0.0. The style guide says "All languages", and the private pointer names all three. trademark.md is unwrapped and uses an at sign.
+		- Fixed: "forge" is out of design.md's prose and every comment, and design.md now claims only the output and the docs.
+		- Decided against: changing the accounts link in a created file. It names `main`, which gets the current `accounts.md` at the first Go release, and nothing released writes that file before then.
+		- Kept: code identifiers, the two `GITSBY_FORGE_*` variables, and two suite check labels still say forge. A renamed label reads as a deleted check.
+		- Sweep: every first-party `.md` at the root and under `project/`, the Go sources and tests, and test.bash's comments.
+		- Verified: gofmt and vet clean, markdown checks clean, and the new `account list` line prints as written. No suite asserted the old line, and the comparison suite does not run `account list`.
 
 	- ✅ Code Review 20260909 item 17: pipeline housekeeping.
 		- Closed: 20260915-153036

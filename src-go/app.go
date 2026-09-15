@@ -91,7 +91,7 @@ func (r *repoState) forget() {
 }
 
 // forgeState is what this run knows about the host side of things, as opposed to
-// the account side: which CLI is installed for the forge origin lives on. Looking
+// the account side: which CLI is installed for the git host origin lives on. Looking
 // it up is two LookPath calls for a name that cannot change mid-run.
 type forgeState struct {
 	tea   cached[string]      // Gitea's CLI as this machine spells it, "" when absent
@@ -102,7 +102,7 @@ type forgeState struct {
 // as: gh's own, and whoever a remote's ssh key authenticates as. Both cost a live
 // round trip, so both are asked at most once.
 type ghState struct {
-	isCommand bool      // goes through a forge CLI at all -> show whose account that is
+	isCommand bool      // goes through a git host CLI at all -> show whose account that is
 	isWrite   bool      // WRITES through one -> also compare against the ssh key
 	tool      forgeTool // which CLI that is
 	cli       string    // and how this machine spells it
@@ -140,7 +140,7 @@ type account struct {
 	// A token file other users on this machine can read, named so it can be fixed.
 	looseTokenFile string
 
-	// The forge this run authenticates to, the variable its token was exported
+	// The git host this run authenticates to, the variable its token was exported
 	// under, and whether the account we resolved banks somewhere else entirely.
 	credHost  string
 	tokenEnv  string

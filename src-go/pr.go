@@ -75,8 +75,8 @@ func (a *app) settlePrTool() error {
 	}
 	// No host to name at all - a local path, or a URL shape we don't parse. Not a
 	// refusal: this codebase's standing rule is that a remote we don't understand
-	// never triggers one, because "we couldn't tell" and "it definitely isn't a
-	// forge" are different answers and only one of them is ours to assert. gh gets
+	// never triggers one, because "we couldn't tell" and "it definitely isn't
+	// GitHub" are different answers and only one of them is ours to assert. gh gets
 	// the last word, exactly as it did before any of this existed, and explains
 	// itself in its own words if the remote turns out not to be one it serves.
 	if inPath("gh") {
@@ -135,7 +135,7 @@ func (a *app) prMergeArgs() []string {
 
 // prCleanArgs is the branch delete gh folds into its own merge and tea does not.
 // Without it 'pr ok' merges and leaves both feature branches standing on a Gitea
-// host - the same command tidying up on one forge and not the other.
+// host - the same command tidying up on one git host and not the other.
 func (a *app) prCleanArgs() []string {
 	if a.pr.tool == toolTea {
 		return []string{"pulls", "clean", a.pr.num}
@@ -185,7 +185,7 @@ func unquoteCell(cell string) string {
 	return strings.TrimSpace(cell)
 }
 
-// headBranchName drops the 'owner:' a forge puts in front of a head branch that
+// headBranchName drops the 'owner:' a git host puts in front of a head branch that
 // lives on a fork. What we compare against, and later hand git, is the branch.
 func headBranchName(head string) string {
 	if colon := strings.LastIndex(head, ":"); colon >= 0 {
@@ -215,7 +215,7 @@ func (a *app) prPreflight() error {
 		return usagef("No commits on '%s' yet; nothing to propose.", prBranch)
 	}
 	// An open PR for this branch already is the answer to 'pr create' - say so
-	// instead of letting the forge error.
+	// instead of letting the git host error.
 	if existing := a.openPrForBranch(prBranch); existing != "" {
 		return usagef("PR #%s is already open for '%s'. View it: %s pr %s", existing, prBranch, meName, existing)
 	}
@@ -241,7 +241,7 @@ func (a *app) openPrForBranch(prBranch string) string {
 	return runOut("gh", "pr", "list", "--head", prBranch, "--state", "open", "--json", "number", "--jq", ".[0].number // empty")
 }
 
-// readPr asks the forge which branch a PR proposes and whether it is still open.
+// readPr asks the git host which branch a PR proposes and whether it is still open.
 // The bool is "we got an answer", kept apart from the answer itself: a tool that
 // cannot say must not be read as saying the PR is closed, or as agreeing with
 // whatever branch we happen to be standing on. The caller refuses on !ok, which is
@@ -278,7 +278,7 @@ func (a *app) prAcceptPreflight(prBranch string) error {
 	}
 	a.pr.headBranch = head
 	// Case-insensitively: gh answers 'OPEN' and tea answers 'open', and comparing
-	// against one spelling makes every PR on the other forge read as already closed.
+	// against one spelling makes every PR on the other git host read as already closed.
 	if !strings.EqualFold(state, "open") {
 		return usagef("PR #%s is %s, not open; there is nothing to accept.", a.pr.num, strings.ToLower(state))
 	}
@@ -354,7 +354,7 @@ func (a *app) cmdPrAccept() error {
 	a.out.clean("")
 	approve := a.prApproveArgs()
 	a.out.status(a.prDisp(approve) + " ...")
-	// Best-effort: both forges refuse to approve your own PR; merging is the part
+	// Best-effort: both git hosts refuse to approve your own PR; merging is the part
 	// that matters.
 	if !a.inheritOK(a.pr.cli, approve...) {
 		a.out.status("Could not approve (own PR?); merging anyway.")

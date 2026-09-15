@@ -115,7 +115,7 @@ TEST_CMD=(cicd/test.bash)
 ## arg surface, with an injection canary). Skipped by --quick.
 FUZZ_CMD=(cicd/fuzz.bash)
 
-## Stage 3b: backwards compatibility. Same input to the Go build and to the frozen v2.1.0
+## Stage 4: backwards compatibility. Same input to the Go build and to the frozen v2.1.0
 ## script under legacy/, answers compared byte for byte wherever the two still claim to be
 ## the same command. Skipped by --quick; self-skips when legacy/ is gone.
 PARITY_CMD=(cicd/parity.bash)
@@ -125,7 +125,7 @@ PARITY_CMD=(cicd/parity.bash)
 ## first + newest-per-hour/day/week/month/year + last 10 (GFS_KEEP_* to tune).
 LINT_LOG_DIR="cicd/artifacts/lint"          # relative to repo root; created if missing (gitignored)
 
-## Stage 3b: spawn counts. One row per command, GFS-rotated the same way; the newest previous
+## Stage 3: spawn counts. One row per command, GFS-rotated the same way; the newest previous
 ## run is the baseline the next one is compared against.
 SPAWN_COUNT_DIR="cicd/artifacts/spawn"      # relative to repo root; created if missing (gitignored)
 SPAWN_COUNT_CMD=(cicd/utility/spawn-count.bash)
@@ -133,7 +133,7 @@ SPAWN_COUNT_CMD=(cicd/utility/spawn-count.bash)
 ## Where a kept build is archived, for bisecting a behavior change against an older one.
 KEEP_BUILD_DIR="cicd/artifacts/builds"      # relative to repo root; created if missing (gitignored)
 
-## Stage 4: dogfood. Build each target and copy it to the first existing, writable dir in
+## Stage 5: dogfood. Build each target and copy it to the first existing, writable dir in
 ## that target's list. Cross-building is free here - the module is pure stdlib with no cgo -
 ## so every target is built every run rather than on a cadence. Destination arrays are found
 ## by name: DOGFOOD_DESTS_<GOOS>_<GOARCH>, upper-cased.
@@ -181,7 +181,7 @@ RELEASE_TARGETS=(
 	"freebsd/arm64"
 )
 
-## Stage 5: demo gif. Types the scenario's command into a fake terminal, runs it
+## Stage 6: demo gif. Types the scenario's command into a fake terminal, runs it
 ## against a build of its own, stamped with the newest release rather than the commit
 ## (in a throwaway anonymized repo the scenario builds), renders the 960x540 animated
 ## loop (hard-cut boundary). Seeded, with pinned commit dates and that fixed stamp, so
@@ -199,7 +199,7 @@ DEMOGIF_ARCHIVE_DIR="../private/demo/gif"    # out-of-tree originals, GFS-rotate
 ## optimized one. Lossy modes buy almost nothing on a 35-color text demo.
 DEMOGIF_OPT_CMD=(gifsicle -O3)
 
-## Stage 6: backup + publish to git (runs from repo root). The engine always
+## Stage 7: backup + publish to git (runs from repo root). The engine always
 ## passes --quiet (it already gave the message prompt) and, when it has one,
 ## -m MESSAGE.
 GIT_PUBLISH=(cicd/utility/n8git_backup-and-publish)

@@ -216,7 +216,7 @@ account.home.ghAccount = homelogin
 `)
 	a.showAccount("work", false)
 	if strings.Contains(buf.String(), "host") {
-		t.Errorf("a single-forge config was shown the host key:\n%s", buf.String())
+		t.Errorf("a single-host config was shown the host key:\n%s", buf.String())
 	}
 }
 

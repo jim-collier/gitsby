@@ -79,7 +79,7 @@ Three things it holds to everywhere:
 
 - **It keeps no state of its own.** No database, no metadata, no dotfile in your repo. Everything it knows, it asks Git and `gh` for, every run. Stop using it mid-project and there is nothing to undo.
 
-- **It is one file.** A static binary: no runtime, no interpreter, nothing installed alongside it. Uninstalling is deleting it.
+- **It is one file.** A static binary: no runtime, no interpreter, nothing installed alongside it. Uninstalling is deleting it, plus the PATH entry the Windows installer adds.
 
 The full list of opinions, and how the workflow lines up against GitFlow, GitHub Flow, GitLab Flow, and trunk-based development, is in [workflows.md](workflows.md).
 
@@ -250,7 +250,7 @@ For anything else - installing for everyone, taking an older release, or naming 
 
 ### Without the installer
 
-Every release publishes one binary per platform alongside a `SHA256SUMS`. Download the one you want, check it, and drop it somewhere on your PATH - that is the whole of what the installers do. Uninstalling either way is deleting the file.
+Every release publishes one binary per platform alongside a `SHA256SUMS`. Download the one you want, check it, and drop it somewhere on your PATH - that is the whole of what the installers do. Uninstalling is deleting the file, and on Windows the PATH entry too, if the installer added one.
 
 ### Or check it yourself
 
@@ -259,11 +259,11 @@ The published binaries are reproducible. Build a release tag with the Go toolcha
 ~~~bash
 git clone --branch v2.2.0 https://github.com/jim-collier/gitsby
 cd gitsby/src-go
-CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags "-s -w -buildid= -X main.version=2.2.0" -o gitsby .
+CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags "-s -w -buildid= -X main.version=2.2.0 -X main.buildEpoch=$(git log -1 --format=%ct)" -o gitsby .
 sha256sum gitsby
 ~~~
 
-Substitute the release you are checking - the tag carries the leading `v` and the version stamped into the binary does not. Set `GOOS` and `GOARCH` for a platform other than this one. Nobody has to take our word for what is in a download, including us.
+Substitute the release you are checking - the tag carries the leading `v` and the version stamped into the binary does not. The build number comes from the tagged commit's time, which is what the `git log` part reads. Set `GOOS` and `GOARCH` for a platform other than this one. Nobody has to take our word for what is in a download, including us.
 
 ### Coming from 2.x
 

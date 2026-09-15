@@ -14,7 +14,7 @@ Scope: the product itself is Go now. Go's *formatting* is `gofmt` - the lint sta
 
 <!-- TOC -->
 
-- [Both languages](#both-languages)
+- [All languages](#all-languages)
 	- [Naming](#naming)
 	- [Comments and headers](#comments-and-headers)
 	- [Misc](#misc)
@@ -27,7 +27,7 @@ Scope: the product itself is Go now. Go's *formatting* is `gofmt` - the lint sta
 
 <!-- /TOC -->
 
-## Both languages
+## All languages
 
 ### Naming
 
