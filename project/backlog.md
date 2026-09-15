@@ -50,11 +50,20 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 ### Bugs
 
+- 🔘 With `XDG_CONFIG_HOME` set, `account set` creates a new accounts file that hides one in a `~/.config/gitsby` folder it can't search.
+	- Opened: 20260914-174736
+	- Reproduced: `~/.config/gitsby` at mode 0600 holding a readable accounts file, and `XDG_CONFIG_HOME` pointing at an empty folder. `account set kept email k@example.com` planned `create ~/xdg/gitsby/config.shcl`, wrote it and exited 0. Once the folder could be searched again, `account list` read the new file and showed none of the old accounts. `gover` does the same.
+	- Cause: a place whose lookup fails for any reason counts as empty. Only the place being written is safe, through its exclusive open.
+	- Probable fix: at the places other than the one written, count a lookup failure other than "no such file" or "not a folder" as something there, and refuse by name.
+	- Note: found while reviewing Code Review 20260909 item 3, whose design counts a failed lookup as empty on purpose.
+	- Origin: the `XDG_CONFIG_HOME` order from 5ef5201 meets the create path from 8203670. No earlier round saw it. Confirmed.
+
 - 🔘 Two `account set` runs at once on one accounts file keep only one of the two keys.
 	- Opened: 20260914-171139
 	- Reproduced: two runs started together on a file holding one account, one setting `email` and one setting `name`. Both said "Wrote" and exited 0, and in 30 of 30 tries the file held only one of the two keys. Two runs creating the file lose a key the same way.
 	- Cause: each run reads the file when it starts and saves the whole file back at the end, so the later save drops what the earlier one wrote.
 	- Note: found while designing Code Review 20260909 item 3, which stops the create from replacing a file but leaves two edits as they are.
+	- Note: a create stalled between its open and its write loses its key to an edit that runs in between. The edit reads the empty file and saves over it, so a lock has to cover the create as well as the edit.
 	- Probable fix: refuse the save when the file changed since the plan read it, and hold a lock beside the file from that check to the save.
 	- Origin: 9282c09 (`account set`), whose whole-file write the shcl save (8203670) kept. No earlier round saw it. Confirmed.
 
@@ -164,7 +173,8 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- Fixed: just before the delete push, prune asks origin where its branches point, and leases each delete on the value it checked. A branch origin has moved is left alone with a warning. One already deleted there is named as gone and left out of the push. If origin does not answer, no remote delete goes out and the existing unreachable line prints. The plan line names the lease.
 		- Verified: 13 new checks in test.bash, 876 -> 889. Ten fail on `gover`, and so does the plan check's new pattern. The other three are regression guards: the unmoved branch still goes, origin is not asked when nothing goes there, and the local delete still happens without origin. The prompt check needs `script`, so the total is 888 without it. The four new Go tests don't build on `gover` and pass on the branch. fuzz.bash 301/0, parity.bash 27/0, and the quick pipeline and the pre-push gate are green. `br prune` in the spawn-count fixture goes 35 -> 39, recorded as the new baseline. The ask is three processes, and the fourth is the `core.sshCommand` lookup a fetch would otherwise have made. On vm925w the four Go tests pass. There the `gover` build deletes a moved branch on origin, drops every delete when one branch is gone, and blames the branch when origin is away, and the branch build gets all three right. macOS and the BSDs untested.
 
-	- 🔘 Code Review 20260909 item 3: a config file that exists but cannot be read is replaced instead of refused.
+	- ✅ Code Review 20260909 item 3: a config file that exists but cannot be read is replaced instead of refused.
+		- Closed: 20260914-174903
 		- Reproduced: with the accounts file mode 0200, `account set` printed a plan saying "create", truncated the file and wrote a fresh one. The login and token path that were in it are gone.
 		- Cause: a candidate that fails the readable test is skipped, so an empty answer means both "no file anywhere" and "a file that could not be read".
 		- Note: mode 0000 fails cleanly, so the window is a file that is writable and not readable.
