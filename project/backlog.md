@@ -61,14 +61,6 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 	- Fix order: by class, each class across all its sites in one group of commits. 5 with 11 (unknown is listed, unknown is not missing); 9 with 19 (preview follows command, one spawn per run); 3 and 8 without moving the decisions they sit on; 12 and 20 only once reproduced. 15 and 16 early, since the pipeline is what proves the rest.
 	- Note: about twelve of the twenty sit in code that rounds 20260819b, c, d and 20260821 declared clean. Those rounds read the Go and grepped the rest.
 
-	- 🔘 Code Review 20260909 item 8: three flaws in `account set`.
-		- The refusals are decided inside the preview, so the refusal prints as the plan and it still asks you to confirm. Answering yes fails with the same sentence. Every other command settles its refusals before the plan.
-		- A save rewrites the file into the canonical layout, which is the settled decision, but the plan calls it an edit of one line. Space indentation, mixed-case keys, line endings and duplicate blocks are all reshaped with no word.
-		- `protocol` takes any value at all. The two it honors are documented in the header of the file it writes, and anything else is quietly ignored later.
-		- Probable fix: settle the refusals ahead of the preview, add a reformat line to the plan when the file is not already canonical, and validate `protocol` the way the other closed-set keys are validated.
-		- Origin: 9282c09 for the refusals. The plan text is left over from the byte-for-byte decision that 8203670 reversed. Confirmed.
-		- Keep: saves stay canonical. The plan says so; nothing goes back to byte-for-byte.
-
 	- 🔘 Code Review 20260909 item 12: install.ps1 fails on Windows PowerShell 5.1 in the default lookup.
 		- Cause: the release lookup reads a header through a property that exists on version 7's object and not on 5.1's. Strict mode turns that into an error inside the handler, so the fallback below is never reached.
 		- Note: 5.1 is the shell Windows ships and the documented one-liner path. Read rather than reproduced on 5.1 itself, though the two object shapes were checked.
@@ -351,6 +343,17 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 - ✅ Code review 20260909 - the closed part of the pass against the standing directives. The rest is still open under Bugs.
 	- Opened: 20260909-184419
+
+	- ✅ Code Review 20260909 item 8: three flaws in `account set`.
+		- Closed: 20260915-132814
+		- The refusals are decided inside the preview, so the refusal prints as the plan and it still asks you to confirm. Answering yes fails with the same sentence. Every other command settles its refusals before the plan.
+		- A save rewrites the file into the canonical layout, which is the settled decision, but the plan calls it an edit of one line. Space indentation, mixed-case keys, line endings and duplicate blocks are all reshaped with no word.
+		- `protocol` takes any value at all. The two it honors are documented in the header of the file it writes, and anything else is quietly ignored later.
+		- Origin: 9282c09 for the refusals. The plan text is left over from the byte-for-byte decision that 8203670 reversed. Confirmed.
+		- Keep: saves stay canonical. The plan says so; nothing goes back to byte-for-byte.
+		- Fixed: `account set` settles its plan before anything prints, so a refusal comes alone, with no plan and no prompt. The file is read once, not twice with the prompt between. When a save changes more of the file than the key, the plan adds an `also:` line saying so. `protocol` takes `https` or `ssh` in any case and writes it lower case. Any other protocol already in a file, in an account or at the top, is listed as ignored.
+		- Sweep: no other plan decides a refusal. `protocol` was the only closed-set value the loader kept unchecked.
+		- Verified: 8 new checks in test.bash, 969 -> 977. Seven fail on `gover`, and a plan for a file already in the save's layout is a regression guard. The prompt check needs `script`. Three new Go tests, which don't build on `gover`. `TestAccountSetPreviewShowsTheRefusalsFirstLine` is gone, since a plan can't show a refusal now. The fuzz target's oracle expects nothing kept for a top-level protocol other than https or ssh. fuzz.bash 301/0, parity.bash 27/0. Linux only.
 
 	- ✅ Code Review 20260909 item 20: the hotfix warning about changing shipped code can never fire in anyone else's repo.
 		- Closed: 20260915-131144

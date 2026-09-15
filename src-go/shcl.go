@@ -114,7 +114,7 @@ func (c *config) loadDoc(doc *shcl.Document) {
 	for _, name := range dedupe(doc.Children("")) {
 		switch name {
 		case "protocol":
-			c.values[name] = lastString(doc, name)
+			c.values[name] = c.protocolValue(name, lastString(doc, name))
 			for j := range doc.Count(name) {
 				c.listNested(doc, fmt.Sprintf("%s[#%d]", name, j), name, name)
 			}

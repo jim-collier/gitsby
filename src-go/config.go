@@ -560,7 +560,7 @@ func (c *config) loadFlat(text string) {
 		acct, field, ok := splitAccountKey(key)
 		if !ok {
 			if key == "protocol" {
-				c.values[key] = value
+				c.values[key] = c.protocolValue(key, value)
 				continue
 			}
 			c.unknown = append(c.unknown, key)
@@ -624,6 +624,9 @@ func (c *config) absorb(acct, field, value, key string) {
 			c.unknown = append(c.unknown, key+" (not a plain "+field+" name)")
 			value = ""
 		}
+		if field == "protocol" {
+			value = c.protocolValue(key, value)
+		}
 		c.values["account."+acct+"."+field] = value
 		if !contains(c.order, acct) {
 			c.order = append(c.order, acct)
@@ -634,6 +637,20 @@ func (c *config) absorb(acct, field, value, key string) {
 		// reads is how you act as the wrong account believing you configured it.
 		c.unknown = append(c.unknown, key)
 	}
+}
+
+func protocolOK(value string) bool {
+	return strings.EqualFold(value, "https") || strings.EqualFold(value, "ssh")
+}
+
+// protocolValue lists a protocol nothing acts on instead of keeping it. Kept, it
+// showed in the listing as set and new remotes quietly followed gh instead.
+func (c *config) protocolValue(key, value string) string {
+	if value != "" && !protocolOK(value) {
+		c.unknown = append(c.unknown, key+" (not https or ssh)")
+		return ""
+	}
+	return value
 }
 
 func contains(list []string, want string) bool {

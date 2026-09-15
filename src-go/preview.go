@@ -10,10 +10,7 @@
 
 package main
 
-import (
-	"strconv"
-	"strings"
-)
+import "strconv"
 
 const pad = "    "
 
@@ -81,16 +78,8 @@ func (a *app) preview(what string) {
 		// Names the file and both versions of the line, because this is the one
 		// command that edits the accounts file for you - and a config file you did
 		// not type yourself is only trustworthy if it showed you the edit first.
-		t, err := a.accountSetPlan()
-		if err != nil {
-			// Nothing here can refuse - the plan is display. Whatever is wrong with
-			// the arguments is reported by the command itself, a moment later. A
-			// labeled refusal shows its first line here, and the rest when the command
-			// refuses: its labels would come out broken inside the parenthesis.
-			head, _, _ := strings.Cut(err.Error(), "\n")
-			a.out.clean(pad + "(nothing: " + head + ")")
-			return
-		}
+		// Settled in preflight, so a refusal never prints as the plan.
+		t := a.set
 		switch {
 		case t.creates:
 			a.out.clean(pad + "create " + displayPath(t.file))
@@ -108,6 +97,9 @@ func (a *app) preview(what string) {
 			a.out.clean(pad + "  becomes: " + t.field + ": " + shclValue(t.value))
 		} else {
 			a.out.clean(pad + "  add:     " + t.disp + "." + t.field + ": " + shclValue(t.value))
+		}
+		if t.reshapes {
+			a.out.clean(pad + "  also:    the rest of the file comes out in the layout every save writes (tabs, lower-case keys)")
 		}
 	case "account-apply":
 		// Names every file and every condition, because this is the one command

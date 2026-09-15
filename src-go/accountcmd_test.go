@@ -784,23 +784,63 @@ func TestUnreadableFix(t *testing.T) {
 	}
 }
 
-// The plan prints a refusal inside a parenthesis, where a labeled block would come
-// out broken, so it shows the first line and the command prints the rest.
-func TestAccountSetPreviewShowsTheRefusalsFirstLine(t *testing.T) {
-	p, out, _ := testPrinter()
-	a := createApp(t, p)
-	if err := a.cfg.load(a.opt); err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	putDefaultConfig(t, keptBody)
-	a.preview("account-set")
-	if !strings.Contains(out.String(), "(nothing: An accounts file turned up while this ran.)") {
-		t.Errorf("plan does not show the refusal's first line:\n%s", out)
-	}
-	for _, line := range strings.Split(out.String(), "\n") {
-		if strings.HasPrefix(line, "  File:") {
-			t.Errorf("plan shows the refusal's labels:\n%s", out)
+// A refusal comes out of preflight, ahead of the plan and the prompt, and nothing
+// is left for the plan to show.
+func TestAccountSetRefusesBeforeThePlan(t *testing.T) {
+	for _, tc := range []struct{ body, key, value, want string }{
+		{keptBody, "protocol", "git", "isn't a protocol gitsby uses"},
+		{keptBody, "host", "a b", "isn't a plain host name"},
+		{"account: work\n\tpath: /a\n\tpath: /b\n", "path", driveFolder("/c"), "Edit it by hand"},
+	} {
+		a, _ := setApp(t, tc.body, "work", tc.key, tc.value)
+		err := a.preflight()
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s %s: preflight err = %v, want %q", tc.key, tc.value, err, tc.want)
 		}
+		if a.set != nil {
+			t.Errorf("%s %s: a refused plan was kept", tc.key, tc.value)
+		}
+	}
+}
+
+// The plan says when the save changes more than the key. A file already in the
+// layout every save writes gets no such line.
+func TestAccountSetPlanSaysWhenTheFileIsReshaped(t *testing.T) {
+	canon := "account: work\n\thost: github.com\n"
+	for _, tc := range []struct {
+		name, body string
+		want       bool
+	}{
+		{"canonical", canon, false},
+		{"spaces", "account: work\n    host: github.com\n", true},
+		{"key case", "account: work\n\tHost: github.com\n", true},
+		{"line ends", "account: work\r\n\thost: github.com\r\n", true},
+		{"mark", utf8BOM + canon, true},
+	} {
+		p, out, _ := testPrinter()
+		a, _ := setApp(t, tc.body, "work", "host", "gitea.com")
+		a.out = p
+		if err := a.preflight(); err != nil {
+			t.Fatalf("%s: preflight: %v", tc.name, err)
+		}
+		if a.set.reshapes != tc.want {
+			t.Errorf("%s: reshapes = %v, want %v", tc.name, a.set.reshapes, tc.want)
+		}
+		a.preview("account-set")
+		if got := strings.Contains(out.String(), "also:    the rest of the file"); got != tc.want {
+			t.Errorf("%s: plan line shown = %v, want %v:\n%s", tc.name, got, tc.want, out)
+		}
+	}
+}
+
+// protocol takes the two values gitsby acts on, in any case, and writes them lower.
+func TestAccountSetProtocol(t *testing.T) {
+	a, file := setApp(t, keptBody, "work", "protocol", "SSH")
+	if err := a.cmdAccountSet(); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	if got := readBack(t, file); !strings.Contains(got, "\tprotocol: ssh\n") {
+		t.Errorf("got %q", got)
 	}
 }
 

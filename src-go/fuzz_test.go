@@ -123,6 +123,10 @@ func FuzzConfigLoadDoc(f *testing.F) {
 			if n := oracle.Count(s.key); n != 1 {
 				want = oracle.GetStringOr(fmt.Sprintf("%s[#%d]", s.key, n-1), "")
 			}
+			// A protocol other than the two gitsby uses is listed, not kept.
+			if s.accounts == nil && !protocolOK(want) {
+				want = ""
+			}
 			got := cfg.values["protocol"]
 			if s.accounts != nil {
 				got = cfg.value("w", "email")
