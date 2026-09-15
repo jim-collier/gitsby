@@ -91,9 +91,11 @@ PY_LINT_FILES=(
 )
 ## PowerShell (probe-gated: needs pwsh + the PSScriptAnalyzer module). Back after the
 ## scripted build was frozen: the installer is the one piece of PowerShell that still
-## ships, because it is the only shell every Windows box already has.
+## ships, because it is the only shell every Windows box already has. run-latest.ps1 is a
+## dev helper, but first-party all the same.
 PS_LINT_GLOBS=(
 	"install.ps1"
+	"cicd/utility/run-latest.ps1"
 )
 
 ## Stage 1: the committed Windows resource (icon + version details), checked rather than built.
@@ -213,6 +215,10 @@ PUBLISH_AUTO_MESSAGE=""
 ##		- 2026-08-18 JC: Go-specific. The scripts moved to legacy/ and left the lint globs with them; dogfood builds three targets instead of copying one script; parity became a stage, comparing the Go build against the frozen one.
 ##		- 2026-08-19 JC: WINRES_CMD: the Windows resource check joins stage 1, and release.bash regenerates the resource with the version bump.
 ##		- 2026-08-19 JC: GO_TOOL_VERSIONS: the lint and audit tools ran at whatever version the box had, so a finding could appear or vanish with no change to the tree. Recorded and compared in stage 1, as a warning.
+##		- 2026-08-26 JC: DOGFOOD_FALLBACK_DIR, for a box that has none of the shared dirs. It only applies to the target that box can run. The macOS share is one entry for both platforms.
+##		- 2026-09-10 JC: BACKLOG_CHECK_CMD joins stage 1.
+##		- 2026-09-14 JC: The demo gif renders from a build stamped with the newest release, so it changes only when what it shows does.
+##		- 2026-09-15 JC: run-latest.ps1 joins the PowerShell lint.
 ##		- 2026-08-19 JC: The installer is back at the repo root, so its two files are linted again - the root install.bash under shellcheck, install.ps1 under a restored PSScriptAnalyzer glob. FreeBSD joins the release matrix, since it cross-builds for free and the installer would otherwise have nothing to offer a BSD.
 ##		- 2026-09-10 JC: BACKLOG_CHECK_CMD joins stage 1.
 ##		- 2026-09-14 JC: The demo comment names the build the demo really runs.

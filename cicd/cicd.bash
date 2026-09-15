@@ -69,15 +69,6 @@ source "${here}/config.bash"
 source "${here}/utility/include/gfs-rotate.bash"       ## gfs_rotate() for the artifact dirs
 cd "${root}"
 stamp="$(date +%Y%m%d-%H%M%S)"
-## Version stamped into every build this run. Dev builds carry what describe says; a
-## release injects the clean one. Resolved here because two stages need it and either
-## can be skipped independently.
-go_version="$(git describe --tags --always --match 'v*' 2>/dev/null || echo 0.0.0)"
-## Build number, as minutes since 2000 in Crockford base32 - the binary does the encoding,
-## this only hands it the seconds. Taken from the commit rather than the clock so the same
-## source builds to the same bytes; a wall-clock stamp would mean nobody, including us,
-## could ever rebuild a published asset to its published checksum.
-go_build_epoch="$(git log -1 --format=%ct 2>/dev/null || echo 0)"
 
 ## Parse options.
 assume_yes=0; quiet=0; quick=0; do_sync=1; do_lint=1; do_test=1; do_fuzz=1; do_parity=1; cli_message=""
@@ -442,6 +433,16 @@ else
 	fi
 fi
 
+## Version stamped into every build this run. Dev builds carry what describe says; a
+## release injects the clean one. Read after the sync, which can move HEAD. -dirty
+## because a run that publishes builds source whose commit stage 7 hasn't made yet.
+go_version="$(git describe --tags --always --dirty --match 'v*' 2>/dev/null || echo 0.0.0)"
+## Build number, as minutes since 2000 in Crockford base32 - the binary does the encoding,
+## this only hands it the seconds. Taken from the commit rather than the clock so the same
+## source builds to the same bytes; a wall-clock stamp would mean nobody, including us,
+## could ever rebuild a published asset to its published checksum.
+go_build_epoch="$(git log -1 --format=%ct 2>/dev/null || echo 0)"
+
 ## Stage 1: lint. gofmt/vet/staticcheck over the module, then bash -n and shellcheck
 ## over the pipeline's own scripts and the installer (gating - never an auto-formatter:
 ## those are hand-formatted on purpose). markdownlint, py_compile and PSScriptAnalyzer
@@ -650,6 +651,10 @@ fEcho_Clean
 ##		- 2026-08-19 JC: PSScriptAnalyzer also checks the installer against Windows PowerShell 5.1 syntax. The installer supports 5.1 now, and nothing gated that.
 ##		- 2026-08-19 JC: Stage 1 checks the committed Windows resource against the newest tag. The .exe carries an icon and version details now, and the resource that gives it them is a checked-in file that nothing else would notice going stale.
 ##		- 2026-08-19 JC: --quick narrows dogfood to the native target, which is the slow part it was supposed to be skipping. Every build site shares one set of flags (-buildvcs=false above all, without which the published assets can never be rebuilt to their published checksums) and half the cores. Stage 3 gained govulncheck and the spawn counts; the three harnesses take -q from the engine.
+##		- 2026-08-21 JC: The harnesses get -q only when the run is quiet, since -y is unattended but not quiet. go vet, staticcheck and golangci-lint keep to the build's core budget, go test runs with -race, and stage 3 fuzzes the pure parsers for a few seconds each.
+##		- 2026-08-26 JC: Every build carries a build number taken from the commit date. Dogfood falls back to ~/.local/bin, for the target this box can run, when no shared dir exists.
 ##		- 2026-09-10 JC: Stage 1 runs backlog-check.bash: open review items carry an Origin line, and a suite check removed on the branch has to be named in the backlog. Two decisions had been reversed by deleting the check that encoded them, with nothing written down.
 ##		- 2026-09-14 JC: --gate runs every lint check and the unit tests and nothing else, for the pre-push hook that --install-hook puts in place. Stage 1 and the unit tests became functions, so the gate and a full run share one copy of each.
 ##		- 2026-09-14 JC: The demo gif renders from a build of its own, stamped with the newest release rather than the commit, and -q reaches its generator. The banner every command prints had put a new version on camera at every commit, so the gif was replaced on nearly every run.
+##		- 2026-09-15 JC: A failed py_compile stops the run. At the head of an && list it neither stopped the run nor fired the trap.
+##		- 2026-09-15 JC: The build version is read after the remote sync, and says -dirty for uncommitted source. Read at startup, it could name the commit before a fast-forward, and a publishing run's builds named the commit before the one holding their source.

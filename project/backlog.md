@@ -61,18 +61,6 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 	- Fix order: by class, each class across all its sites in one group of commits. 5 with 11 (unknown is listed, unknown is not missing); 9 with 19 (preview follows command, one spawn per run); 3 and 8 without moving the decisions they sit on; 12 and 20 only once reproduced. 15 and 16 early, since the pipeline is what proves the rest.
 	- Note: about twelve of the twenty sit in code that rounds 20260819b, c, d and 20260821 declared clean. Those rounds read the Go and grepped the rest.
 
-	- 🔘 Code Review 20260909 item 17: pipeline housekeeping.
-		- The two "have I seen this yet" markers live inside the working tree. A clean checkout loses them.
-		- The lint report counts a filename as a warning, because one source file has the word error in its name. This is the second time that report has matched something that was never a warning.
-		- `run-latest.ps1` is first-party PowerShell that the lint globs do not cover.
-		- `git-auto-msg.bash` has no caller. Its header says it is the editor for the publish stage, and nothing sets it as one.
-		- Three pipeline files stop their history at 2026-08-19 and have a month of changes since. The release check only inspects two other files.
-		- The generator writes copyright 2026 while the program prints 2014-2026.
-		- A dev or dogfood build is stamped with the parent commit's version, because the stamp is read before the commit that holds the source.
-		- The version banner puts the copyright on the same line, where a separate line was asked for.
-		- Origin: mixed. The lint match is e014c29 and this is its second false positive after 20260819a item 17, which added an exclude instead of narrowing the match. `git-auto-msg.bash` has had no caller since e014c29. The banner has always been one line. Confirmed.
-		- Keep: narrow the positive match to the tools' own output formats. No third exclude.
-
 	- 🔘 Code Review 20260909 item 18: public documents contradict the code.
 		- The recipe for checking a published binary against its checksum leaves out the build stamp, so it can never produce the published bytes. That is the one section whose whole point is that nobody has to take our word for it.
 		- Every config file the program creates carries a link to the account documentation on `main`, which still describes the old flat format that the new file is deliberately not in.
@@ -320,6 +308,24 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 - ✅ Code review 20260909 - the closed part of the pass against the standing directives. The rest is still open under Bugs.
 	- Opened: 20260909-184419
+
+	- ✅ Code Review 20260909 item 17: pipeline housekeeping.
+		- Closed: 20260915-153036
+		- The two "have I seen this yet" markers live inside the working tree. A clean checkout loses them.
+		- The lint report counts a filename as a warning, because one source file has the word error in its name. This is the second time that report has matched something that was never a warning.
+		- `run-latest.ps1` is first-party PowerShell that the lint globs do not cover.
+		- `git-auto-msg.bash` has no caller. Its header says it is the editor for the publish stage, and nothing sets it as one.
+		- Three pipeline files stop their history at 2026-08-19 and have a month of changes since. The release check only inspects two other files.
+		- The generator writes copyright 2026 while the program prints 2014-2026.
+		- A dev or dogfood build is stamped with the parent commit's version, because the stamp is read before the commit that holds the source.
+		- The version banner puts the copyright on the same line, where a separate line was asked for.
+		- Origin: mixed. The lint match is e014c29 and this is its second false positive after 20260819a item 17, which added an exclude instead of narrowing the match. `git-auto-msg.bash` has had no caller since e014c29. The banner has always been one line. Confirmed.
+		- Keep: narrow the positive match to the tools' own output formats. No third exclude.
+		- Fixed: the lint report matches each tool's own output format, and no exclude was added. `run-latest.ps1` is in the PowerShell lint. `git-auto-msg.bash` is gone. cicd.bash, config.bash and release.bash have their missing history entries, and the release check now covers every pipeline and installer script that keeps a history and changed since the last release. The Windows resource takes its copyright years from the program, and both resource files were regenerated for v2.1.0. A build's version is read after the remote sync and says `-dirty` when the source isn't committed. The copyright has a line of its own, and the release notes take the banner's first line.
+		- Decided against: moving the seen markers. Each sits beside the logs it records, both are gitignored, and a clean checkout loses the two together, after which the next look correctly reports NEW.
+		- Decided against: committing before the builds so the stamp can name the new commit. Publishing stays after every gate, and `-dirty` says what the build is.
+		- Sweep: every reader of the banner. The two build-number checks in test.bash and the release notes were the only ones. The release and demo builds are stamped from a tag, not from describe.
+		- Verified: 5 new checks in test.bash, all failing on the tree before, 1007 -> 1012. The two build-number checks match the two-line banner. Go tests green. The report still flags the two real warnings in the oldest run log, and passes the three logs that listed errors.go. PSScriptAnalyzer is clean on `run-latest.ps1` in both passes.
 
 	- ✅ Code Review 20260909 item 14: six flaws in install.bash, or shared by both installers.
 		- Closed: 20260915-144923

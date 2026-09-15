@@ -3221,12 +3221,18 @@ GHEOF
 		bash -c "cd '${root}/src-go' && go build -trimpath -buildvcs=false -o '${work}/vcsprobe' . && ! go version -m '${work}/vcsprobe' | grep -q 'vcs\.revision'"
 	## The build number is minutes since 2000, Crockford base32, lower case. Built here with a
 	## fixed stamp: the suite's own binary carries whatever the last build gave it.
-	fAssertOut "a stamped build reports minutes since 2000 in Crockford base32"  'gitsby v9\.9\.9 build dbd05,' \
+	fAssertOut "a stamped build reports minutes since 2000 in Crockford base32"  '^gitsby v9\.9\.9 build dbd05$' \
 		bash -c "cd '${root}/src-go' && go build -ldflags '-X main.version=9.9.9 -X main.buildEpoch=1787000000' -o '${work}/bnprobe' . && '${work}/bnprobe' --version"
 	## A number invented from the clock would say the opposite of what a build number means, so
 	## an unstamped build reports none rather than one that moves every minute.
-	fAssertOut "an unstamped build reports no build number"  '^gitsby v9\.9\.9, Copyright' \
+	fAssertOut "an unstamped build reports no build number"  '^gitsby v9\.9\.9$' \
 		bash -c "cd '${root}/src-go' && go build -ldflags '-X main.version=9.9.9' -o '${work}/bnprobe0' . && '${work}/bnprobe0' --version"
+	fAssertOut "and the copyright has a line of its own"  '^Copyright © [0-9-]+ Jim Collier\.$' \
+		bash -c "'${work}/bnprobe0' --version"
+	## release.bash reads the build line back out of the banner for the release notes, and used
+	## to cut it at the comma that came before the copyright.
+	fAssertFail "and release.bash no longer cuts the build line at a comma" \
+		grep -qF "v[^,]*" "${root}/cicd/release.bash"
 	## Taken from the commit rather than the clock, or a published asset could never be rebuilt
 	## to its published checksum - the same reason -buildvcs=false is above.
 	fAssert "every build site stamps a build number" \
@@ -3290,6 +3296,24 @@ GHEOF
 		bash -c "'${root}/cicd/utility/lint-report.bash' --file '${lrLog}/run_20260819-000000.log'"
 	fAssertOut "and still reports a real finding"  'warning line' \
 		bash -c "printf 'file.sh:3:1: SC2086 warning: quote this\n' > '${lrLog}/run_20260819-000001.log'; '${root}/cicd/utility/lint-report.bash' --file '${lrLog}/run_20260819-000001.log'"
+	## Then it matched the publish stage's archive listing, which names src-go/errors.go.
+	fAssertOut "and a file named errors in the archive listing is not a finding"  'CLEAN' \
+		bash -c "printf 'Adding    .././github/src-go/errors.go     7%%  OK \nall errors reported\n' > '${lrLog}/run_20260819-000002.log'; '${root}/cicd/utility/lint-report.bash' --file '${lrLog}/run_20260819-000002.log'"
+	## One line in each tool's format, so narrowing the match can't quietly drop a tool.
+	{
+		echo "[ WARNING: staticcheck skipped (not installed) ]"
+		echo "  ^-- SC2086 (info): Double quote to prevent globbing and word splitting."
+		echo "README.md:12:3 MD009/no-trailing-spaces Trailing spaces"
+		echo "./main.go:12:3: printf format %d has arg of wrong type"
+		echo "Vulnerability #1: GO-2025-3750"
+		echo "PSAvoidUsingWriteHost  Warning   install.ps1  12  File uses Write-Host."
+		echo '  File "cicd/utility/demo/gen-demo-gif.py", line 12'
+	} > "${lrLog}/run_20260819-000003.log"
+	fAssertOut "and each tool's own format is reported"  '\(7 warning line' \
+		bash -c "'${root}/cicd/utility/lint-report.bash' --file '${lrLog}/run_20260819-000003.log'"
+	## The Properties tab said 2026 while --about said 2014-2026.
+	fAssert "the Windows resource takes its copyright years from the program" \
+		bash -c "grep -q 'copyrightYear' '${root}/cicd/utility/gen-winres.bash' && ! grep -qE 'LegalCopyright.*© [0-9]' '${root}/cicd/utility/gen-winres.bash'"
 	## The demo scenario is what the gif is rendered from, so a command renamed in the product
 	## and not there means the next render publishes the old name.
 	fAssertFail "the demo scenario names no renamed command" \
@@ -4341,3 +4365,4 @@ echo "passed: ${pass}, failed: ${fail}"
 ##		- 20260915 JC: Origin's copies of merged branches. A prune warning's advice, followed, clears the branch. A tag with a branch's name stops nothing, and br merge merges the branch rather than the tag. br merge --no-fetch keeps a copy someone else pushed to, and an offline br merge keeps the branch here so prune can clear both. Twelve of the fourteen fail against the tree before them; the kept tag and the merge's push are regression guards. The first prune's count drops by one, since the moved branch now stays here. 925 -> 939.
 ##		- 20260915 JC: account set refuses before its plan, so a refused one shows no plan and asks nothing. A protocol other than https or ssh is refused and never written, and account list names one in a file as ignored, in an account and at the top. An edit that respaces the file says so in the plan. Seven of the eight fail against the tree before them; a plan for a file already spaced that way is a regression guard. The prompt check needs script. 969 -> 977.
 ##		- 20260915 JC: Installer checks for Code Review 20260909 items 12-14. install.ps1 runs whole installs against stubbed web cmdlets that answer the way Windows PowerShell 5.1 and PowerShell 7 each do. Both help texts are checked against the options their parsers take, and the refusals, the prompt and the notices against the blank lines around them. 977 -> 1007.
+##		- 20260915 JC: Pipeline housekeeping. The banner's copyright has a line of its own, and release.bash no longer cuts the build line at a comma. The lint report passes an archive listing that names errors.go and still reports one line in each tool's format. The Windows resource takes its copyright years from the program. All five fail against the tree before them; the two build-number checks match the two-line banner. 1007 -> 1012.
