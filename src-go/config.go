@@ -136,9 +136,11 @@ func folderRuleProblem(value string) string {
 	return ruleNotAbsolute
 }
 
-// Why a 'path' value is not a folder rule, as the ignored list says it.
+// Why a 'path' value is not a folder rule, as the ignored list says it. A
+// 'tokenfile' or 'sshkey' is held to the same test, and fileNotAbsolute names it.
 const (
 	ruleNotAbsolute = "not an absolute folder"
+	fileNotAbsolute = "not an absolute path"
 	ruleNoHome      = "no home folder to put '~' on"
 	ruleOtherHome   = "only a bare '~' is expanded"
 )
@@ -600,6 +602,18 @@ func (c *config) absorb(acct, field, value, key string) {
 		if field == "sshkey" && strings.ContainsAny(value, sshKeyShellChars) {
 			c.unknown = append(c.unknown, key+" (shell characters in the path)")
 			value = ""
+		}
+		// A relative file is read from wherever a command runs - by gitsby for a
+		// token, by ssh for a key - so a file inside a cloned repo would decide which
+		// token or key a push used.
+		if (field == "tokenfile" || field == "sshkey") && value != "" {
+			if problem := folderRuleProblem(value); problem != "" {
+				if problem == ruleNotAbsolute {
+					problem = fileNotAbsolute
+				}
+				c.unknown = append(c.unknown, key+" ("+problem+": "+value+")")
+				value = ""
+			}
 		}
 		// 'host' and 'user' are interpolated into the credential helper, which
 		// git hands to a shell exactly as it hands one core.sshCommand. Neither

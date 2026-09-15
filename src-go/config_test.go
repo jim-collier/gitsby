@@ -835,6 +835,33 @@ func TestConfigIgnoresARelativePath(t *testing.T) {
 	}
 }
 
+// A relative token file was read from whatever folder a command ran in, and ssh
+// read a relative key from each repo's own folder, so a file in a cloned repo
+// could pick either.
+func TestConfigIgnoresARelativeKeyFile(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	abs := filepath.ToSlash(filepath.Join(t.TempDir(), "tok"))
+	cfg := writeConfig(t, "account: work\n\ttokenfile: tok.txt\n\tsshkey: .ssh/id_work\n\temail: w@example.com\n"+
+		"account: home\n\ttokenfile: \""+abs+"\"\n\tsshkey: ~/.ssh/id_home\n")
+	want := []string{"account[work].tokenfile (not an absolute path: tok.txt)", "account[work].sshkey (not an absolute path: .ssh/id_work)"}
+	if !slices.Equal(cfg.unknown, want) {
+		t.Errorf("unknown = %q, want %q", cfg.unknown, want)
+	}
+	if got := cfg.value("work", "tokenFile") + cfg.value("work", "sshKey"); got != "" {
+		t.Errorf("relative values kept: %q", got)
+	}
+	if cfg.value("home", "tokenFile") != abs || cfg.value("home", "sshKey") != "~/.ssh/id_home" {
+		t.Errorf("home = %q, %q", cfg.value("home", "tokenFile"), cfg.value("home", "sshKey"))
+	}
+	t.Chdir(t.TempDir())
+	if err := os.WriteFile("tok.txt", []byte("secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := readTokenFile("tok.txt"); got != "" {
+		t.Errorf("readTokenFile(tok.txt) = %q, want nothing", got)
+	}
+}
+
 func TestAccountApplyPlanSkipsARelativePath(t *testing.T) {
 	abs := filepath.ToSlash(t.TempDir())
 	cfg := writeConfig(t, "account.a.path = .\naccount.b.path = dev/work\naccount.c.path = ~nobody/x\naccount.d.path = "+abs+"\n")

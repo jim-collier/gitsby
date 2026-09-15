@@ -2739,6 +2739,37 @@ GHEOF
 		bash -c "${acRelRun} '${acRel}/cfg/config.shcl' account set rel path '~nobody/x'"
 	fAssertOut "and says why"  "another user's home folder" \
 		bash -c "${acRelRun} '${acRel}/cfg/config.shcl' account set rel path '~nobody/x'"
+	## A rule is plain text to gitsby and a pattern to git, so a '[' in one bound a different
+	## folder in plain git. Each unbracketed twin is the folder the pattern would have taken.
+	local acGlob
+	for acGlob in 'lit[x]' litx 'ac[m]e' acme; do
+		mkdir -p "${acRel}/trees/${acGlob}/proj" && git init --quiet -b main "${acRel}/trees/${acGlob}/proj"
+	done
+	local acGlobTrees="${acRel}/trees"; ((isWindows)) && acGlobTrees="$( cd "${acRel}/trees" && pwd -W )"
+	printf 'account: glob\n\tpath: "%s/lit[x]"\n\tpathcontains: "ac[m]e"\n\temail: glob@example.com\n' "${acGlobTrees}" > "${acRel}/cfg/glob.shcl"
+	fAssert "plain git applies a folder rule holding '[' to that folder" \
+		bash -c ": > '${acRel}/home/.gitconfig' && ${acRelRun} '${acRel}/cfg/glob.shcl' account apply >/dev/null && [[ \"\$(env ${acRelEnv} git -C '${acRel}/trees/lit[x]/proj' config user.email || true)\" == glob@example.com ]]"
+	fAssert "and not to the folder it would match as a pattern" \
+		bash -c "[[ -z \"\$(env ${acRelEnv} git -C '${acRel}/trees/litx/proj' config user.email || true)\" ]]"
+	fAssert "plain git applies a pathcontains rule holding '[' to that folder" \
+		bash -c "[[ \"\$(env ${acRelEnv} git -C '${acRel}/trees/ac[m]e/proj' config user.email || true)\" == glob@example.com ]]"
+	fAssert "and not to the folder that pathcontains would match as a pattern" \
+		bash -c "[[ -z \"\$(env ${acRelEnv} git -C '${acRel}/trees/acme/proj' config user.email || true)\" ]]"
+	## A token file or key named relative was read from the folder a command ran in, so a file in a
+	## cloned repo could pick the token, and ssh read the key from each repo's own folder.
+	printf 'secret\n' > "${acRel}/trees/work/proj/tok.txt"
+	printf 'account: rk\n\ttokenfile: tok.txt\n\tsshkey: id_work\n\temail: rk@example.com\n' > "${acRel}/cfg/relkey.shcl"
+	fAssertOut "a relative tokenfile in the file is listed as ignored"  'account\[rk\]\.tokenfile \(not an absolute path: tok\.txt\)' \
+		bash -c "${acRelRun} '${acRel}/cfg/relkey.shcl' account list"
+	fAssertNotOut "and no token is read from the folder a command runs in"  'token \.\.\.: tok\.txt' \
+		bash -c "${acRelRun} '${acRel}/cfg/relkey.shcl' account list"
+	fAssert "a relative sshkey goes into no git config fragment" \
+		bash -c "${acRelRun} '${acRel}/cfg/relkey.shcl' account apply >/dev/null && grep -q rk@example.com '${acRel}/cfg/accounts/rk.gitconfig' && ! grep -qi sshcommand '${acRel}/cfg/accounts/rk.gitconfig'"
+	: > "${acRel}/cfg/keyset.shcl"
+	fAssert "account set writes a relative tokenfile as the file it names from here" \
+		bash -c "${acRelRun} '${acRel}/cfg/keyset.shcl' account set rk tokenfile tok.txt >/dev/null && grep -qF -e 'tokenfile: ${acRelProj}/tok.txt' -e 'tokenfile: \"${acRelProj}/tok.txt\"' '${acRel}/cfg/keyset.shcl'"
+	fAssertFail "account set refuses a relative sshkey typed in a folder whose path has a space" \
+		bash -c "cd '${ac}/my trees/work' && env ${acRelEnv} '${gitsby}' -q -NoFetch --config '${acRel}/cfg/keyset.shcl' account set rk sshkey id_work"
 
 	## 'apply' is the one command that writes outside the repo you are standing in, and it reported
 	## success whatever happened: the truncate error was discarded and every 'git config' exit code
@@ -4042,4 +4073,5 @@ echo "passed: ${pass}, failed: ${fail}"
 ##		- 20260914 JC: account set and a place it can't look: a folder that can't be searched is refused by name, with the chmod that fixes it, and nothing goes in ahead of it in XDG_CONFIG_HOME. A file that opens and then fails to read is refused when named and when found, where it crashed. Linux only. 915 -> 922.
 ##		- 20260915 JC: Two account set runs at once keep both keys, and a lock another run left is waited on, then refused by name. 922 -> 925.
 ##		- 20260915 JC: account apply takes a --config named with no folder, and includes the fragments beside it by absolute path. Both fail against the tree before them. 939 -> 941.
+##		- 20260915 JC: A folder rule holding '[' binds that folder in plain git and not the one it would match as a pattern, for path and pathcontains. A relative tokenfile or sshkey is listed as ignored, reads no token and writes no key; account set writes a relative tokenfile absolute, and refuses a relative key typed in a folder with a space. All nine fail against the tree before them. 941 -> 950.
 ##		- 20260915 JC: Origin's copies of merged branches. A prune warning's advice, followed, clears the branch. A tag with a branch's name stops nothing, and br merge merges the branch rather than the tag. br merge --no-fetch keeps a copy someone else pushed to, and an offline br merge keeps the branch here so prune can clear both. Twelve of the fourteen fail against the tree before them; the kept tag and the merge's push are regression guards. The first prune's count drops by one, since the moved branch now stays here. 925 -> 939.

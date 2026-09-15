@@ -50,6 +50,23 @@ account.broad.pathContains = b
 	}
 }
 
+// gitsby reads a rule as plain text and git reads an includeIf as a pattern, so
+// 'lit[x]' bound 'litx' in plain git and 'acme-*' bound 'acme-x'.
+func TestAccountApplyPlanEscapesGlobs(t *testing.T) {
+	cfg := planFor(t, driveFixture("account.a.path = /srv/lit[x]\naccount.b.pathContains = acme-*/q?\n"))
+	var conds []string
+	for _, r := range cfg.accountApplyPlan() {
+		conds = append(conds, strings.TrimSuffix(strings.TrimPrefix(r.cond, "includeIf.gitdir/i:"), ".path"))
+	}
+	want := []string{`**/acme-\*/q\?/**`, driveRule("/srv/lit") + `\[x]/`}
+	if !slices.Equal(conds, want) {
+		t.Errorf("plan = %q, want %q", conds, want)
+	}
+	if got := globLiteral(`a\b`); got != `a\\b` {
+		t.Errorf("globLiteral(a\\b) = %q", got)
+	}
+}
+
 // Every rule points at the fragment for its own account, beside the config file
 // that declared it.
 func TestAccountApplyPlanTargets(t *testing.T) {

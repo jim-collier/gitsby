@@ -134,8 +134,8 @@ func sortIncludes(list []includeCandidate) {
 // accountApplyPlan: the includeIf conditions 'account apply' would write.
 // gitdir/i, not gitdir: a path compares case-insensitively on Windows and macOS,
 // and a rule that silently misses because of a capital letter is worse than no
-// rule. 'pathContains' maps straight onto git's own gitdir globbing, so plain
-// git gets the same rule rather than an approximation of it. Fewest folder names
+// rule. 'pathContains' maps onto git's own gitdir globbing, so plain git gets the
+// same rule rather than an approximation of it. Fewest folder names
 // first, and all of them ahead of the absolute rules; within the absolute rules,
 // shortest path first, so a tree nested inside another account's tree lands last.
 func (c *config) accountApplyPlan() []includeRule {
@@ -152,13 +152,13 @@ func (c *config) accountApplyPlan() []includeRule {
 		}
 		// The trailing slash is what makes git apply it to everything below the
 		// folder too.
-		paths = append(paths, includeCandidate{len(r.match), i, r.match + "/", r.acct})
+		paths = append(paths, includeCandidate{len(r.match), i, globLiteral(r.match) + "/", r.acct})
 	}
 	for i, r := range c.segments {
 		if r.match == "" {
 			continue
 		}
-		segments = append(segments, includeCandidate{strings.Count(r.match, "/") + 1, i, "**/" + r.match + "/**", r.acct})
+		segments = append(segments, includeCandidate{strings.Count(r.match, "/") + 1, i, "**/" + globLiteral(r.match) + "/**", r.acct})
 	}
 	if len(paths)+len(segments) == 0 {
 		return nil
@@ -170,6 +170,20 @@ func (c *config) accountApplyPlan() []includeRule {
 		plan = append(plan, includeRule{"includeIf.gitdir/i:" + cand.pattern + ".path", dir + "/" + cand.account + ".gitconfig"})
 	}
 	return plan
+}
+
+// globLiteral escapes what git's gitdir match reads as a pattern. gitsby matches a
+// rule as plain text, so 'path: ~/d*' bound '~/dev' in plain git and nothing in
+// gitsby, and 'pathcontains: **' bound every repo on the disk.
+func globLiteral(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if strings.ContainsRune(`*?[\`, r) {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 // accountManagedIncludes: every includeIf already in the global config that
@@ -529,13 +543,14 @@ func canonAccountField(field string) string {
 	return ""
 }
 
-// folderRuleValue is the 'path' value 'account set' writes. A relative one means
-// the folder the command runs in, as it would for any command, and the file can
-// never say that later - so it goes in absolute. Spelled the way the platform
-// spells it rather than in canonical form, since the file is edited by hand, and
-// with forward slashes, since a backslash in a bare value is an escape. A '~'
-// value is written as typed, so one file still works where home differs.
-func folderRuleValue(value string) (string, error) {
+// absPathValue is the 'path', 'tokenfile' or 'sshkey' value 'account set' writes;
+// what is "folder" or "file", for the refusal. A relative one means the folder the
+// command runs in, as it would for any command, and the file can never say that
+// later - so it goes in absolute. Spelled the way the platform spells it rather
+// than in canonical form, since the file is edited by hand, and with forward
+// slashes, since a backslash in a bare value is an escape. A '~' value is written
+// as typed, so one file still works where home differs.
+func absPathValue(value, what string) (string, error) {
 	// filepath.Abs("") is the current directory, which nobody typed.
 	if value == "" {
 		return value, nil
@@ -553,7 +568,7 @@ func folderRuleValue(value string) (string, error) {
 		abs = filepath.ToSlash(abs)
 	}
 	if err != nil || folderRuleProblem(abs) != "" {
-		return "", usagef("Couldn't work out which folder '%s' is from here. Give the full path.", value)
+		return "", usagef("Couldn't work out which %s '%s' is from here. Give the full path.", what, value)
 	}
 	return abs, nil
 }
@@ -862,20 +877,26 @@ func (a *app) accountSetPlan() (accountSetTarget, error) {
 		return t, usagef("'%s' isn't an account key %s reads. One of: %s.", a.cmd.arg2, meName, strings.Join(accountSetFields, ", "))
 	}
 	t.value, t.disp = a.cmd.arg3, "account["+name+"]"
-	// The same two checks the loader makes, made here where they can still be
-	// answered. Written past them the line lands in the file and is then dropped on
-	// every read, so the file says one thing and every command does another.
+	var err error
+	switch t.field {
+	case "path":
+		t.value, err = absPathValue(t.value, "folder")
+	case "tokenfile", "sshkey":
+		t.value, err = absPathValue(t.value, "file")
+	}
+	if err != nil {
+		return t, err
+	}
+	// The same checks the loader makes, made here where they can still be answered.
+	// Written past them the line lands in the file and is then dropped on every
+	// read, so the file says one thing and every command does another. The key is
+	// checked as it will be written, since the folder a relative one was typed in
+	// can carry a space.
 	if t.field == "sshkey" && strings.ContainsAny(t.value, sshKeyShellChars) {
 		return t, usagef("git hands a key path to a shell, so one carrying whitespace or a shell character is re-parsed rather than used. Move the key somewhere plainer.")
 	}
 	if (t.field == "host" || t.field == "user") && !forgeWordOK.MatchString(t.value) {
 		return t, usagef("'%s' isn't a plain %s name; letters, digits, '.', '_' and '-' only.", t.value, t.field)
-	}
-	if t.field == "path" {
-		var err error
-		if t.value, err = folderRuleValue(t.value); err != nil {
-			return t, err
-		}
 	}
 	switch {
 	case a.cfg.file == "":
