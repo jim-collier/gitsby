@@ -124,16 +124,20 @@ func sshConnectTarget(url string) string {
 // probe (which answers for the default key, and a wrong '?' is safer than a wrong
 // name) rather than misparse.
 func (a *app) gitSSHCommand() string {
-	cmd := os.Getenv("GIT_SSH_COMMAND")
-	if cmd == "" {
-		cmd = a.coreSSHCommand()
-	}
+	cmd := a.rawSSHCommand()
 	// Blank is as good as unset. A lone space split into nothing, and reading the
 	// command's first word killed every push compared against an account.
 	if strings.TrimSpace(cmd) == "" || strings.ContainsAny(cmd, `"'`) {
 		return "ssh"
 	}
 	return cmd
+}
+
+func (a *app) rawSSHCommand() string {
+	if cmd := os.Getenv("GIT_SSH_COMMAND"); cmd != "" {
+		return cmd
+	}
+	return a.coreSSHCommand()
 }
 
 // remoteEnv is the environment every command that reaches origin runs under: no
@@ -143,10 +147,12 @@ func (a *app) gitSSHCommand() string {
 // composes onto whatever ssh command git would use, INCLUDING the one the account
 // selector set from a config sshKey - gating on the variable merely being present
 // dropped the timeout for exactly the multi-account setups it was written for.
-// A GIT_SSH_COMMAND the caller chose is left alone.
+// A GIT_SSH_COMMAND the caller chose is left alone. So is a quoted one: the plain
+// 'ssh' the probe falls back to would outrank it and drop its key, so git runs
+// its own, without the timeout.
 func (a *app) remoteEnv() []string {
 	env := append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
-	if !a.userSSHCommand {
+	if !a.userSSHCommand && !strings.ContainsAny(a.rawSSHCommand(), `"'`) {
 		env = append(env, "GIT_SSH_COMMAND="+a.gitSSHCommand()+" -o ConnectTimeout=3")
 	}
 	return env

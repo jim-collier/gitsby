@@ -10,6 +10,7 @@
 package main
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -220,6 +221,22 @@ func TestGitSSHCommandBlank(t *testing.T) {
 		}
 		if !hasEnv(a.remoteEnv(), "GIT_SSH_COMMAND=ssh -o ConnectTimeout=3") {
 			t.Errorf("remoteEnv() with %q kept the blank command", blank)
+		}
+	}
+}
+
+// The probe reads a quoted command as plain ssh, and remoteEnv exported that, which
+// outranks core.sshCommand. The fetch ran with no key and read as offline.
+func TestRemoteEnvLeavesAQuotedSSHCommandToGit(t *testing.T) {
+	t.Setenv("GIT_SSH_COMMAND", "")
+	if err := os.Unsetenv("GIT_SSH_COMMAND"); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{}
+	a.git.coreSSHCommand.set(`ssh -i "/k y/key"`)
+	for _, entry := range a.remoteEnv() {
+		if strings.HasPrefix(entry, "GIT_SSH_COMMAND=") {
+			t.Errorf("remoteEnv() replaced a quoted core.sshCommand: %q", entry)
 		}
 	}
 }
