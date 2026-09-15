@@ -857,9 +857,40 @@ func TestProbeConfigCandidate(t *testing.T) {
 	} else if state, _, _ := probeConfigCandidate(link); state != candidateBrokenLink {
 		t.Errorf("link to nothing: state = %d, want a broken link", state)
 	}
+	// A path through a file is "not a folder", which is as good as nothing there.
+	if state, _, _ := probeConfigCandidate(filepath.Join(file, "config.shcl")); state != candidateAbsent {
+		t.Errorf("under a file: state = %d, want absent", state)
+	}
+	// Opens, then fails to read. Linux has one to hand.
+	if mem := "/proc/self/mem"; isRegularFile(mem) {
+		if state, _, err := probeConfigCandidate(mem); state != candidateUnreadable || err == nil {
+			t.Errorf("opens and fails to read: state = %d, err = %v, want unreadable", state, err)
+		}
+	}
 	// Windows has no 0200, and root reads through one.
 	if isWindows() || os.Geteuid() == 0 {
 		return
+	}
+	shut := filepath.Join(dir, "shut")
+	if err := os.Mkdir(shut, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(shut, "config.shcl"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(shut, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(shut, 0o700) })
+	if state, _, err := probeConfigCandidate(filepath.Join(shut, "config.shcl")); state != candidateUnknown || !errors.Is(err, fs.ErrPermission) {
+		t.Errorf("in a folder that can't be searched: state = %d, err = %v, want unknown, with a permission error", state, err)
+	}
+	// A link into that folder points at something that may well be there.
+	through := filepath.Join(dir, "through.shcl")
+	if err := os.Symlink(filepath.Join(shut, "config.shcl"), through); err == nil {
+		if state, _, _ := probeConfigCandidate(through); state != candidateUnknown {
+			t.Errorf("link into a folder that can't be searched: state = %d, want unknown", state)
+		}
 	}
 	unreadable := filepath.Join(dir, "unreadable.shcl")
 	if err := os.WriteFile(unreadable, []byte("x"), 0o600); err != nil {

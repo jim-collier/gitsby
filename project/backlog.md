@@ -50,14 +50,6 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 ### Bugs
 
-- 🔘 With `XDG_CONFIG_HOME` set, `account set` creates a new accounts file that hides one in a `~/.config/gitsby` folder it can't search.
-	- Opened: 20260914-174736
-	- Reproduced: `~/.config/gitsby` at mode 0600 holding a readable accounts file, and `XDG_CONFIG_HOME` pointing at an empty folder. `account set kept email k@example.com` planned `create ~/xdg/gitsby/config.shcl`, wrote it and exited 0. Once the folder could be searched again, `account list` read the new file and showed none of the old accounts. `gover` does the same.
-	- Cause: a place whose lookup fails for any reason counts as empty. Only the place being written is safe, through its exclusive open.
-	- Probable fix: at the places other than the one written, count a lookup failure other than "no such file" or "not a folder" as something there, and refuse by name.
-	- Note: found while reviewing Code Review 20260909 item 3, whose design counts a failed lookup as empty on purpose.
-	- Origin: the `XDG_CONFIG_HOME` order from 5ef5201 meets the create path from 8203670. No earlier round saw it. Confirmed.
-
 - 🔘 Two `account set` runs at once on one accounts file keep only one of the two keys.
 	- Opened: 20260914-171139
 	- Reproduced: two runs started together on a file holding one account, one setting `email` and one setting `name`. Both said "Wrote" and exited 0, and in 30 of 30 tries the file held only one of the two keys. Two runs creating the file lose a key the same way.
@@ -66,14 +58,6 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 	- Note: a create stalled between its open and its write loses its key to an edit that runs in between. The edit reads the empty file and saves over it, so a lock has to cover the create as well as the edit.
 	- Probable fix: refuse the save when the file changed since the plan read it, and hold a lock beside the file from that check to the save.
 	- Origin: 9282c09 (`account set`), whose whole-file write the shcl save (8203670) kept. No earlier round saw it. Confirmed.
-
-- 🔘 `account set` crashes when the accounts file opens but its read fails.
-	- Opened: 20260914-171139
-	- Reproduced: with `GITSBY_CONFIG=/proc/self/mem`, which opens and then fails to read, `account set work email a@example.com` panics with a nil pointer dereference in `accountSetPlan`, exit 2, before the plan's first line.
-	- Cause: the loader records the file before reading it, and a failed read leaves no parsed document for the edit to use.
-	- Note: a file on a disk or mount that returns read errors reaches the same place. Found while designing Code Review 20260909 item 3.
-	- Probable fix: record the file only once it has been read, and refuse a named file whose read fails the way one that can't be opened is refused.
-	- Origin: `load` sets the file ahead of the read since f48f89d (the port). The edit took the parsed document from it in 8203670 (shcl config). No earlier round saw it. Confirmed.
 
 - 🔘 `br prune` says to run it again for origin's copies it left alone, and the second run can't see them.
 	- Opened: 20260914-165245
@@ -314,6 +298,30 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 	- Sweep: `forgeCLIWho`, which the identity check reads, already takes both as unknown, and the two `pulls list` reads in `pr` check whether tea ran. The Git host line also compared its "unknown" text with the ssh key's account, so a write with no tea login printed a NOT-the-key warning. Fixed here.
 	- Fixed: the Git host line says tea couldn't be asked and repeats tea's reason when tea fails, and keeps "has no login for this host" for a tea that answered. Only a login tea named is compared with the ssh key's account.
 	- Verified: 3 new checks in test.bash, 912 -> 915. Two fail on `gover`, and the no-login check is a regression guard. `TestShowForgeLine` fails on `gover` for the no-login row. Go tests green, parity.bash 27/0. Linux only.
+
+- ✅ With `XDG_CONFIG_HOME` set, `account set` creates a new accounts file that hides one in a `~/.config/gitsby` folder it can't search.
+	- Closed: 20260914-192150
+	- Opened: 20260914-174736
+	- Reproduced: `~/.config/gitsby` at mode 0600 holding a readable accounts file, and `XDG_CONFIG_HOME` pointing at an empty folder. `account set kept email k@example.com` planned `create ~/xdg/gitsby/config.shcl`, wrote it and exited 0. Once the folder could be searched again, `account list` read the new file and showed none of the old accounts. `gover` does the same.
+	- Cause: a place whose lookup fails for any reason counts as empty. Only the place being written is safe, through its exclusive open.
+	- Probable fix: at the places other than the one written, count a lookup failure other than "no such file" or "not a folder" as something there, and refuse by name.
+	- Note: found while reviewing Code Review 20260909 item 3, whose design counts a failed lookup as empty on purpose.
+	- Origin: the `XDG_CONFIG_HOME` order from 5ef5201 meets the create path from 8203670. No earlier round saw it. Confirmed.
+	- Sweep: reads, the create check and the refusal after a lost race all look a place up through one probe, so all three changed together. A link whose target can't be looked up read as a link to nothing, and now reads as unknown too.
+	- Fixed: a place an accounts file can live that can't be looked in no longer counts as empty. `account set` refuses to create while one is there. It names the file and the reason, and gives `chmod u+x` when the folder the file sits in is the one that can't be searched. Reads still pass over it.
+	- Verified: 5 new checks in test.bash. On `gover` the create went ahead and wrote the new file in `XDG_CONFIG_HOME`, and the new Go tests fail there. The link case fails with its half of the fix taken out. The Windows, macOS and FreeBSD builds compile. Linux only.
+
+- ✅ `account set` crashes when the accounts file opens but its read fails.
+	- Closed: 20260914-192150
+	- Opened: 20260914-171139
+	- Reproduced: with `GITSBY_CONFIG=/proc/self/mem`, which opens and then fails to read, `account set work email a@example.com` panics with a nil pointer dereference in `accountSetPlan`, exit 2, before the plan's first line.
+	- Cause: the loader records the file before reading it, and a failed read leaves no parsed document for the edit to use.
+	- Note: a file on a disk or mount that returns read errors reaches the same place. Found while designing Code Review 20260909 item 3.
+	- Probable fix: record the file only once it has been read, and refuse a named file whose read fails the way one that can't be opened is refused.
+	- Origin: `load` sets the file ahead of the read since f48f89d (the port). The edit took the parsed document from it in 8203670 (shcl config). No earlier round saw it. Confirmed.
+	- Sweep: the SSH line also checks the key file ssh names by opening it. That is display only, and ssh reports its own failure, so it stays. A token file is read in full, and a failed read already counts as no token.
+	- Fixed: a file counts as readable only once it reads to the end, and the loader records it only after the read. A named file that fails to read is refused like one that won't open. A found one is passed over by reads and refused by `account set` as a file it can't read.
+	- Verified: 2 new checks in test.bash, and with the 5 above, 915 -> 922. On `gover` the named case panics and the found one is taken up, and the new Go test fails there. Go tests green, parity.bash 27/0. Linux only, since the case needs `/proc/self/mem`.
 
 - ✅ Code review 20260909 - the closed part of the pass against the standing directives. The rest is still open under Bugs.
 	- Opened: 20260909-184419

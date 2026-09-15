@@ -586,6 +586,79 @@ func TestAccountSetRefusesAnUnreadableFile(t *testing.T) {
 	}
 }
 
+// A place reads look in that can't be looked in may hold an accounts file, and a
+// new one ahead of it would hide it from every later command.
+func TestAccountSetRefusesAPlaceItCantLookIn(t *testing.T) {
+	if isWindows() || os.Geteuid() == 0 {
+		t.Skip("needs a folder this user can't search: Windows has no mode bits for it, and root searches through one")
+	}
+	a := createApp(t, newPrinter())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	c := configCandidates()
+	if len(c) < 2 {
+		t.Skip("this platform looks in one place only")
+	}
+	hidden := c[1]
+	dir := filepath.Dir(hidden)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hidden, []byte(keptBody), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	if err := a.cfg.load(a.opt); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	err := a.cmdAccountSet()
+	if err == nil {
+		t.Fatal("set: no refusal")
+	}
+	for _, want := range []string{"File: " + displayPath(hidden), "permission denied", "Kept: Nothing was written.", "chmod u+x '" + dir + "'"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal is missing %q:\n%s", want, err)
+		}
+	}
+	if _, err := os.Lstat(c[0]); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("a file was made ahead of it: %v", err)
+	}
+}
+
+// A file that opens and then fails to read. Named, it is refused like one that
+// won't open. Found, reads pass over it and 'account set' refuses it. It was
+// recorded before the read, and the edit then worked from no document at all.
+func TestConfigThatFailsToRead(t *testing.T) {
+	const mem = "/proc/self/mem"
+	if !isRegularFile(mem) {
+		t.Skip("needs a file that opens and then fails to read, which " + mem + " is on Linux")
+	}
+	named := createApp(t, newPrinter())
+	t.Setenv("GITSBY_CONFIG", mem)
+	if err := named.cfg.load(named.opt); err == nil || !strings.Contains(err.Error(), "can't be read") {
+		t.Errorf("named: load err = %v, want the can't-be-read refusal", err)
+	}
+	found := createApp(t, newPrinter())
+	file := defaultConfigFile()
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(mem, file); err != nil {
+		t.Skipf("no symlink here: %v", err)
+	}
+	if err := found.cfg.load(found.opt); err != nil {
+		t.Fatalf("found: load: %v", err)
+	}
+	if found.cfg.file != "" {
+		t.Fatalf("reads took up a file that fails to read: %q", found.cfg.file)
+	}
+	if _, err := found.accountSetPlan(); err == nil || !strings.HasPrefix(err.Error(), "An accounts file is already there, and it can't be read.") {
+		t.Errorf("found: plan err = %v, want the unreadable refusal", err)
+	}
+}
+
 // A file that arrives between the load and the write is refused and kept, not
 // replaced by the one this run planned from nothing.
 func TestAccountSetRefusesAFileThatAppeared(t *testing.T) {
@@ -687,6 +760,24 @@ func TestAccountSetPreviewShowsTheRefusalsFirstLine(t *testing.T) {
 	for _, line := range strings.Split(out.String(), "\n") {
 		if strings.HasPrefix(line, "  File:") {
 			t.Errorf("plan shows the refusal's labels:\n%s", out)
+		}
+	}
+}
+
+func TestLookupFix(t *testing.T) {
+	tests := []struct {
+		goos, file string
+		cause      error
+		want       string
+	}{
+		{"linux", "/h/c.shcl", errors.New("input/output error"), "Run this again once it can be looked up."},
+		{"windows", "C:/h/c.shcl", fs.ErrPermission, "Give your account access to the folder it is in, then run this again."},
+		{"linux", "/h/it's/c.shcl", fs.ErrPermission, "Make the folder it is in searchable, then run this again."},
+		{"linux", "/nonexistent-top/h/c.shcl", fs.ErrPermission, "Make the folders above it searchable, then run this again."},
+	}
+	for _, tc := range tests {
+		if got := lookupFix(tc.goos, tc.file, tc.cause); len(got) != 1 || got[0] != tc.want {
+			t.Errorf("lookupFix(%s, %s, %v) = %q, want %q", tc.goos, tc.file, tc.cause, got, tc.want)
 		}
 	}
 }

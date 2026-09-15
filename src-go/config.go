@@ -11,11 +11,15 @@
 package main
 
 import (
+	"errors"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
+	"syscall"
 
 	shcl "github.com/jim-collier/shcl/source/go/v2"
 )
@@ -248,7 +252,7 @@ func (o options) resolveConfigFile() (string, error) {
 			return "", usageSubf("No readable config file at '%s'.", o.configFile)
 		case !isRegularFile(o.configFile):
 			return "", usageSubf("--config names '%s', which isn't a file.", o.configFile)
-		case !isReadableFile(o.configFile):
+		case readsThrough(o.configFile) != nil:
 			return "", usageSubf("No readable config file at '%s'.", o.configFile)
 		}
 		return o.configFile, nil
@@ -259,7 +263,7 @@ func (o options) resolveConfigFile() (string, error) {
 			return "", usageSubf("GITSBY_CONFIG names '%s', which can't be read.", env)
 		case !isRegularFile(env):
 			return "", usageSubf("GITSBY_CONFIG names '%s', which isn't a file.", env)
-		case !isReadableFile(env):
+		case readsThrough(env) != nil:
 			return "", usageSubf("GITSBY_CONFIG names '%s', which can't be read.", env)
 		}
 		return env, nil
@@ -406,33 +410,56 @@ func isReadableFile(p string) bool {
 type candidateState int
 
 const (
-	candidateAbsent     candidateState = iota // os.Lstat failed
-	candidateUsable                           // a regular file that opens for reading
+	candidateAbsent     candidateState = iota // no such file, or a path through a file
+	candidateUsable                           // a regular file that reads to the end
 	candidateUnreadable                       // a regular file that does not
-	candidateBrokenLink                       // os.Lstat works and os.Stat does not
+	candidateBrokenLink                       // a link to nothing
 	candidateNotFile                          // a folder, pipe, socket or device
+	candidateUnknown                          // the lookup failed, so a file may be there
 )
 
 // probeConfigCandidate says what is at p. The FileInfo is there for a caller that
 // needs to say what kind of thing is in the way; the error is the one that decided.
 func probeConfigCandidate(p string) (candidateState, os.FileInfo, error) {
 	if _, err := os.Lstat(p); err != nil {
-		return candidateAbsent, nil, err
+		if nothingThere(err) {
+			return candidateAbsent, nil, err
+		}
+		return candidateUnknown, nil, err
 	}
 	fi, err := os.Stat(p)
 	if err != nil {
-		return candidateBrokenLink, nil, err
+		if nothingThere(err) {
+			return candidateBrokenLink, nil, err
+		}
+		return candidateUnknown, nil, err
 	}
 	if !fi.Mode().IsRegular() {
 		return candidateNotFile, fi, nil
 	}
-	f, err := os.Open(p)
-	if err != nil {
+	if err := readsThrough(p); err != nil {
 		return candidateUnreadable, fi, err
 	}
-	// Opened only to probe readability; nothing was written, so Close has nothing to say.
-	_ = f.Close()
 	return candidateUsable, fi, nil
+}
+
+// nothingThere is a lookup failure that proves the absence. Anything else, a folder
+// that can't be searched most often, leaves a file there as likely as not.
+func nothingThere(err error) bool {
+	return errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR)
+}
+
+// readsThrough reads a file to the end and drops the bytes. An open proves less than
+// it looks: some files open and then fail on the first read.
+func readsThrough(p string) error {
+	f, err := os.Open(p)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(io.Discard, f)
+	// Only read from, so Close has nothing to add.
+	_ = f.Close()
+	return err
 }
 
 // The byte-order mark a Windows editor writes at the top of a file it saves.
@@ -450,9 +477,9 @@ var forgeWordOK = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 // how everyone writes a key path.
 const sshKeyShellChars = " \t\n\r\"'\\$;&|<>()*?![]{}" + "`"
 
-// load reads the config once. A file that cannot be read at all is the same as no
-// file: the caller asserted nothing about it, and every account path degrades to
-// gh's own.
+// load reads the config once. A discovered file that cannot be read is the same as
+// no file: nobody asserted it was there, and every account path degrades to gh's
+// own. A named one is refused, as one that won't open is.
 func (c *config) load(o options) error {
 	if c.loaded {
 		return nil
@@ -465,11 +492,18 @@ func (c *config) load(o options) error {
 	if file == "" {
 		return nil
 	}
-	c.file = file
 	data, err := os.ReadFile(file)
 	if err != nil {
+		switch {
+		case o.configGiven:
+			return usageSubf("No readable config file at '%s'.", file)
+		case os.Getenv("GITSBY_CONFIG") != "":
+			return usageSubf("GITSBY_CONFIG names '%s', which can't be read.", file)
+		}
 		return nil
 	}
+	// Only once read: a file recorded with no document behind it crashed the edit.
+	c.file = file
 	// The byte-order mark a Windows editor writes by default, off the front of the
 	// first line. Left on, it landed on the first key in the file, which then read
 	// as one nothing understands - and the line that reports those printed the mark
