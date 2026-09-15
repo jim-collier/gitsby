@@ -473,3 +473,9 @@ try {
 #     defined as the newest release that is NOT a pre-release - so on a repo whose newest
 #     publication is one, the fallback failed exactly as the primary had, and blamed rate
 #     limiting for it.
+#   - 20260915 JC: The latest release is found on Windows PowerShell 5.1. There the redirect
+#     came back as an error with no response, and the list behind it arrived as one item, so
+#     every tag name made one tag. A system install that can't write its folder is refused
+#     before the plan. The comment help lists the options, the Bash installer's long options
+#     work, and a binary that can't start gets the "would not run" message. -Help lists -Ref,
+#     errors have a blank line either side, and the plan says when it replaces a copy.

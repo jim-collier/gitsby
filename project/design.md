@@ -341,6 +341,9 @@ The Bash and PowerShell files were ports of each other, and were kept in step fo
 	- `--arch` became real. It was accepted and ignored while one script ran everywhere; it now picks which published binary to fetch.
 	- `--ref` became `--tag`, because what it names is a published release rather than any git ref. Both old spellings still bind, like every other retired name.
 	- `--release dev` is gone rather than reinterpreted. It installed the tip of a branch, which a script in the tree allowed and a compiled product does not. Typing it says so and names the two routes that exist. A flag that quietly changed meaning would be worse than one that explains itself.
+	- `--release stable` still binds and changes nothing, since it always meant the latest release. The help and the refusal for any other value say so. Refusing it too was the other choice (2026-09-15).
+	- The PowerShell installer also takes the Bash one's long options, with the value joined by `=` or apart, so a flag copied from one works in the other.
+	- A system install that can't write its folder is refused before the plan, not found out after the download. Elevating was rejected: the `iex` and script block forms have no file to start again as administrator.
 	- Every route is a release asset, so every route is verified. The unverified branch of the plan no longer exists, and where the checksum can't be fetched or can't be computed the install stops. `SHA256SUMS` is fetched before the plan is printed, because it is what says whether this platform has a binary at all - and it names the ones that do when this one doesn't.
 	- The contributor setup scripts were dropped rather than ported. A Go checkout needs only Go, and the three commands that do it are in the README.
 
