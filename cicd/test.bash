@@ -1488,6 +1488,7 @@ GHEOF
 		cd "${hfc}" || exit 1
 		echo "readme v1" > README.md && mkdir -p src-go && echo shipped > src-go/main.go
 		git add --all && git commit --quiet -m init && git push --quiet -u origin main
+		git tag -a v1.0.0 -m v1.0.0 && git push --quiet origin v1.0.0
 		git checkout --quiet -b dev && git push --quiet -u origin dev
 	)
 	fAssert    "br hotfix creates the branch"  bash -c "cd '${hfc}' && '${gitsby}' -q -NoFetch br hotfix wording"
@@ -1501,20 +1502,39 @@ GHEOF
 	fAssert    "and was carried back to dev"   bash -c "cd '${hfc}' && [[ \"\$(git show origin/dev:README.md)\" == 'readme v2' ]]"
 	fAssert    "the branch is gone both sides" bash -c "cd '${hfc}' && [[ -z \"\$(git branch --list 'hotfix/*')\" ]] && [[ -z \"\$(git ls-remote --heads origin 'hotfix/*')\" ]]"
 	## A hotfix that changes shipped code leaves main ahead of every tag - say so.
-	fAssertOut "a hotfix touching the shipped source warns about the release"  'changes shipped code' \
+	fAssertOut "a hotfix touching the shipped source warns about the release"  'changes more than documentation' \
 		bash -c "cd '${hfc}' && '${gitsby}' -q -NoFetch br hotfix code >/dev/null 2>&1; echo v2 > '${hfc}/src-go/main.go'; '${gitsby}' -q -NoFetch update wip >/dev/null 2>&1; '${gitsby}' -q -NoFetch br land 'Fix' 2>&1"
 	## The warning reads the branch tip, and 'br land' is what commits the working tree - so an
 	## uncommitted edit to it (the ordinary way of making one) has to be checked for after that.
-	fAssertOut "a hotfix warns about shipped code even when the edit is uncommitted"  'changes shipped code' \
+	fAssertOut "a hotfix warns about shipped code even when the edit is uncommitted"  'changes more than documentation' \
 		bash -c "cd '${hfc}' && '${gitsby}' -q -NoFetch br hotfix uncommitted >/dev/null 2>&1; echo v3 > '${hfc}/src-go/main.go'; '${gitsby}' -q -NoFetch br land 'Fix uncommitted' 2>&1"
 	## Every other check here runs from the top of the tree. A pathspec is read relative to the
 	## current directory, so from anywhere else it matched nothing, git exited 0 with no output,
 	## and the warning went missing on exactly the commands you run from wherever you are working.
 	mkdir -p "${hfc}/docs"
-	fAssertOut "the shipped-code warning survives being run from a subdirectory"  'changes shipped code' \
+	fAssertOut "the shipped-code warning survives being run from a subdirectory"  'changes more than documentation' \
 		bash -c "cd '${hfc}/docs' && '${gitsby}' -q -NoFetch br hotfix subdir >/dev/null 2>&1; echo v4 > '${hfc}/src-go/main.go'; '${gitsby}' -q -NoFetch br land 'Fix from below' 2>&1"
 	fAssert    "a docs-only hotfix says nothing about releases"  \
-		bash -c "cd '${hfc}' && '${gitsby}' -q -NoFetch br hotfix docs >/dev/null 2>&1; echo 'readme v3' > README.md; '${gitsby}' -q -NoFetch update wip >/dev/null 2>&1; out=\"\$('${gitsby}' -q -NoFetch br land 'Docs' 2>&1)\"; ! grep -q 'changes shipped code' <<< \"\${out}\""
+		bash -c "cd '${hfc}' && '${gitsby}' -q -NoFetch br hotfix docs >/dev/null 2>&1; echo 'readme v3' > README.md; '${gitsby}' -q -NoFetch update wip >/dev/null 2>&1; out=\"\$('${gitsby}' -q -NoFetch br land 'Docs' 2>&1)\"; ! grep -q 'changes more than documentation' <<< \"\${out}\""
+	## It watched this project's own src-go/, so in any other repo a code hotfix said nothing.
+	fAssertOut "a hotfix to code in any other folder warns too"  'changes more than documentation' \
+		bash -c "cd '${hfc}' && '${gitsby}' -q -NoFetch br hotfix lib >/dev/null 2>&1; mkdir -p lib && echo x > lib/tool.py; '${gitsby}' -q -NoFetch br land 'Fix lib' 2>&1"
+	## A repo that never tagged a release has none to fall out of step with.
+	local hn="${work}/$1-hotfix-notag"
+	git init --quiet --bare -b main "${hn}/origin.git"
+	git clone --quiet "${hn}/origin.git" "${hn}/c" 2>/dev/null
+	(
+		cd "${hn}/c" || exit 1
+		echo a > a.txt && mkdir -p src-go && echo code > src-go/main.go
+		git add --all && git commit --quiet -m init && git push --quiet -u origin main
+		git checkout --quiet -b dev && git push --quiet -u origin dev
+	)
+	fAssertNotOut "a code hotfix in a repo with no release tags says nothing"  'NOTE: this hotfix' \
+		bash -c "cd '${hn}/c' && '${gitsby}' -q -NoFetch br hotfix code >/dev/null 2>&1; echo v2 > src-go/main.go; '${gitsby}' -q -NoFetch br land 'Fix' 2>&1"
+	## An empty answer read as nothing changed, when the comparison couldn't run at all.
+	( cd "${hn}/c" || exit 1; git checkout --quiet main && git tag -a v1.0.0 -m v1.0.0 && git checkout --quiet --orphan hotfix/stray && git rm -rfq . && echo x > stray.go && git add stray.go && git commit --quiet -m stray )
+	fAssertOut "a hotfix that can't be compared says so"  "couldn't tell whether this hotfix" \
+		bash -c "cd '${hn}/c' && '${gitsby}' -q -NoFetch br land 'Stray' 2>&1"
 	## A back-merge conflict must leave dev untouched and the tree clean, not half-merged.
 	fAssert    "a conflicting back-merge leaves dev alone"  \
 		bash -c "cd '${hfc}' && git checkout --quiet dev && echo devtext > README.md && git commit --quiet -am devtext && git push --quiet && '${gitsby}' -q -NoFetch br hotfix clash >/dev/null 2>&1 && echo hftext > README.md && '${gitsby}' -q -NoFetch update wip >/dev/null 2>&1 && '${gitsby}' -q -NoFetch br land Clash >/dev/null 2>&1; [[ \"\$(git show origin/main:README.md)\" == hftext && \"\$(git show origin/dev:README.md)\" == devtext ]]"
@@ -4120,4 +4140,5 @@ echo "passed: ${pass}, failed: ${fail}"
 ##		- 20260915 JC: A blank GIT_SSH_COMMAND or core.sshCommand is read as plain ssh when a push is compared against the account, and the gate fails when py_compile does. All three fail against the tree before them. 950 -> 953.
 ##		- 20260915 JC: release counts on from a tag with no v and refuses a typed version tagged that way. A br merge or release that conflicts is backed out, leaves the target alone, and goes back to the branch it ran from. repo url plans a Gitea remote's own address. Eight fail against the tree before them; the two refusals and the untouched dev are regression guards. 953 -> 964.
 ##		- 20260915 JC: A new release tag is spelled like the tag it counts from, and a typed version is tagged as typed. Typed versions in the older checks now carry the v they expect. Both new checks fail against the tree before them, and so does the count from a tag with no v, which now expects 1.4.3. 964 -> 966.
+##		- 20260915 JC: The hotfix note is about more than documentation, not one folder. It fires for code in any folder, stays quiet in a repo with no release tags, and says so when the comparison can't run. The three older warning checks match the new wording. All six fail against the tree before them. 966 -> 969.
 ##		- 20260915 JC: Origin's copies of merged branches. A prune warning's advice, followed, clears the branch. A tag with a branch's name stops nothing, and br merge merges the branch rather than the tag. br merge --no-fetch keeps a copy someone else pushed to, and an offline br merge keeps the branch here so prune can clear both. Twelve of the fourteen fail against the tree before them; the kept tag and the merge's push are regression guards. The first prune's count drops by one, since the moved branch now stays here. 925 -> 939.

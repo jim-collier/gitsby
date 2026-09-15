@@ -432,9 +432,13 @@ Gitsby follows GitFlow, with the stabilization branches left out.
 
 - Landing one merges to `main`, then merges `main` back into `dev`. The back-merge is not optional. Without it the next release either conflicts on the same file or quietly reinstates the superseded text.
 
-- A hotfix that touches nothing under `src-go/` needs no version bump, because nothing shipped changed. Documentation is not versioned with the binary - the README describes the release, and it is served from `main`, not from the tag.
+- A hotfix that changes only documentation needs no version bump, because nothing released changed. Documentation is not versioned with the binary - the README describes the release, and it is served from `main`, not from the tag.
 
-- A hotfix that does touch `src-go/` leaves `main` carrying code that no tag contains, so the assets on the latest release stop matching it. That warrants a patch release, and landing says so rather than leaving it to be noticed later.
+- A hotfix that changes anything else leaves `main` carrying changes that no tag contains, so the latest release may stop matching it. That may warrant a patch release, and landing says so in a note rather than leaving it to be noticed later.
+	- What counts as documentation is a guess from the file names: Markdown and text files, anything under a top-level `docs/` or `doc/`, and license files. A wrong guess costs one note too many or too few, never a refusal.
+	- A repo that has never tagged a release gets no note. It has no release to fall out of step with.
+	- When the comparison can't run, the note says it couldn't tell. Saying nothing would read as nothing changed.
+	- Watching one named folder was rejected. The folder was this project's own `src-go/`, so in any other repo a code hotfix said nothing. Naming the folder in config was rejected too, since nothing else here needs configuring.
 
 ### Enforcement
 
