@@ -10,6 +10,8 @@
 package main
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -682,5 +684,89 @@ func TestAccountApplyPlanSkipsARelativePath(t *testing.T) {
 	plan := cfg.accountApplyPlan()
 	if want := "includeIf.gitdir/i:" + canonPath(abs) + "/.path"; len(plan) != 1 || plan[0].cond != want {
 		t.Errorf("plan = %+v, want the one rule %q", plan, want)
+	}
+}
+
+// Each shape at a candidate comes back as itself, not as "no file": a create may
+// go only where nothing is.
+func TestProbeConfigCandidate(t *testing.T) {
+	dir := t.TempDir()
+	if state, _, _ := probeConfigCandidate(filepath.Join(dir, "none.shcl")); state != candidateAbsent {
+		t.Errorf("missing: state = %d, want absent", state)
+	}
+	file := filepath.Join(dir, "file.shcl")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if state, _, err := probeConfigCandidate(file); state != candidateUsable || err != nil {
+		t.Errorf("readable file: state = %d, err = %v, want usable", state, err)
+	}
+	folder := filepath.Join(dir, "d.shcl")
+	if err := os.Mkdir(folder, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if state, fi, _ := probeConfigCandidate(folder); state != candidateNotFile || fi == nil || !fi.IsDir() {
+		t.Errorf("folder: state = %d, want not a file, and a FileInfo saying folder", state)
+	}
+	link := filepath.Join(dir, "link.shcl")
+	if err := os.Symlink(filepath.Join(dir, "nowhere"), link); err != nil {
+		t.Logf("no symlink here, so the link case is not run: %v", err)
+	} else if state, _, _ := probeConfigCandidate(link); state != candidateBrokenLink {
+		t.Errorf("link to nothing: state = %d, want a broken link", state)
+	}
+	// Windows has no 0200, and root reads through one.
+	if isWindows() || os.Geteuid() == 0 {
+		return
+	}
+	unreadable := filepath.Join(dir, "unreadable.shcl")
+	if err := os.WriteFile(unreadable, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(unreadable, 0o200); err != nil {
+		t.Fatal(err)
+	}
+	// Put back so nothing left over is unreadable; a failed restore changes no result.
+	t.Cleanup(func() { _ = os.Chmod(unreadable, 0o600) })
+	if state, _, err := probeConfigCandidate(unreadable); state != candidateUnreadable || !errors.Is(err, fs.ErrPermission) {
+		t.Errorf("mode 0200: state = %d, err = %v, want unreadable with a permission error", state, err)
+	}
+}
+
+// Reads pass over a candidate that is there and can't be read, and still find a
+// readable one behind it. Only 'account set' refuses on it.
+func TestResolveConfigFileSkipsAnUnreadableCandidate(t *testing.T) {
+	if isWindows() || os.Geteuid() == 0 {
+		t.Skip("needs a file this user can't read: Windows has no 0200, and root reads through one")
+	}
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("GITSBY_CONFIG", "")
+	t.Setenv("APPDATA", "")
+	c := configCandidates()
+	if len(c) < 2 {
+		t.Skip("this platform looks in one place only")
+	}
+	unreadable, readable := c[0], c[1]
+	for _, f := range []string{unreadable, readable} {
+		if err := os.MkdirAll(filepath.Dir(f), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(f, []byte("account: work\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chmod(unreadable, 0o200); err != nil {
+		t.Fatal(err)
+	}
+	// Put back so nothing left over is unreadable; a failed restore changes no result.
+	t.Cleanup(func() { _ = os.Chmod(unreadable, 0o600) })
+	if got, err := defaultOptions().resolveConfigFile(); got != readable || err != nil {
+		t.Errorf("with a readable file behind it: got %q, %v, want %q", got, err, readable)
+	}
+	if err := os.Remove(readable); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := defaultOptions().resolveConfigFile(); got != "" || err != nil {
+		t.Errorf("with only the unreadable file: got %q, %v, want no file and no error", got, err)
 	}
 }

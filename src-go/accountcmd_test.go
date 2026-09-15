@@ -10,6 +10,8 @@
 package main
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -487,5 +489,204 @@ func TestAccountSetQuotesAValueThatWouldBeReparsed(t *testing.T) {
 	cfg := writeConfig(t, got)
 	if cfg.value("work", "name") != "Ada #1" {
 		t.Errorf("read back as %q", cfg.value("work", "name"))
+	}
+}
+
+const keptBody = "account: work\n\tghaccount: keepme\n"
+
+// createApp is a run with no accounts file anywhere it looks, about to create one.
+// Nothing is loaded, so a test can put something in the way first.
+func createApp(t *testing.T, out *printer) *app {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("APPDATA", "")
+	t.Setenv("GITSBY_CONFIG", "")
+	a := newApp(out)
+	a.opt.quiet = true
+	a.cmd = command{name: "account-set", arg: "work", arg2: "email", arg3: "x@example.com", mutating: true}
+	return a
+}
+
+// putDefaultConfig writes body where a new accounts file would go.
+func putDefaultConfig(t *testing.T, body string) string {
+	t.Helper()
+	file := defaultConfigFile()
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return file
+}
+
+// The create opens so it cannot replace anything: a file already there keeps every
+// byte, and a missing one is made 0600 with the text in it.
+func TestCreateAccountsFileNeverReplaces(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "config.shcl")
+	if err := os.WriteFile(file, []byte(keptBody), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	opened, err := createAccountsFile(file, "new")
+	if opened || !errors.Is(err, fs.ErrExist) {
+		t.Errorf("over a file: opened = %v, err = %v, want not opened and an exists error", opened, err)
+	}
+	if got := readBack(t, file); got != keptBody {
+		t.Errorf("the file already there changed:\n%q", got)
+	}
+	fresh := filepath.Join(t.TempDir(), "fresh.shcl")
+	if opened, err = createAccountsFile(fresh, "new"); !opened || err != nil {
+		t.Errorf("where nothing is: opened = %v, err = %v, want opened and no error", opened, err)
+	}
+	if got := readBack(t, fresh); got != "new" {
+		t.Errorf("created file holds %q, want %q", got, "new")
+	}
+	if fi, err := os.Stat(fresh); err == nil && !isWindows() && fi.Mode().Perm() != 0o600 {
+		t.Errorf("mode = %v, want 0600", fi.Mode().Perm())
+	}
+}
+
+// The item's case: a discovered file this user can write and can't read. Reads
+// pass over it, and the create refuses by name instead of truncating it.
+func TestAccountSetRefusesAnUnreadableFile(t *testing.T) {
+	if isWindows() || os.Geteuid() == 0 {
+		t.Skip("needs a file this user can't read: Windows has no 0200, and root reads through one")
+	}
+	a := createApp(t, newPrinter())
+	file := putDefaultConfig(t, keptBody)
+	if err := os.Chmod(file, 0o200); err != nil {
+		t.Fatal(err)
+	}
+	// Put back so nothing left over is unreadable; a failed restore changes no result.
+	t.Cleanup(func() { _ = os.Chmod(file, 0o600) })
+	if err := a.cfg.load(a.opt); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if a.cfg.file != "" {
+		t.Errorf("reads took up the unreadable file: %q", a.cfg.file)
+	}
+	if _, err := a.accountSetPlan(); err == nil || !strings.HasPrefix(err.Error(), "An accounts file is already there, and it can't be read.") {
+		t.Errorf("plan: err = %v, want the unreadable refusal", err)
+	}
+	err := a.cmdAccountSet()
+	if err == nil {
+		t.Fatal("set: no refusal")
+	}
+	for _, want := range []string{"File: " + displayPath(file), "permission denied", "Kept: Nothing was written.", "chmod u+r '" + file + "'"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal is missing %q:\n%s", want, err)
+		}
+	}
+	if err := os.Chmod(file, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := readBack(t, file); got != keptBody {
+		t.Errorf("the unreadable file changed:\n%q", got)
+	}
+}
+
+// A file that arrives between the load and the write is refused and kept, not
+// replaced by the one this run planned from nothing.
+func TestAccountSetRefusesAFileThatAppeared(t *testing.T) {
+	a := createApp(t, newPrinter())
+	if err := a.cfg.load(a.opt); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	file := putDefaultConfig(t, keptBody)
+	if err := a.cmdAccountSet(); err == nil || !strings.Contains(err.Error(), "turned up while this ran") {
+		t.Errorf("set: err = %v, want the turned-up refusal", err)
+	}
+	if got := readBack(t, file); got != keptBody {
+		t.Errorf("the file that turned up changed:\n%q", got)
+	}
+}
+
+// A link to a missing file is refused, and nothing is made where it points: that
+// is often a synced or unmounted folder that will come back.
+func TestAccountSetRefusesALinkToNothing(t *testing.T) {
+	a := createApp(t, newPrinter())
+	file := defaultConfigFile()
+	target := filepath.Join(os.Getenv("HOME"), "dot", "config.shcl")
+	for _, dir := range []string{filepath.Dir(file), filepath.Dir(target)} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(target, file); err != nil {
+		t.Skipf("no symlink here: %v", err)
+	}
+	if err := a.cfg.load(a.opt); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	err := a.cmdAccountSet()
+	if err == nil {
+		t.Fatal("set: no refusal")
+	}
+	for _, want := range []string{"is a link to something that isn't there", "Link: "} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal is missing %q:\n%s", want, err)
+		}
+	}
+	if _, err := os.Lstat(target); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("something was made where the link points: %v", err)
+	}
+}
+
+// A folder where the file goes is named as a folder, not blamed on permissions.
+func TestAccountSetRefusesSomethingElseInTheWay(t *testing.T) {
+	a := createApp(t, newPrinter())
+	if err := os.MkdirAll(defaultConfigFile(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.cfg.load(a.opt); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	_, err := a.accountSetPlan()
+	if err == nil {
+		t.Fatal("plan: no refusal")
+	}
+	for _, want := range []string{"isn't a file", "It is a folder"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal is missing %q:\n%s", want, err)
+		}
+	}
+}
+
+func TestUnreadableFix(t *testing.T) {
+	tests := []struct {
+		goos, file string
+		cause      error
+		want       []string
+	}{
+		{"linux", "/h/c.shcl", fs.ErrPermission, []string{"Make it readable, then run this again:", "  chmod u+r '/h/c.shcl'"}},
+		{"linux", "/h/it's.shcl", fs.ErrPermission, []string{"Make it readable, then run this again."}},
+		{"windows", "C:/c.shcl", fs.ErrPermission, []string{"Give your account read access to it, then run this again."}},
+		{"linux", "/h/c.shcl", errors.New("input/output error"), []string{"Run this again once it can be read."}},
+	}
+	for _, tt := range tests {
+		if got := unreadableFix(tt.goos, tt.file, tt.cause); !slices.Equal(got, tt.want) {
+			t.Errorf("unreadableFix(%q, %q, %v) = %q, want %q", tt.goos, tt.file, tt.cause, got, tt.want)
+		}
+	}
+}
+
+// The plan prints a refusal inside a parenthesis, where a labeled block would come
+// out broken, so it shows the first line and the command prints the rest.
+func TestAccountSetPreviewShowsTheRefusalsFirstLine(t *testing.T) {
+	p, out, _ := testPrinter()
+	a := createApp(t, p)
+	if err := a.cfg.load(a.opt); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	putDefaultConfig(t, keptBody)
+	a.preview("account-set")
+	if !strings.Contains(out.String(), "(nothing: An accounts file turned up while this ran.)") {
+		t.Errorf("plan does not show the refusal's first line:\n%s", out)
+	}
+	for _, line := range strings.Split(out.String(), "\n") {
+		if strings.HasPrefix(line, "  File:") {
+			t.Errorf("plan shows the refusal's labels:\n%s", out)
+		}
 	}
 }
