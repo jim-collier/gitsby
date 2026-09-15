@@ -63,22 +63,63 @@ func (a *app) resolveRelease() error {
 		a.rel.tag = "v" + ver
 		return nil
 	}
-	latest := ""
 	// versionsort.suffix=- ranks v2.0.0 above its own v2.0.0-rc1; the default sort
 	// inverts them.
-	if tags := runLines("git", "-c", "versionsort.suffix=-", "tag", "--list", "v[0-9]*", "--sort=-v:refname"); len(tags) > 0 {
-		latest = tags[0]
-	}
-	ver, bumped := nextVersion(latest)
+	tags := runLines("git", "-c", "versionsort.suffix=-", "tag", "--list", "v[0-9]*", "[0-9]*", "--sort=-v:refname")
+	ver, bumped := nextVersion(newestReleaseTag(tags))
 	a.rel.tag, a.rel.bumped = "v"+ver, bumped
 	return nil
+}
+
+// newestReleaseTag picks the tag to count on from tags git sorted newest first.
+// A tag with no 'v' counts only as a whole X.Y.Z, so a date or a build number
+// can't restart the numbering. The two spellings don't sort against each other,
+// so the newest of each is compared.
+func newestReleaseTag(sorted []string) string {
+	newestV, newestBare := "", ""
+	for _, tag := range sorted {
+		switch {
+		case strings.HasPrefix(tag, "v"):
+			if newestV == "" {
+				newestV = tag
+			}
+		case newestBare == "" && releaseVerRE.MatchString(tag):
+			newestBare = tag
+		}
+		if newestV != "" && newestBare != "" {
+			break
+		}
+	}
+	if newestV == "" || (newestBare != "" && tagNewer(newestBare, newestV)) {
+		return newestBare
+	}
+	return newestV
+}
+
+// tagNewer: by number, then a full release over a candidate of the same number.
+func tagNewer(tag, than string) bool {
+	m, n := releaseTagRE.FindStringSubmatch(tag), releaseTagRE.FindStringSubmatch(than)
+	if m == nil || n == nil {
+		return n == nil && m != nil
+	}
+	for _, i := range []int{1, 3, 5} {
+		// Atoi clamps on overflow, which still compares the right way.
+		mi, _ := strconv.Atoi(m[i])
+		ni, _ := strconv.Atoi(n[i])
+		if mi != ni {
+			return mi > ni
+		}
+	}
+	return m[6] == "" && n[6] != ""
 }
 
 // releasePreflight refuses up front rather than mid-command: by the time
 // cmdRelease runs it has already committed and pushed.
 func (a *app) releasePreflight() error {
-	if runOK("git", "rev-parse", "-q", "--verify", "refs/tags/"+a.rel.tag) {
-		return usagef("Tag '%s' already exists.", a.rel.tag)
+	// Either spelling, or 'release 1.2.3' in a repo that tags without the 'v' cuts
+	// v1.2.3 beside the 1.2.3 it already has.
+	if have := runLines("git", "tag", "--list", a.rel.tag, strings.TrimPrefix(a.rel.tag, "v")); len(have) > 0 {
+		return usagef("Tag '%s' already exists.", have[0])
 	}
 	// An invented version on a target that would gain nothing cuts a tag for no
 	// release, and the natural re-run after a failed push cuts a second one on the
@@ -157,7 +198,8 @@ func (a *app) cmdRelease() error {
 		}
 		// By full ref: git merge reads a tag of the same name ahead of the branch.
 		if err := a.step("git", "merge", "--no-ff", "refs/heads/"+devBranch, "-m", mergeMessage); err != nil {
-			return err
+			return a.backOutMerge(err, devBranch, mainBranch, startBranch,
+				"git checkout "+devBranch+" && git merge "+mainBranch+", then '"+meName+" release'")
 		}
 	}
 	if err := a.step("git", "tag", "-a", a.rel.tag, "-m", a.rel.tag); err != nil {

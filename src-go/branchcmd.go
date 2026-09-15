@@ -126,7 +126,8 @@ func (a *app) cmdMerge() error {
 	// By full ref: git merge reads a tag of the same name ahead of the branch, and the
 	// remote delete below is leased on the branch's tip.
 	if err := a.step("git", "merge", "--no-ff", "refs/heads/"+workBranch, "-m", mergeMessage); err != nil {
-		return err
+		return a.backOutMerge(err, workBranch, targetBranch, workBranch,
+			"git merge "+targetBranch+", then '"+meName+" br merge'")
 	}
 	// The merge must reach origin before the remote work branch goes away, or origin
 	// loses its only ref to those commits. Publish an upstream-less target first.
@@ -221,6 +222,25 @@ func (a *app) mergeDeleteRemote(branch, mergedTip string) {
 		}
 		a.out.resetBlank()
 	}
+}
+
+// backOutMerge answers a merge step that failed. One stopped by conflicts is
+// aborted, so the tree isn't left mid-merge, and the run goes back to where it
+// started. Settling the conflict is raw git's, so the refusal names the commands.
+// Any other failure is returned as it came.
+func (a *app) backOutMerge(stepErr error, from, into, returnTo, settle string) error {
+	if !runOK("git", "rev-parse", "-q", "--verify", "MERGE_HEAD") {
+		return stepErr
+	}
+	_ = runOK("git", "merge", "--abort")
+	a.out.resetBlank()
+	a.out.status("Backed out: '" + from + "' would not merge cleanly into '" + into + "', which is as it was.")
+	if returnTo != "" && returnTo != a.currentBranch() {
+		if err := a.checkout(returnTo); err != nil {
+			return err
+		}
+	}
+	return usagef("Stopped with nothing merged. Settle the conflict by hand, then run it again: %s", settle)
 }
 
 // backMergeRef is what the back-merge actually merges. 'pr ok' lands the hotfix on

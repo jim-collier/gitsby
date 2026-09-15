@@ -35,6 +35,30 @@ func TestNextVersion(t *testing.T) {
 	}
 }
 
+// The scan only read tags with a 'v', so a repo tagged 1.4.2 started over at 0.1.0,
+// and pushed it.
+func TestNewestReleaseTag(t *testing.T) {
+	tests := []struct {
+		sorted []string
+		want   string
+	}{
+		{nil, ""},
+		{[]string{"v1.2.0", "v1.1.0"}, "v1.2.0"},
+		{[]string{"1.4.2", "1.4.1"}, "1.4.2"},
+		{[]string{"v1.0.0", "2.0.0"}, "2.0.0"},
+		{[]string{"2.9.9", "v3.0.0"}, "v3.0.0"},
+		{[]string{"20260915", "1.0.0"}, "1.0.0"}, // a date is not a version
+		{[]string{"20260915"}, ""},
+		{[]string{"v2.0.0", "2.0.0-rc1"}, "v2.0.0"},
+		{[]string{"v2.0.0-rc1", "2.0.0"}, "2.0.0"},
+	}
+	for _, tc := range tests {
+		if got := newestReleaseTag(tc.sorted); got != tc.want {
+			t.Errorf("newestReleaseTag(%q) = %q, want %q", tc.sorted, got, tc.want)
+		}
+	}
+}
+
 func TestReleaseVersionShape(t *testing.T) {
 	for _, ok := range []string{"1.0.0", "10.20.30", "2.0.0-rc1", "2.0.0.beta"} {
 		if !releaseVerRE.MatchString(ok) {
