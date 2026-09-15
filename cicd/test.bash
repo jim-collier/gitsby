@@ -123,6 +123,11 @@ fAnswerPrompt(){ local answer="$1"; shift; printf '%s\n' "${answer}" | script -q
 ## Runs PowerShell source TEXT the way the documented one-liners do (iex / scriptblock), with
 ## stdin at EOF so a confirmation prompt refuses instead of blocking.
 fPwshText(){ "${noTty[@]}" pwsh -NoProfile -Command "$1" </dev/null 2>&1 ;}
+## install.ps1 as a script file, with the web cmdlets replaced by the functions in <dir>/stubs.ps1,
+## which PowerShell finds before a cmdlet of the same name. <shape> picks the redirect's error
+## object: 7, 51, or odd for one with no readable Location. Each URL asked for goes to <dir>/calls.
+fPsInstall(){ local dir="$1" home="$2" shape="$3" inst="$4"; shift 4; : > "${dir}/calls"; mkdir -p "${home}"
+	env HOME="${home}" FAKE_DIR="${dir}" FAKE_SHAPE="${shape}" "${noTty[@]}" pwsh -NoProfile -Command ". '${dir}/stubs.ps1'; & '${inst}' $*" </dev/null 2>&1 ;}
 fAssertPlan(){    local desc="$1"; local pat="$2"; shift 2; local out=""; out="$("$@" 2>&1 || true)"
 	if     grep -qE "$pat" <<< "$(fPlanOf <<< "${out}")"; then fOk "$desc"; else fFail "$desc"; fi; }
 fAssertNotPlan(){ local desc="$1"; local pat="$2"; shift 2; local out=""; out="$("$@" 2>&1 || true)"
@@ -2102,6 +2107,44 @@ GHEOF
 			fAssertOut "and leaves the session alive too"  'HOST ALIVE'        fPwshText "${goReadInst}; try { & ([scriptblock]::Create(\$t)) -Release dev -Target system } catch { \"CAUGHT: \$(\$_.Exception.Message)\" }; 'HOST ALIVE'"
 			fAssertOut "go installer leaks no StrictMode"  'strict stayed off' fPwshText "${goReadInst}; try { \$t | Invoke-Expression } catch { }; try { \$q = \$neverSet; 'strict stayed off' } catch { 'STRICT LEAKED' }"
 			fAssertOut "go installer leaks no ErrorAction" 'EAP=Continue'      fPwshText "${goReadInst}; try { \$t | Invoke-Expression } catch { }; \"EAP=\$ErrorActionPreference\""
+		fi
+		## Whole installs through install.ps1, with the network stood in for by fPsInstall's
+		## stubs. The asset is the Bash one's stand-in, so these need a box that runs it.
+		if ! ((isWindows)); then
+			local psi="${work}/psinst"; mkdir -p "${psi}"
+			cp "${ei}/asset" "${ei}/SHA256SUMS" "${psi}/"
+			cat > "${psi}/stubs.ps1" <<-'PSEOF'
+				function Invoke-WebRequest {
+					param($Uri, $MaximumRedirection, [switch]$UseBasicParsing, $ErrorAction, $OutFile)
+					Add-Content -LiteralPath "$env:FAKE_DIR/calls" -Value $Uri
+					if ($Uri -like '*/releases/latest') {
+						$to = 'https://github.com/jim-collier/gitsby/releases/tag/v1.2.3'
+						if ($env:FAKE_SHAPE -eq '51') { $headers = [Net.WebHeaderCollection]::new(); $headers.Add('Location', $to) }
+						elseif ($env:FAKE_SHAPE -eq 'odd') { $headers = [pscustomobject]@{ Server = 'stub' } }
+						else { $headers = [pscustomobject]@{ Location = [uri]$to } }
+						$redirect = [Exception]::new('302 Found')
+						$redirect | Add-Member -NotePropertyName Response -NotePropertyValue ([pscustomobject]@{ Headers = $headers })
+						throw $redirect
+					}
+					if ($Uri -like '*/SHA256SUMS') { return [pscustomobject]@{ Content = [IO.File]::ReadAllBytes("$env:FAKE_DIR/SHA256SUMS") } }
+					if ($Uri -like '*/gitsby-*') { Copy-Item -LiteralPath "$env:FAKE_DIR/asset" -Destination $OutFile; return }
+					throw "no stub for $Uri"
+				}
+				function Invoke-RestMethod {
+					param($Uri, [switch]$UseBasicParsing)
+					Add-Content -LiteralPath "$env:FAKE_DIR/calls" -Value $Uri
+					[pscustomobject]@{ tag_name = 'v1.2.3'; prerelease = $false }
+				}
+			PSEOF
+			## 5.1's redirect error holds a WebHeaderCollection. Reading Location off it as a
+			## property is an error under strict mode, and that error ended the run in the catch.
+			fAssertOut "go ps installer reads the redirect from 5.1's headers"  'gitsby v1\.2\.3 \(stand-in\)' \
+				fPsInstall "${psi}" "${psi}/h51" 51 "${goInstPs}" -Yes
+			fAssert    "and needs no list lookup for it"  bash -c "! grep -q '/repos/' '${psi}/calls'"
+			fAssertOut "go ps installer takes the list when the redirect can't be read"  'gitsby v1\.2\.3 \(stand-in\)' \
+				fPsInstall "${psi}" "${psi}/hodd" odd "${goInstPs}" -Yes
+			fAssertOut "go ps installer still reads 7's redirect"  'gitsby v1\.2\.3 \(stand-in\)' \
+				fPsInstall "${psi}" "${psi}/h7" 7 "${goInstPs}" -Yes
 		fi
 	fi
 

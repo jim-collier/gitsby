@@ -140,12 +140,24 @@ function Install-Gitsby {
     # reports a malformed tag as whatever the surrounding catch happens to say.
     $tagName = $Tag
     if (-not $tagName) {
+        # 7's headers have Location as a property and no string indexer. 5.1's are a
+        # WebHeaderCollection, where the indexer works and the property is an error under strict
+        # mode. Anything unreadable counts as no answer, so the list lookup below still runs.
+        function Read-LocationHeader($response) {
+            try {
+                $headers = $response.Headers
+                if ($headers -is [Collections.IDictionary] -or $headers -is [Collections.Specialized.NameValueCollection]) {
+                    return [string]@($headers['Location'])[0]
+                }
+                return [string]$headers.Location
+            } catch { return '' }
+        }
         $location = ''
         try {
             $resp = Invoke-WebRequest -Uri "https://github.com/${repo}/releases/latest" -MaximumRedirection 0 -UseBasicParsing -ErrorAction Stop
-            $location = [string]$resp.Headers.Location
+            $location = Read-LocationHeader $resp
         } catch {
-            if ($_.Exception.PSObject.Properties['Response'] -and $_.Exception.Response) { $location = [string]$_.Exception.Response.Headers.Location }
+            if ($_.Exception.PSObject.Properties['Response'] -and $_.Exception.Response) { $location = Read-LocationHeader $_.Exception.Response }
         }
         if ($location -match '/releases/tag/([^/\s]+)') { $tagName = $Matches[1] }
     }
