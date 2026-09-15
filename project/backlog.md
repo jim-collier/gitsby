@@ -30,7 +30,7 @@ In each section, items are listed approximately from newest to oldest.
 
 The sections are Bugs, Features and enhancements, Done, Future and/or deferred, and Canceled. No others. "Done" splits into "Done - Bugs" and "Done - Features and enhancements", and nothing else.
 
-A round of work stays together as one bullet with its items nested under it, rather than becoming a heading. Code review rounds work the same way, one bullet per round under "Done - Bugs" - a round finds mostly defects, and splitting one across two sections loses the thread.
+A round of work stays together as one bullet with its items nested under it, rather than becoming a heading. Code review rounds work the same way, one bullet per round under "Done - Bugs" - a round finds mostly defects, and splitting one across two sections loses the thread. A round still open splits once any of it closes: its closed items go under Done in a bullet with the same round name, and the open ones stay where they are.
 
 Every item carries an `Opened:` and, once finished, a `Closed:` date, as `YYYYmmDD-HHMMSS`. `Opened: n/a` means it was raised and settled in the same sitting. Older dates were recovered from git history and working notes, so treat them as close rather than exact.
 
@@ -156,52 +156,6 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 	- Fix order: by class, each class across all its sites in one group of commits. 5 with 11 (unknown is listed, unknown is not missing); 9 with 19 (preview follows command, one spawn per run); 3 and 8 without moving the decisions they sit on; 12 and 20 only once reproduced. 15 and 16 early, since the pipeline is what proves the rest.
 	- Note: about twelve of the twenty sit in code that rounds 20260819b, c, d and 20260821 declared clean. Those rounds read the Go and grepped the rest.
 
-	- ✅ Code Review 20260909 item 1: a folder rule typed as `.` binds every repo under the home directory to that account.
-		- Closed: 20260914-155309
-		- Reproduced: `account set work path .` is accepted and stored as typed. `account list` shows the folder with no warning, because `.` always exists relative to wherever you are standing. gitsby itself then ignores the rule and reports no account for that very folder.
-		- Cause: `account apply` turns it into an includeIf rule spelled `./`, and git resolves a leading `./` against the folder holding the config file, which is the home directory. Every repo under home then commits as that account and offers its login to the credential helper.
-		- Note: this is the wrong-account commit the whole feature exists to stop, and nothing on screen says it happened. A bare `.` is the natural thing to type from the folder you mean to bind.
-		- Probable fix: refuse a `path` that is not absolute, list one as ignored when read, and test the folder's existence against the resolved value rather than against the current directory.
-		- Origin: `canonPath` since f48f89d (the port); no round has handled a relative value. Confirmed.
-		- Note: v2.1.0 does the same. The scripted `account apply` writes `gitdir/i:./` for a flat `path = .`, so a file from the release carries it.
-		- Note: `account set` resolves a relative path from the folder it runs in rather than refusing it. Only the loader ignores one, since a file cannot say where a value was typed.
-		- Sweep: `tokenfile`, `sshkey` and `gitsby.ghTokenFile` take paths too, and a relative one is read from wherever a command runs. Filed as its own bug. A glob character in a folder rule is the other way the two matchers disagree, also filed.
-		- Fixed: `account set` writes a relative `path` as the absolute folder it names, and refuses another user's `~`. A relative rule already in a file is listed as ignored and `account apply` never writes one. `account list` warns about one an earlier apply left behind. On Windows a rule for a folder not made yet no longer reads as `c:./work`, which apply handed to git as relative.
-		- Verified: 13 new checks in test.bash, 12 red against the tree before and green after, the last a regression guard, 863 -> 876. fuzz.bash 269 -> 301, and eight new Go tests red before and green after. On vm925w the new Go tests pass, `account set` from `C:\` writes `C:/sub`, and `account apply` writes `c:/...` where it wrote `c:./...`. A full Go run there failed eight older tests on `1b4f757`, whose `/srv/...` fixtures name no drive. With a drive in them it fails only `TestCanonPath` and `TestDisplayPath`, which fail on `gover` too. macOS and the BSDs untested.
-
-	- ✅ Code Review 20260909 item 2: `br prune --no-fetch` deletes a branch on origin that origin has moved past.
-		- Closed: 20260914-165502
-		- Reproduced: with a branch merged locally and one further commit pushed to origin from a second clone, prune deleted it on origin and the pushed commit became unreachable.
-		- Cause: the remote half of the plan reads the local mirror of origin, and the delete-time re-check surveys local branches only, so origin is never asked again. `--no-fetch` leaves the mirror as stale as it was.
-		- Note: the plan line asserts each branch was re-checked at delete time. With the fetch left on, the same case is handled correctly, so the flag is the trigger, and its help text gives no hint that it makes this command unsafe.
-		- Probable fix: ask origin about each remote candidate before the delete push, or send the delete with a lease so git refuses on stale information.
-		- Origin: bb60cc5 (the port). The remote half has always read the local mirror, and the plan line from 0a3ef88 has overclaimed since. Not fallout from the 20260821 re-check rework. Confirmed.
-		- Note: the same unasked origin drops every remote delete when one branch is already gone there, and under `--no-fetch` reports an unreachable origin as branches "already gone". Both are fixed with this item.
-		- Sweep: `br merge` deletes its branch on origin the same way under `--no-fetch`, filed as its own bug. `pr ok` leaves the delete to the git host after it merges, so no local copy of origin decides it.
-		- Decided against: checking whether origin's merge target was rewritten since the last fetch. Telling needs objects the run declined to fetch, and gitsby never rewrites a shared branch.
-		- Fixed: just before the delete push, prune asks origin where its branches point, and leases each delete on the value it checked. A branch origin has moved is left alone with a warning. One already deleted there is named as gone and left out of the push. If origin does not answer, no remote delete goes out and the existing unreachable line prints. The plan line names the lease.
-		- Verified: 13 new checks in test.bash, 876 -> 889. Ten fail on `gover`, and so does the plan check's new pattern. The other three are regression guards: the unmoved branch still goes, origin is not asked when nothing goes there, and the local delete still happens without origin. The prompt check needs `script`, so the total is 888 without it. The four new Go tests don't build on `gover` and pass on the branch. fuzz.bash 301/0, parity.bash 27/0, and the quick pipeline and the pre-push gate are green. `br prune` in the spawn-count fixture goes 35 -> 39, recorded as the new baseline. The ask is three processes, and the fourth is the `core.sshCommand` lookup a fetch would otherwise have made. On vm925w the four Go tests pass. There the `gover` build deletes a moved branch on origin, drops every delete when one branch is gone, and blames the branch when origin is away, and the branch build gets all three right. macOS and the BSDs untested.
-
-	- ✅ Code Review 20260909 item 3: a config file that exists but cannot be read is replaced instead of refused.
-		- Closed: 20260914-174903
-		- Reproduced: with the accounts file mode 0200, `account set` printed a plan saying "create", truncated the file and wrote a fresh one. The login and token path that were in it are gone.
-		- Cause: a candidate that fails the readable test is skipped, so an empty answer means both "no file anywhere" and "a file that could not be read".
-		- Note: mode 0000 fails cleanly, so the window is a file that is writable and not readable.
-		- Probable fix: keep the two cases apart and refuse the second by name. Open the create so it cannot truncate.
-		- Origin: 8203670 (shcl) meets the older decision that a discovered unreadable file is skipped, not refused. Confirmed.
-		- Keep: reads still skip an unreadable candidate. Only the create path refuses when a candidate exists and cannot be read.
-		- Note: with `XDG_CONFIG_HOME` set, the new file goes ahead of the unreadable one instead, and every later command reads the new one. A link to a file that isn't there is written through. On Windows the same state is a file another program holds open, where the write fails too and the message blames permissions.
-		- Sweep: two `account set` runs at once on one file keep one key, and a file that opens but can't be read through crashes `account set`. Both filed as their own bugs.
-		- Fixed: `account set` won't create an accounts file while anything is at a place gitsby looks for one. A file it can't read, a file that turned up during the run, a link to nothing and a folder in the way each get their own refusal, naming the file, the reason and the fix, and nothing is written. The create opens the file so it can't replace anything. Reads still pass over a file they can't read.
-		- Verified: 10 new checks in test.bash, 889 -> 899. Nine fail on `gover`, and the read check is a regression guard. Nine new Go tests: the eight on new behavior fail on `gover` and pass on the branch, and the read test is a guard. Two runs creating one file at once: `gover` said "Wrote" and lost a key in 30 of 30 tries, and the branch lost none, with one run refusing each time. On vm925w the held-open Go test fails on `gover` and passes on the branch. There the branch refuses and keeps a file another program holds open, where `gover` blamed permissions, and a file with a deny-read entry, which `gover` truncated. A full Go run there fails only `TestCanonPath` and `TestDisplayPath`, which fail on `gover` too. parity.bash 27/0, and the quick pipeline and the pre-push gate are green. macOS and the BSDs untested.
-
-	- ✅ Code Review 20260909 item 4: the pipeline cannot finish, because the committed Windows resources no longer match their generator.
-		- Reproduced: the resource check fails for both architectures, and stage 1 stops the run.
-		- Cause: the copyright change edited the string the generator writes, and the two resource files were not regenerated.
-		- Note: a release still passes its first phase, which tolerates a stale resource by design, so only ordinary runs are stopped.
-		- Note: regenerating publishes whichever marker is in the generator into the Windows file properties, where a user reads it. See enhancement 1, which has to be settled first.
-		- Fixed: the generator writes the plain copyright again, which is what both resource files already held. The check passes, and nothing needed regenerating.
-
 	- 🔘 Code Review 20260909 item 5: a key indented one level too deep is dropped, and the line listing what was ignored does not mention it.
 		- Reproduced: an `sshkey` written one tab further in than the keys around it does not apply, and `account list` reports only the unknown key beside it.
 		- Note: over-indent the key that picks the ssh key or the token file and the account applies without it, silently. The listing that always says, says nothing.
@@ -279,27 +233,6 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- Nothing is said when the installed binary will not run. The run simply ends.
 		- Origin: 200310a. Five of the six were in the 20260819a notes as seen and not filed. Confirmed against a local mock.
 
-	- ✅ Code Review 20260909 item 15: there is no fast gate and no pre-push hook.
-		- Closed: 20260914-134906
-		- The standing directive asks for a quick mode that checks formatting, lints with warnings as errors and runs the unit tests, registered as a pre-push hook, so nothing reaches dev or main unverified outside a full run.
-		- Nothing like it exists, and the hooks directory holds only the stock samples.
-		- Note: the full pipeline is the only gate today, it takes minutes, and it is currently red.
-		- Origin: new requirement from the 2026-09-07 directives. Not a regression.
-		- Fixed: `cicd/cicd.bash --gate` runs every lint check and the unit tests, and nothing else. `--install-hook` installs a pre-push hook that runs it on each commit pushed to a branch, as committed, never on the working tree. A push from a subdirectory with a relative `--work-tree` is gated too.
-		- Verified: 42 new checks, 810 -> 852. 41 of them fail on `gover`; the full-run check is a regression guard. The relative `--work-tree` check fails against the hook as it was, and each of the five later checks fails with the path it covers broken. The pipeline is green at 852/0, with parity 27/0 and fuzz 269/0. The real gate passes in 11.6 s. In a scratch clone the hook passes a good push, 11.6 s cold and 10.3 s warm, and refuses a gofmt violation. A failing commit is refused through 22 push forms. Nothing is installed in this repo. Linux only: Windows, macOS and the BSDs are untested.
-
-	- ✅ Code Review 20260909 item 16: the demo gif is rebuilt and recommitted on nearly every commit.
-		- Closed: 20260914-144550
-		- Cause: every command prints the version and build number above its output, and the first scene captures one. The version moves with every commit, so the render always differs and an eleven megabyte file is replaced.
-		- Note: three places state the opposite, that an unchanged binary and scenario reproduce the same bytes.
-		- The run also lasts about two minutes against a twenty to thirty second budget, and its closing black is two seconds where three was asked for.
-		- The quiet flag reaches every other child of the pipeline and not the demo generator.
-		- Probable fix: stamp a fixed version for the demo build, or keep the banner out of the demo run.
-		- Origin: 3b16d8d (build number) put a per-commit banner on `status`, which the demo captures. Confirmed.
-		- Note: the length half of the third bullet is filed as its own bug at the top of this section. This item covers the rebuild on every commit, the closing black and the quiet flag.
-		- Fixed: the demo renders from a build of its own, stamped with the newest release tag and that tag's commit time rather than the commit. The banner on camera now reads `gitsby v2.1.0 build db8ey` and stays put until the next release. `-q` reaches the generator, and the loop ends on three seconds of black. The committed gif is the new render, and the three comments and the design.md sentence name the release stamp.
-		- Verified: two builds of one source, stamped like two consecutive commits, rendered to gifs that differ. 11 new checks, 852 -> 863. Nine fail on `gover`, and the other two, `-y` alone and the repeat render, are regression guards. The two build-site pins now count four sites and fail on `gover`. With `versionsort.suffix` taken out, the release-candidate check fails. The render is 960x540 and 12412356 bytes, loops in 124.84 s on the 20 ms grid, and ends on 3 s of black. A pipeline run regenerated the gif in 47 s. The next run, on the commit holding the gif, left it unchanged in 87 s, with the suite at 863/0 and parity 27/0. Linux only: Windows, macOS and the BSDs are untested.
-
 	- 🔘 Code Review 20260909 item 17: pipeline housekeeping.
 		- The two "have I seen this yet" markers live inside the working tree. A clean checkout loses them.
 		- The lint report counts a filename as a warning, because one source file has the word error in its name. This is the second time that report has matched something that was never a warning.
@@ -352,11 +285,6 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 - 🛠️ Code review 20260909 - enhancements from the same pass. Twelve items, none of them urgent.
 	- Opened: 20260909-184419
 
-	- ✅ Code Review 20260909 enhancement 1: decide whether the identity marker belongs in the Windows file properties.
-		- The copyright change put it into the string Windows shows on the Properties tab of the executable, which is a product-facing string rather than a source header. The standing rules exempt two other projects' Windows version strings and keep the plain form there.
-		- Bug item 4 waits on this: regenerating the resource files publishes whichever answer is given.
-		- Kept out. The Properties tab shows the plain copyright, and the source headers keep the ID.
-
 	- 🔘 Code Review 20260909 enhancement 2: there is no `account unset`. Setting a key to an empty value prints the syntax block, so the only way back is the hand edit that `account set` exists to avoid.
 		- Origin: new. Confirmed.
 
@@ -399,15 +327,80 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 	- 🔘 Code Review 20260909 enhancement 12: `.gitignore` covers the pipeline's own output and nothing a contributor's machine drops.
 		- Origin: the 2026-09-07 directives.
 
-- ✋ The repo's blurb, homepage and topics still describe the Bash and PowerShell product.
-	- Opened: 20260819-142046
-	- They name both scripts and give the old command count, and the topics say `bash` rather than `go`.
-	- Deferred until the Go build is released on `main`. Until then the description would be ahead of what a visitor can actually download, which is worse than being behind.
-	- One command when the time comes: `gh repo edit --description ... --homepage ... --add-topic go --remove-topic bash`.
-
 ### Done
 
 #### Done - Bugs
+
+- ✅ Code review 20260909 - the closed part of the pass against the standing directives. The rest is still open under Bugs.
+	- Opened: 20260909-184419
+
+	- ✅ Code Review 20260909 item 1: a folder rule typed as `.` binds every repo under the home directory to that account.
+		- Closed: 20260914-155309
+		- Reproduced: `account set work path .` is accepted and stored as typed. `account list` shows the folder with no warning, because `.` always exists relative to wherever you are standing. gitsby itself then ignores the rule and reports no account for that very folder.
+		- Cause: `account apply` turns it into an includeIf rule spelled `./`, and git resolves a leading `./` against the folder holding the config file, which is the home directory. Every repo under home then commits as that account and offers its login to the credential helper.
+		- Note: this is the wrong-account commit the whole feature exists to stop, and nothing on screen says it happened. A bare `.` is the natural thing to type from the folder you mean to bind.
+		- Probable fix: refuse a `path` that is not absolute, list one as ignored when read, and test the folder's existence against the resolved value rather than against the current directory.
+		- Origin: `canonPath` since f48f89d (the port); no round has handled a relative value. Confirmed.
+		- Note: v2.1.0 does the same. The scripted `account apply` writes `gitdir/i:./` for a flat `path = .`, so a file from the release carries it.
+		- Note: `account set` resolves a relative path from the folder it runs in rather than refusing it. Only the loader ignores one, since a file cannot say where a value was typed.
+		- Sweep: `tokenfile`, `sshkey` and `gitsby.ghTokenFile` take paths too, and a relative one is read from wherever a command runs. Filed as its own bug. A glob character in a folder rule is the other way the two matchers disagree, also filed.
+		- Fixed: `account set` writes a relative `path` as the absolute folder it names, and refuses another user's `~`. A relative rule already in a file is listed as ignored and `account apply` never writes one. `account list` warns about one an earlier apply left behind. On Windows a rule for a folder not made yet no longer reads as `c:./work`, which apply handed to git as relative.
+		- Verified: 13 new checks in test.bash, 12 red against the tree before and green after, the last a regression guard, 863 -> 876. fuzz.bash 269 -> 301, and eight new Go tests red before and green after. On vm925w the new Go tests pass, `account set` from `C:\` writes `C:/sub`, and `account apply` writes `c:/...` where it wrote `c:./...`. A full Go run there failed eight older tests on `1b4f757`, whose `/srv/...` fixtures name no drive. With a drive in them it fails only `TestCanonPath` and `TestDisplayPath`, which fail on `gover` too. macOS and the BSDs untested.
+
+	- ✅ Code Review 20260909 item 2: `br prune --no-fetch` deletes a branch on origin that origin has moved past.
+		- Closed: 20260914-165502
+		- Reproduced: with a branch merged locally and one further commit pushed to origin from a second clone, prune deleted it on origin and the pushed commit became unreachable.
+		- Cause: the remote half of the plan reads the local mirror of origin, and the delete-time re-check surveys local branches only, so origin is never asked again. `--no-fetch` leaves the mirror as stale as it was.
+		- Note: the plan line asserts each branch was re-checked at delete time. With the fetch left on, the same case is handled correctly, so the flag is the trigger, and its help text gives no hint that it makes this command unsafe.
+		- Probable fix: ask origin about each remote candidate before the delete push, or send the delete with a lease so git refuses on stale information.
+		- Origin: bb60cc5 (the port). The remote half has always read the local mirror, and the plan line from 0a3ef88 has overclaimed since. Not fallout from the 20260821 re-check rework. Confirmed.
+		- Note: the same unasked origin drops every remote delete when one branch is already gone there, and under `--no-fetch` reports an unreachable origin as branches "already gone". Both are fixed with this item.
+		- Sweep: `br merge` deletes its branch on origin the same way under `--no-fetch`, filed as its own bug. `pr ok` leaves the delete to the git host after it merges, so no local copy of origin decides it.
+		- Decided against: checking whether origin's merge target was rewritten since the last fetch. Telling needs objects the run declined to fetch, and gitsby never rewrites a shared branch.
+		- Fixed: just before the delete push, prune asks origin where its branches point, and leases each delete on the value it checked. A branch origin has moved is left alone with a warning. One already deleted there is named as gone and left out of the push. If origin does not answer, no remote delete goes out and the existing unreachable line prints. The plan line names the lease.
+		- Verified: 13 new checks in test.bash, 876 -> 889. Ten fail on `gover`, and so does the plan check's new pattern. The other three are regression guards: the unmoved branch still goes, origin is not asked when nothing goes there, and the local delete still happens without origin. The prompt check needs `script`, so the total is 888 without it. The four new Go tests don't build on `gover` and pass on the branch. fuzz.bash 301/0, parity.bash 27/0, and the quick pipeline and the pre-push gate are green. `br prune` in the spawn-count fixture goes 35 -> 39, recorded as the new baseline. The ask is three processes, and the fourth is the `core.sshCommand` lookup a fetch would otherwise have made. On vm925w the four Go tests pass. There the `gover` build deletes a moved branch on origin, drops every delete when one branch is gone, and blames the branch when origin is away, and the branch build gets all three right. macOS and the BSDs untested.
+
+	- ✅ Code Review 20260909 item 3: a config file that exists but cannot be read is replaced instead of refused.
+		- Closed: 20260914-174903
+		- Reproduced: with the accounts file mode 0200, `account set` printed a plan saying "create", truncated the file and wrote a fresh one. The login and token path that were in it are gone.
+		- Cause: a candidate that fails the readable test is skipped, so an empty answer means both "no file anywhere" and "a file that could not be read".
+		- Note: mode 0000 fails cleanly, so the window is a file that is writable and not readable.
+		- Probable fix: keep the two cases apart and refuse the second by name. Open the create so it cannot truncate.
+		- Origin: 8203670 (shcl) meets the older decision that a discovered unreadable file is skipped, not refused. Confirmed.
+		- Keep: reads still skip an unreadable candidate. Only the create path refuses when a candidate exists and cannot be read.
+		- Note: with `XDG_CONFIG_HOME` set, the new file goes ahead of the unreadable one instead, and every later command reads the new one. A link to a file that isn't there is written through. On Windows the same state is a file another program holds open, where the write fails too and the message blames permissions.
+		- Sweep: two `account set` runs at once on one file keep one key, and a file that opens but can't be read through crashes `account set`. Both filed as their own bugs.
+		- Fixed: `account set` won't create an accounts file while anything is at a place gitsby looks for one. A file it can't read, a file that turned up during the run, a link to nothing and a folder in the way each get their own refusal, naming the file, the reason and the fix, and nothing is written. The create opens the file so it can't replace anything. Reads still pass over a file they can't read.
+		- Verified: 10 new checks in test.bash, 889 -> 899. Nine fail on `gover`, and the read check is a regression guard. Nine new Go tests: the eight on new behavior fail on `gover` and pass on the branch, and the read test is a guard. Two runs creating one file at once: `gover` said "Wrote" and lost a key in 30 of 30 tries, and the branch lost none, with one run refusing each time. On vm925w the held-open Go test fails on `gover` and passes on the branch. There the branch refuses and keeps a file another program holds open, where `gover` blamed permissions, and a file with a deny-read entry, which `gover` truncated. A full Go run there fails only `TestCanonPath` and `TestDisplayPath`, which fail on `gover` too. parity.bash 27/0, and the quick pipeline and the pre-push gate are green. macOS and the BSDs untested.
+
+	- ✅ Code Review 20260909 item 4: the pipeline cannot finish, because the committed Windows resources no longer match their generator.
+		- Closed: 20260910-072019
+		- Reproduced: the resource check fails for both architectures, and stage 1 stops the run.
+		- Cause: the copyright change edited the string the generator writes, and the two resource files were not regenerated.
+		- Note: a release still passes its first phase, which tolerates a stale resource by design, so only ordinary runs are stopped.
+		- Note: regenerating publishes whichever marker is in the generator into the Windows file properties, where a user reads it. See enhancement 1, which has to be settled first.
+		- Fixed: the generator writes the plain copyright again, which is what both resource files already held. The check passes, and nothing needed regenerating.
+
+	- ✅ Code Review 20260909 item 15: there is no fast gate and no pre-push hook.
+		- Closed: 20260914-134906
+		- The standing directive asks for a quick mode that checks formatting, lints with warnings as errors and runs the unit tests, registered as a pre-push hook, so nothing reaches dev or main unverified outside a full run.
+		- Nothing like it exists, and the hooks directory holds only the stock samples.
+		- Note: the full pipeline is the only gate today, it takes minutes, and it is currently red.
+		- Origin: new requirement from the 2026-09-07 directives. Not a regression.
+		- Fixed: `cicd/cicd.bash --gate` runs every lint check and the unit tests, and nothing else. `--install-hook` installs a pre-push hook that runs it on each commit pushed to a branch, as committed, never on the working tree. A push from a subdirectory with a relative `--work-tree` is gated too.
+		- Verified: 42 new checks, 810 -> 852. 41 of them fail on `gover`; the full-run check is a regression guard. The relative `--work-tree` check fails against the hook as it was, and each of the five later checks fails with the path it covers broken. The pipeline is green at 852/0, with parity 27/0 and fuzz 269/0. The real gate passes in 11.6 s. In a scratch clone the hook passes a good push, 11.6 s cold and 10.3 s warm, and refuses a gofmt violation. A failing commit is refused through 22 push forms. Nothing is installed in this repo. Linux only: Windows, macOS and the BSDs are untested.
+
+	- ✅ Code Review 20260909 item 16: the demo gif is rebuilt and recommitted on nearly every commit.
+		- Closed: 20260914-144550
+		- Cause: every command prints the version and build number above its output, and the first scene captures one. The version moves with every commit, so the render always differs and an eleven megabyte file is replaced.
+		- Note: three places state the opposite, that an unchanged binary and scenario reproduce the same bytes.
+		- The run also lasts about two minutes against a twenty to thirty second budget, and its closing black is two seconds where three was asked for.
+		- The quiet flag reaches every other child of the pipeline and not the demo generator.
+		- Probable fix: stamp a fixed version for the demo build, or keep the banner out of the demo run.
+		- Origin: 3b16d8d (build number) put a per-commit banner on `status`, which the demo captures. Confirmed.
+		- Note: the length half of the third bullet is filed as its own bug at the top of this section. This item covers the rebuild on every commit, the closing black and the quiet flag.
+		- Fixed: the demo renders from a build of its own, stamped with the newest release tag and that tag's commit time rather than the commit. The banner on camera now reads `gitsby v2.1.0 build db8ey` and stays put until the next release. `-q` reaches the generator, and the loop ends on three seconds of black. The committed gif is the new render, and the three comments and the design.md sentence name the release stamp.
+		- Verified: two builds of one source, stamped like two consecutive commits, rendered to gifs that differ. 11 new checks, 852 -> 863. Nine fail on `gover`, and the other two, `-y` alone and the repeat render, are regression guards. The two build-site pins now count four sites and fail on `gover`. With `versionsort.suffix` taken out, the release-candidate check fails. The render is 960x540 and 12412356 bytes, loops in 124.84 s on the 20 ms grid, and ends on 3 s of black. A pipeline run regenerated the gif in 47 s. The next run, on the commit holding the gif, left it unchanged in 87 s, with the suite at 863/0 and parity 27/0. Linux only: Windows, macOS and the BSDs are untested.
 
 - ✅ A release tag whose patch number is too large to hold overflowed into a negative version.
 	- Opened: n/a
@@ -1692,6 +1685,15 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 #### Done - Features and enhancements
 
+- ✅ Code review 20260909 - the closed enhancements from the same pass. The rest are still open under Features and enhancements.
+	- Opened: 20260909-184419
+
+	- ✅ Code Review 20260909 enhancement 1: decide whether the identity marker belongs in the Windows file properties.
+		- Closed: 20260910-072019
+		- The copyright change put it into the string Windows shows on the Properties tab of the executable, which is a product-facing string rather than a source header. The standing rules exempt two other projects' Windows version strings and keep the plain form there.
+		- Bug item 4 waits on this: regenerating the resource files publishes whichever answer is given.
+		- Kept out. The Properties tab shows the plain copyright, and the source headers keep the ID.
+
 - ✅ macOS builds no longer need a Mac or an SDK.
 	- Opened: 20260817-115422
 	- Closed: 20260818-181424
@@ -2227,6 +2229,12 @@ Go port, round one. Rationale and route: `design_docs/20260813_golang-port.md`. 
 ### Future and/or deferred
 
 Waiting on hardware, an upstream module, or a decision.
+
+- ✋ The repo's blurb, homepage and topics still describe the Bash and PowerShell product.
+	- Opened: 20260819-142046
+	- They name both scripts and give the old command count, and the topics say `bash` rather than `go`.
+	- Deferred until the Go build is released on `main`. Until then the description would be ahead of what a visitor can actually download, which is worse than being behind.
+	- One command when the time comes: `gh repo edit --description ... --homepage ... --add-topic go --remove-topic bash`.
 
 - ✋ Rework the fuzz suite. Much of what it proves becomes structurally impossible with no shell in the path; figure out what remains meaningful.
 	- Opened: 20260817-115422
