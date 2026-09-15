@@ -86,16 +86,19 @@ func matchesOf(rules []acctRule, name string) []string {
 
 // includeDir: where the per-account git config fragments live - beside the config
 // file that describes them, so the two travel together and 'account apply' has an
-// unambiguous set of files it owns.
+// unambiguous set of files it owns. A cut at the last '/' found none in a Windows
+// path typed with backslashes, or in a bare file name, and put the folder under
+// the file. Absolute, since git reads a relative include from its own config's
+// folder.
 func (c *config) includeDir() string {
 	if c.file == "" {
 		return ""
 	}
-	dir := c.file
-	if i := strings.LastIndex(dir, "/"); i >= 0 {
-		dir = dir[:i]
+	dir, err := filepath.Abs(filepath.Dir(c.file))
+	if err != nil {
+		dir = filepath.Dir(c.file)
 	}
-	return dir + "/accounts"
+	return filepath.ToSlash(dir) + "/accounts"
 }
 
 // git's exit status for "the key you asked me to unset isn't there".
@@ -383,16 +386,12 @@ func (a *app) cmdAccountApply() error {
 		return usagef("No config file, so there is nowhere to write the account fragments.")
 	}
 	if pathExists(dir) && !isDir(dir) {
-		return usagef("'%s' is where the account fragments go, and it isn't a directory. Move or remove it, then re-run.", dir)
+		return usagef("'%s' is where the account fragments go, and it isn't a directory. Move or remove it, then re-run.", displayPath(dir))
 	}
 	// 0700, not 0777-and-hope-for-umask: these fragments name your accounts and
 	// point at your token file, and they sit under your own config directory.
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		parent := dir
-		if i := strings.LastIndex(parent, "/"); i >= 0 {
-			parent = parent[:i]
-		}
-		return usagef("Couldn't create '%s' for the account fragments. Check permissions on '%s'.", dir, parent)
+		return usagef("Couldn't create '%s' for the account fragments. Check permissions on '%s'.", displayPath(dir), displayPath(filepath.Dir(dir)))
 	}
 	for _, name := range a.cfg.accountNames() {
 		if err := a.writeAccountFragment(dir, name); err != nil {
@@ -947,10 +946,7 @@ func (a *app) cmdAccountSet() error {
 		return usagef("'%s' isn't a setting the file can hold (%s).", t.disp+"."+t.field, t.doc.WriteReason(t.path()))
 	}
 	if t.creates {
-		dir := t.file
-		if i := strings.LastIndexAny(dir, `/\`); i > 0 {
-			dir = dir[:i]
-		}
+		dir := filepath.Dir(t.file)
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return usagef("Couldn't create '%s' to put the accounts file in.", displayPath(dir))
 		}

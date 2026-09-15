@@ -50,21 +50,6 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 ### Bugs
 
-- 🔘 The Go unit tests fail on Windows.
-	- Opened: 20260914-152134
-	- Reproduced: built for Windows and run on vm925w, `TestCanonPath` and `TestDisplayPath` fail on `gover`, since they expect Linux spellings.
-	- Note: no pipeline stage runs the Go tests on Windows, so nothing reports it.
-	- Probable fix: spell those fixtures the way each platform writes an absolute path.
-	- Origin: `TestCanonPath` since 0a3ef88 and `TestDisplayPath` since a620930. No earlier round ran the Go tests on Windows. Confirmed.
-
-- 🔘 On Windows, `account apply` refuses to run when the accounts file is named with backslashes.
-	- Opened: 20260914-152134
-	- Reproduced: with `--config C:\Users\<you>\x\wl.shcl`, or `GITSBY_CONFIG` spelled the same way, apply stops with "Couldn't create 'C:\Users\<you>\x\wl.shcl/accounts' for the account fragments". The same file named with forward slashes applies.
-	- Cause: `includeDir` cuts the file name off at the last `/`. A path spelled with `\` has none, so the fragments folder goes under the file itself.
-	- Probable fix: cut at the last `/` or `\`, as `cmdAccountSet` already does for the file's own folder.
-	- Note: found while working Code Review 20260909 item 1.
-	- Origin: `includeDir` since 9eb34e7 (go: repo and account). No earlier round saw it. Confirmed on the `gover` build.
-
 - 🔘 A folder rule with `*`, `?` or `[` in it binds repos in plain git that gitsby never matches.
 	- Opened: 20260914-145514
 	- Reproduced: `path: "<home>/d*"` lists as a folder that can never match, and gitsby names no account in `<home>/dev/work/proj`. After `account apply`, plain git gives that repo the account's email. `pathcontains: "acme-*"` does the same under `.../acme-x/...`, and `pathcontains: "**"` gives every repo on the disk the account.
@@ -254,6 +239,29 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 #### Done - Bugs
 
+- ✅ The Go unit tests fail on Windows.
+	- Closed: 20260915-113307
+	- Opened: 20260914-152134
+	- Reproduced: built for Windows and run on vm925w, `TestCanonPath` and `TestDisplayPath` fail on `gover`, since they expect Linux spellings.
+	- Note: no pipeline stage runs the Go tests on Windows, so nothing reports it.
+	- Probable fix: spell those fixtures the way each platform writes an absolute path.
+	- Origin: `TestCanonPath` since 0a3ef88 and `TestDisplayPath` since a620930. No earlier round ran the Go tests on Windows. Confirmed.
+	- Sweep: on Windows the accounts file never showed as `~`. The home folder and APPDATA are spelled with backslashes, and the file name goes on with `/`. Confirmed, and fixed here: either slash and any case count there now.
+	- Fixed: each fixture is spelled the way the platform running it writes that path, and every assertion checks what it did before. `TestCanonPath` also covers the MSYS drive fold.
+	- Verified: all 131 Go tests pass on vm925w, the lock tests and the lease-delete quoting tests included. The two new Windows cases in `TestDisplayPath` fail against `gover`.
+
+- ✅ On Windows, `account apply` refuses to run when the accounts file is named with backslashes.
+	- Closed: 20260915-113307
+	- Opened: 20260914-152134
+	- Reproduced: with `--config C:\Users\<you>\x\wl.shcl`, or `GITSBY_CONFIG` spelled the same way, apply stops with "Couldn't create 'C:\Users\<you>\x\wl.shcl/accounts' for the account fragments". The same file named with forward slashes applies.
+	- Cause: `includeDir` cuts the file name off at the last `/`. A path spelled with `\` has none, so the fragments folder goes under the file itself.
+	- Probable fix: cut at the last `/` or `\`, as `cmdAccountSet` already does for the file's own folder.
+	- Note: found while working Code Review 20260909 item 1.
+	- Origin: `includeDir` since 9eb34e7 (go: repo and account). No earlier round saw it. Confirmed on the `gover` build.
+	- Sweep: a `--config` named with no folder failed the same way on every platform, as `wl.shcl/accounts`. A relative include would be wrong anyway, since git reads one from its own config's folder. Confirmed on Linux, and fixed here. `account set` finds the file's folder the same way now.
+	- Fixed: the fragments go in the absolute folder holding the accounts file, however the file was named. Apply's two refusals name that folder the way the platform writes it.
+	- Verified: 2 new checks in test.bash, both failing on `gover`, 939 -> 941. `TestIncludeDir` fails on `gover` on Linux and on Windows. On vm925w, apply with the file named in backslashes writes the fragment, and plain git then uses the account's email in the rule's folder. parity.bash 27/0.
+
 - ✅ `br prune` says to run it again for origin's copies it left alone, and the second run can't see them.
 	- Closed: 20260915-111338
 	- Opened: 20260914-165245
@@ -265,6 +273,7 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 	- Fixed: prune asks origin before it deletes anything. A copy origin has moved keeps its local branch, so the second run the warning names can look again. When origin can't be reached the local branches still go, as decided 2026-09-14, and the warning prints a leased delete to type for each copy.
 	- Keep: offline, prune still deletes the local branch and holds origin's copy.
 	- Verified: 5 new checks in test.bash, all failing on `gover`. The first prune's count check now expects one local delete fewer.
+	- Verified on Windows, 20260915: in pwsh 7.6 and Windows PowerShell 5.1, each printed delete reaches git as the words it names, for branch names holding quotes, `$`, `;`, `&`, parentheses, backticks, `%`, braces and dots.
 
 - ✅ A tag on origin with a branch's name stops every remote delete in `br prune`.
 	- Closed: 20260915-111338

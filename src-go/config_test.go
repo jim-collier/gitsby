@@ -193,12 +193,18 @@ account.bypath.path = /a/b/c
 
 func TestCanonPath(t *testing.T) {
 	t.Setenv("HOME", "/home/someone")
+	// Windows reads '/c/x' as the MSYS spelling of drive c:, and folds case.
+	ab, cxy, msys := "/a/b", "C:/x/y", "/c/x"
+	if isWindows() {
+		ab, cxy, msys = "c:/a/b", "c:/x/y", "c:/x"
+	}
 	tests := []struct{ in, want string }{
 		{"", ""},
-		{"/a/b/", "/a/b"},
-		{"/a/b///", "/a/b"},
+		{driveFolder("/a/b/"), ab},
+		{driveFolder("/a/b///"), ab},
 		{"/", "/"},
-		{`C:\x\y`, "C:/x/y"},
+		{`C:\x\y`, cxy},
+		{"/c/x", msys},
 		{"~", "/home/someone"},
 		{"~/code", "/home/someone/code"},
 		{"~notme/code", "~notme/code"}, // only our own '~' expands
@@ -353,8 +359,16 @@ func TestDisplayPath(t *testing.T) {
 		home + "-not-really/x.shcl":     home + "-not-really/x.shcl",
 		"":                              "",
 	}
+	// A backslash is part of a file name off Windows. On it, the profile and APPDATA
+	// are spelled with them, and case doesn't matter.
+	if isWindows() {
+		cases[home+`\AppData\Roaming/gitsby/x.shcl`] = "~/AppData/Roaming/gitsby/x.shcl"
+		cases[strings.ToUpper(home)+`\x.shcl`] = "~/x.shcl"
+	} else {
+		cases[home+`\x.shcl`] = home + `\x.shcl`
+	}
 	for in, want := range cases {
-		if got := displayPath(in); got != want {
+		if got := displayPath(in); got != nativePath(want) {
 			t.Errorf("displayPath(%q) = %q, want %q", in, got, want)
 		}
 	}

@@ -66,6 +66,20 @@ func TestAccountApplyPlanTargets(t *testing.T) {
 	}
 }
 
+// However the accounts file is named, the fragments go in the folder holding it.
+// Joined with backslashes on Windows, or named with no folder, they went under
+// the file itself and apply refused.
+func TestIncludeDir(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	want := filepath.ToSlash(dir) + "/accounts"
+	for _, file := range []string{filepath.Join(dir, "wl.shcl"), filepath.ToSlash(dir) + "/wl.shcl", "wl.shcl"} {
+		if got := (&config{file: file}).includeDir(); got != want {
+			t.Errorf("includeDir for %q = %q, want %q", file, got, want)
+		}
+	}
+}
+
 // An account declared by its keys alone has no folder rule, so there is nothing
 // to teach plain git.
 func TestAccountApplyPlanEmptyWithoutFolderRules(t *testing.T) {
