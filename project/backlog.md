@@ -382,10 +382,10 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- Cause: the tag scan matches a `v` followed by a digit, so a tag like `1.0.0` is invisible and the next version starts from nothing. The duplicate-tag guard below it does see those tags, so the two halves of one command disagree about which tags exist.
 		- Note: unattended there is no prompt, and the invented tag is pushed.
 		- Origin: f669f14 (the port); `legacy/bin/gitsby:2232` has the same scan. Confirmed.
-		- Fixed: a tag with no `v` counts too, when it is a whole X.Y.Z, so a date or build number can't restart the numbering. The duplicate guard refuses either spelling. The new tag still carries the `v`, the same as a typed version.
-		- Decided against: following the repo's own spelling for the new tag. A typed version has always gained the `v`, and the two paths would then disagree.
+		- Fixed: a tag with no `v` counts too, when it is a whole X.Y.Z, so a date or build number can't restart the numbering. The duplicate guard refuses either spelling. A new tag is spelled like the tag it counts from, and the first one gets a `v`. A typed version is tagged as typed.
+		- Note: the first fix gave every new tag a `v`, the way typed versions always had. That left a repo tagged `1.4.2` going on with `v1.4.3`, and a typed `1.4.3` came out as `v1.4.3`. Changed the same day. `cicd/release.bash` always passes a version with the `v`, so this project's tags are unchanged.
 		- Sweep: `cicd/release.bash` and the demo stamp scan only this project's own tags, which all carry the `v`. The frozen bash is left as it is.
-		- Verified: 3 new checks in test.bash, all failing on `gover`, where `TestNewestReleaseTag` doesn't build. 953 -> 964 with items 9 and 10.
+		- Verified: 3 new checks in test.bash, all failing on `gover`, where `TestNewestReleaseTag` doesn't build. 953 -> 964 with items 9 and 10. The spelling change adds 2 checks, which fail on the first fix along with the count check they change, and `TestNextReleaseTag`, which doesn't build there. 964 -> 966.
 
 	- ✅ Code Review 20260909 item 1: a folder rule typed as `.` binds every repo under the home directory to that account.
 		- Closed: 20260914-155309
