@@ -1659,6 +1659,13 @@ GHEOF
 		bash -c "${idSync} '${gitsby}' -q -NoFetch --config '${id}/mine.shcl' sync 'W'; ! git -C '${idc}' ls-remote --heads origin idfeat 2>/dev/null | grep -q idfeat"
 	fAssertNotOut "--any-identity says the difference is intended"  "authenticates as 'bob'" \
 		bash -c "${idSync} '${gitsby}' -q -NoFetch --any-identity --config '${id}/mine.shcl' sync 'W' 2>&1 || true"
+	## A blank ssh command split into nothing, and reading its first word crashed the run.
+	fAssertOut    "a blank GIT_SSH_COMMAND is read as plain ssh in the comparison"  "account is 'alice'.*authenticates as 'bob'" \
+		bash -c "${idSync} GIT_SSH_COMMAND=' ' '${gitsby}' -q -NoFetch --config '${id}/mine.shcl' sync 'W' 2>&1 || true"
+	git -C "${idc}" config core.sshCommand ' '
+	fAssertOut    "and so is a blank core.sshCommand"  "account is 'alice'.*authenticates as 'bob'" \
+		bash -c "${idSync} '${gitsby}' -q -NoFetch --config '${id}/mine.shcl' sync 'W' 2>&1 || true"
+	git -C "${idc}" config --unset core.sshCommand
 	## No configured account at all: the owner of the remote is a guess about a repo, not a claim
 	## about who you are, so comparing it would fire for every single-account user.
 	fAssertNotOut "an unconfigured account is never compared"  'authenticates as' \
@@ -3189,7 +3196,7 @@ EOF
 		fAssert "and nothing the full run adds" \
 			bash -c "grep -q 'gate: passed' '${gateOut}' && ! grep -qE '^go build|^test\.bash|^fuzz\.bash|^parity\.bash|^spawn-count\.bash|^n8git_backup-and-publish|^govulncheck|-fuzz' '${gateCalls}' && ! grep -q 'Remote sync' '${gateOut}' && [[ ! -e '${gateDir}/cicd/artifacts/lint' ]]"
 		local gateTool
-		for gateTool in shellcheck markdownlint pwsh gofmt go-vet staticcheck golangci-lint backlog-check go-test; do
+		for gateTool in shellcheck markdownlint python3 pwsh gofmt go-vet staticcheck golangci-lint backlog-check go-test; do
 			: > "${gateFail}/${gateTool}"
 			fAssert "the gate fails when ${gateTool} finds something"  fGateStatus 1 --gate
 			if [[ "${gateTool}" == gofmt ]]; then
@@ -4074,4 +4081,5 @@ echo "passed: ${pass}, failed: ${fail}"
 ##		- 20260915 JC: Two account set runs at once keep both keys, and a lock another run left is waited on, then refused by name. 922 -> 925.
 ##		- 20260915 JC: account apply takes a --config named with no folder, and includes the fragments beside it by absolute path. Both fail against the tree before them. 939 -> 941.
 ##		- 20260915 JC: A folder rule holding '[' binds that folder in plain git and not the one it would match as a pattern, for path and pathcontains. A relative tokenfile or sshkey is listed as ignored, reads no token and writes no key; account set writes a relative tokenfile absolute, and refuses a relative key typed in a folder with a space. All nine fail against the tree before them. 941 -> 950.
+##		- 20260915 JC: A blank GIT_SSH_COMMAND or core.sshCommand is read as plain ssh when a push is compared against the account, and the gate fails when py_compile does. All three fail against the tree before them. 950 -> 953.
 ##		- 20260915 JC: Origin's copies of merged branches. A prune warning's advice, followed, clears the branch. A tag with a branch's name stops nothing, and br merge merges the branch rather than the tag. br merge --no-fetch keeps a copy someone else pushed to, and an offline br merge keeps the branch here so prune can clear both. Twelve of the fourteen fail against the tree before them; the kept tag and the merge's push are regression guards. The first prune's count drops by one, since the moved branch now stays here. 925 -> 939.
