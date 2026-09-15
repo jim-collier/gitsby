@@ -431,7 +431,7 @@ fRunSuite(){
 	fAssertNotOut "and refuses before showing a plan that deletes it"  'Going to do'  bash -c "cd '${cloneA}' && '${gitsby}' -q br switch main >/dev/null && '${gitsby}' -q br land 2>&1; git checkout --quiet dev"
 
 	## release: merge dev into main, tag, push; then auto-bump patch on the next one
-	fAssert "release 1.2.3 runs"        bash -c "cd '${cloneA}' && '${gitsby}' -q release 1.2.3"
+	fAssert "release 1.2.3 runs"        bash -c "cd '${cloneA}' && '${gitsby}' -q release v1.2.3"
 	fAssert "tag v1.2.3 on main"        bash -c "cd '${cloneA}' && [[ \"\$(git rev-parse v1.2.3^{commit})\" == \"\$(git rev-parse main)\" ]]"
 	fAssert "release merged dev to main"  bash -c "cd '${cloneA}' && git ls-tree --name-only main | grep -qx feat2.txt"
 	fAssert "main pushed with tag"      bash -c "cd '${cloneA}' && [[ \"\$(git rev-parse main)\" == \"\$(git rev-parse origin/main)\" ]] && git ls-remote --tags origin | grep -q 'refs/tags/v1.2.3'"
@@ -458,16 +458,19 @@ fRunSuite(){
 	fAssertOut  "and names the tag to push if it never landed"  'push it: git push origin v1\.3\.1'  bash -c "cd '${cloneA}' && '${gitsby}' -q release 2>&1"
 	fAssert     "and cut no tag doing so"  bash -c "cd '${cloneA}' && ! git rev-parse -q --verify refs/tags/v1.3.2 >/dev/null"
 	## A version you typed is deliberate, so it still works on an already-released commit.
-	fAssert     "an explicit version still releases the same commit"  bash -c "cd '${cloneA}' && '${gitsby}' -q release 1.4.0 && git rev-parse -q --verify refs/tags/v1.4.0 >/dev/null"
+	fAssert     "an explicit version still releases the same commit"  bash -c "cd '${cloneA}' && '${gitsby}' -q release v1.4.0 && git rev-parse -q --verify refs/tags/v1.4.0 >/dev/null"
 
 	## Tags with no 'v' were invisible to the scan, so release started over at 0.1.0 and pushed it.
 	local bt="${work}/$1-baretag"
 	git init --quiet --bare -b main "${bt}/origin.git"
 	git clone --quiet "${bt}/origin.git" "${bt}/c" 2>/dev/null
 	( cd "${bt}/c" || exit 1; echo a > a.txt && git add --all && git commit --quiet -m init && git tag -a 1.4.2 -m 1.4.2 && git push --quiet -u origin main --tags && echo b > b.txt )
-	fAssert     "release counts on from a tag with no v"  bash -c "cd '${bt}/c' && '${gitsby}' -q -NoFetch release && git rev-parse -q --verify refs/tags/v1.4.3 >/dev/null && ! git rev-parse -q --verify refs/tags/v0.1.0 >/dev/null"
+	fAssert     "release counts on from a tag with no v"  bash -c "cd '${bt}/c' && '${gitsby}' -q -NoFetch release && git rev-parse -q --verify refs/tags/1.4.3 >/dev/null && ! git rev-parse -q --verify refs/tags/v0.1.0 >/dev/null"
+	## Every new tag used to gain a 'v', so a repo tagged that way went on with mixed spellings.
+	fAssert     "and spells the new tag without one too"  bash -c "cd '${bt}/c' && ! git rev-parse -q --verify refs/tags/v1.4.3 >/dev/null"
 	fAssertFail "a typed version already tagged with no v is refused"  bash -c "cd '${bt}/c' && '${gitsby}' -q -NoFetch release 1.4.2"
 	fAssertOut  "and names that tag"  "Tag '1\.4\.2' already exists"  bash -c "cd '${bt}/c' && '${gitsby}' -q -NoFetch release 1.4.2 2>&1"
+	fAssert     "a typed version is tagged as typed"  bash -c "cd '${bt}/c' && '${gitsby}' -q -NoFetch release 2.0.0 && git rev-parse -q --verify refs/tags/2.0.0 >/dev/null && ! git rev-parse -q --verify refs/tags/v2.0.0 >/dev/null"
 
 	## release started from a feature branch returns there; slash branch names work
 	fAssert "br create relfeat"  bash -c "cd '${cloneA}' && '${gitsby}' -q br create relfeat"
@@ -550,7 +553,7 @@ fRunSuite(){
 		echo d > d.txt; git add --all; git commit --quiet -m "dev work"; git push --quiet
 		git branch --unset-upstream main  ## however it got lost, main now tracks nothing
 	)
-	fAssert "release with an upstream-less main runs"  bash -c "cd '${c5}' && '${gitsby}' -q release 9.0.0"
+	fAssert "release with an upstream-less main runs"  bash -c "cd '${c5}' && '${gitsby}' -q release v9.0.0"
 	fAssert "origin main advanced, not just the tag"   bash -c "cd '${o5}' && git ls-tree --name-only main | grep -qx d.txt"
 	fAssert "tag reached origin too"                   bash -c "cd '${c5}' && git ls-remote --tags origin | grep -q 'refs/tags/v9.0.0'"
 
@@ -1535,7 +1538,7 @@ GHEOF
 	fAssertOut  "and names the commands to settle it"  "git merge dev, then '.*br merge'"  bash -c "cd '${fm}/c' && '${gitsby}' -q -NoFetch br merge Clash 2>&1"
 	## release merges dev into main the same way.
 	( cd "${fm}/c" || exit 1; git merge --abort 2>/dev/null || true; git checkout --quiet main && echo mainside > f.txt && git commit --quiet -am mainside && git push --quiet && git checkout --quiet clash )
-	fAssertFail "a release whose dev won't merge into main refuses"  bash -c "cd '${fm}/c' && '${gitsby}' -q -NoFetch release 1.0.0"
+	fAssertFail "a release whose dev won't merge into main refuses"  bash -c "cd '${fm}/c' && '${gitsby}' -q -NoFetch release v1.0.0"
 	fAssert     "and backs it out, cuts no tag, and goes back"  bash -c "cd '${fm}/c' && [[ ! -e .git/MERGE_HEAD ]] && ! git rev-parse -q --verify refs/tags/v1.0.0 >/dev/null && [[ \"\$(git branch --show-current)\" == clash ]]"
 	## Feature branches must be untouched by all of this.
 	fAssert    "br create still branches off dev"  \
@@ -4116,4 +4119,5 @@ echo "passed: ${pass}, failed: ${fail}"
 ##		- 20260915 JC: A folder rule holding '[' binds that folder in plain git and not the one it would match as a pattern, for path and pathcontains. A relative tokenfile or sshkey is listed as ignored, reads no token and writes no key; account set writes a relative tokenfile absolute, and refuses a relative key typed in a folder with a space. All nine fail against the tree before them. 941 -> 950.
 ##		- 20260915 JC: A blank GIT_SSH_COMMAND or core.sshCommand is read as plain ssh when a push is compared against the account, and the gate fails when py_compile does. All three fail against the tree before them. 950 -> 953.
 ##		- 20260915 JC: release counts on from a tag with no v and refuses a typed version tagged that way. A br merge or release that conflicts is backed out, leaves the target alone, and goes back to the branch it ran from. repo url plans a Gitea remote's own address. Eight fail against the tree before them; the two refusals and the untouched dev are regression guards. 953 -> 964.
+##		- 20260915 JC: A new release tag is spelled like the tag it counts from, and a typed version is tagged as typed. Typed versions in the older checks now carry the v they expect. Both new checks fail against the tree before them, and so does the count from a tag with no v, which now expects 1.4.3. 964 -> 966.
 ##		- 20260915 JC: Origin's copies of merged branches. A prune warning's advice, followed, clears the branch. A tag with a branch's name stops nothing, and br merge merges the branch rather than the tag. br merge --no-fetch keeps a copy someone else pushed to, and an offline br merge keeps the branch here so prune can clear both. Twelve of the fourteen fail against the tree before them; the kept tag and the merge's push are regression guards. The first prune's count drops by one, since the moved branch now stays here. 925 -> 939.

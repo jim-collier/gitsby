@@ -59,6 +59,21 @@ func TestNewestReleaseTag(t *testing.T) {
 	}
 }
 
+// Every new tag used to gain a 'v', so a repo tagged 1.4.2 went on with v1.4.3.
+func TestNextReleaseTag(t *testing.T) {
+	tests := []struct{ latest, want string }{
+		{"", "v0.1.0"},
+		{"v1.4.2", "v1.4.3"},
+		{"1.4.2", "1.4.3"},
+		{"1.3.0-rc1", "1.3.0"},
+	}
+	for _, tc := range tests {
+		if got, _ := nextReleaseTag(tc.latest); got != tc.want {
+			t.Errorf("nextReleaseTag(%q) = %q, want %q", tc.latest, got, tc.want)
+		}
+	}
+}
+
 func TestReleaseVersionShape(t *testing.T) {
 	for _, ok := range []string{"1.0.0", "10.20.30", "2.0.0-rc1", "2.0.0.beta"} {
 		if !releaseVerRE.MatchString(ok) {

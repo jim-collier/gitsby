@@ -60,15 +60,24 @@ func (a *app) resolveRelease() error {
 		if !releaseVerRE.MatchString(ver) {
 			return usagef("'%s' is not a version (want X.Y.Z, optional -suffix). Syntax: %s release [version]", ver, meName)
 		}
-		a.rel.tag = "v" + ver
+		a.rel.tag = a.cmd.arg
 		return nil
 	}
 	// versionsort.suffix=- ranks v2.0.0 above its own v2.0.0-rc1; the default sort
 	// inverts them.
 	tags := runLines("git", "-c", "versionsort.suffix=-", "tag", "--list", "v[0-9]*", "[0-9]*", "--sort=-v:refname")
-	ver, bumped := nextVersion(newestReleaseTag(tags))
-	a.rel.tag, a.rel.bumped = "v"+ver, bumped
+	a.rel.tag, a.rel.bumped = nextReleaseTag(newestReleaseTag(tags))
 	return nil
+}
+
+// nextReleaseTag is the tag after latest, spelled the same way, so a repo tagged
+// without the 'v' goes on without it. The first tag gets the 'v'.
+func nextReleaseTag(latest string) (tag string, bumped bool) {
+	ver, bumped := nextVersion(latest)
+	if latest != "" && !strings.HasPrefix(latest, "v") {
+		return ver, bumped
+	}
+	return "v" + ver, bumped
 }
 
 // newestReleaseTag picks the tag to count on from tags git sorted newest first.
@@ -116,9 +125,10 @@ func tagNewer(tag, than string) bool {
 // releasePreflight refuses up front rather than mid-command: by the time
 // cmdRelease runs it has already committed and pushed.
 func (a *app) releasePreflight() error {
-	// Either spelling, or 'release 1.2.3' in a repo that tags without the 'v' cuts
-	// v1.2.3 beside the 1.2.3 it already has.
-	if have := runLines("git", "tag", "--list", a.rel.tag, strings.TrimPrefix(a.rel.tag, "v")); len(have) > 0 {
+	// Either spelling, or 'release 1.2.3' in a repo tagged v1.2.3 cuts a second tag
+	// for the same version.
+	ver := strings.TrimPrefix(a.rel.tag, "v")
+	if have := runLines("git", "tag", "--list", "v"+ver, ver); len(have) > 0 {
 		return usagef("Tag '%s' already exists.", have[0])
 	}
 	// An invented version on a target that would gain nothing cuts a tag for no
