@@ -78,6 +78,13 @@ func TestIncludeDir(t *testing.T) {
 			t.Errorf("includeDir for %q = %q, want %q", file, got, want)
 		}
 	}
+	root, rootWant := "/wl.shcl", "/accounts"
+	if isWindows() {
+		root, rootWant = `C:\wl.shcl`, "C:/accounts"
+	}
+	if got := (&config{file: root}).includeDir(); got != rootWant {
+		t.Errorf("includeDir for %q = %q, want %q", root, got, rootWant)
+	}
 }
 
 // An account declared by its keys alone has no folder rule, so there is nothing

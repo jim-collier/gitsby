@@ -98,7 +98,8 @@ func (c *config) includeDir() string {
 	if err != nil {
 		dir = filepath.Dir(c.file)
 	}
-	return filepath.ToSlash(dir) + "/accounts"
+	// A root comes back with its slash on, 'C:/' or '/'.
+	return strings.TrimSuffix(filepath.ToSlash(dir), "/") + "/accounts"
 }
 
 // git's exit status for "the key you asked me to unset isn't there".
