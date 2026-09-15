@@ -2448,6 +2448,18 @@ GHEOF
 	fAssertFail "account apply refuses a blocked include directory"  bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q -NoFetch --config '${ac}/blocked/config.shcl' account apply"
 	fAssertOut  "and names it rather than dumping an OS error"  "isn't a directory" \
 		bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q -NoFetch --config '${ac}/blocked/config.shcl' account apply 2>&1"
+	## A config named with no folder put the fragments under the file itself, 'rel.shcl/accounts', and
+	## apply refused. A relative include would be wrong anyway: git reads one from its own config's folder.
+	mkdir -p "${ac}/rel" "${ac}/relhome"
+	cat > "${ac}/rel/rel.shcl" <<-EOF
+		account.rel.path      = ${acCanon}/trees/work
+		account.rel.ghAccount = relacct
+	EOF
+	local acRelEnv="${acNoDiscovery} HOME='${ac}/relhome' GIT_CONFIG_GLOBAL='${ac}/relhome/.gitconfig' PATH='${ac}/bin:${PATH}'"
+	fAssert "account apply takes a --config named from the folder it runs in" \
+		bash -c "cd '${ac}/rel' && env ${acRelEnv} '${gitsby}' -q -NoFetch --config rel.shcl account apply >/dev/null"
+	fAssert "and writes the fragments beside it, included by absolute path" \
+		bash -c "[[ -f '${ac}/rel/accounts/rel.gitconfig' ]] && env ${acRelEnv} git config --global --get-regexp '^includeif\.' | grep -qE ' /.+/rel/accounts/rel\.gitconfig$'"
 	## A trailing '# ...' is a comment, not part of the value - the documented example config writes
 	## them. Folded in, a path became a rule that could never match any directory, and a rule that
 	## never matches reads exactly like no rule at all: the command went out as gh's own account.
@@ -4029,4 +4041,5 @@ echo "passed: ${pass}, failed: ${fail}"
 ##		- 20260914 JC: A tea that fails to list its logins: the Git host line says tea couldn't be asked and repeats why, not that tea holds no login, and a host tea has no login for still says so. Two of the three fail against the tree before them; the no-login check is a regression guard. 912 -> 915.
 ##		- 20260914 JC: account set and a place it can't look: a folder that can't be searched is refused by name, with the chmod that fixes it, and nothing goes in ahead of it in XDG_CONFIG_HOME. A file that opens and then fails to read is refused when named and when found, where it crashed. Linux only. 915 -> 922.
 ##		- 20260915 JC: Two account set runs at once keep both keys, and a lock another run left is waited on, then refused by name. 922 -> 925.
+##		- 20260915 JC: account apply takes a --config named with no folder, and includes the fragments beside it by absolute path. Both fail against the tree before them. 939 -> 941.
 ##		- 20260915 JC: Origin's copies of merged branches. A prune warning's advice, followed, clears the branch. A tag with a branch's name stops nothing, and br merge merges the branch rather than the tag. br merge --no-fetch keeps a copy someone else pushed to, and an offline br merge keeps the branch here so prune can clear both. Twelve of the fourteen fail against the tree before them; the kept tag and the merge's push are regression guards. The first prune's count drops by one, since the moved branch now stays here. 925 -> 939.

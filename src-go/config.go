@@ -342,11 +342,25 @@ func displayPath(p string) string {
 	if home == "" || p == "" {
 		return nativePath(p)
 	}
-	if p == home {
+	head, rest := p, ""
+	if len(p) > len(home) {
+		head, rest = p[:len(home)], p[len(home):]
+	}
+	same := head == home
+	if isWindows() {
+		// Either slash and any case. The profile and APPDATA come back with
+		// backslashes and a file name goes on with '/', so a test for home+"/"
+		// never folded the accounts file there.
+		same = strings.EqualFold(strings.ReplaceAll(head, `\`, "/"), strings.ReplaceAll(home, `\`, "/"))
+	}
+	if !same {
+		return nativePath(p)
+	}
+	if rest == "" {
 		return "~"
 	}
-	if rest, found := strings.CutPrefix(p, home+"/"); found {
-		return nativePath("~/" + rest)
+	if rest[0] == '/' || isWindows() && rest[0] == '\\' {
+		return nativePath("~" + rest)
 	}
 	return nativePath(p)
 }
