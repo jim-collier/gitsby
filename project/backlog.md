@@ -156,16 +156,6 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 	- Fix order: by class, each class across all its sites in one group of commits. 5 with 11 (unknown is listed, unknown is not missing); 9 with 19 (preview follows command, one spawn per run); 3 and 8 without moving the decisions they sit on; 12 and 20 only once reproduced. 15 and 16 early, since the pipeline is what proves the rest.
 	- Note: about twelve of the twenty sit in code that rounds 20260819b, c, d and 20260821 declared clean. Those rounds read the Go and grepped the rest.
 
-	- 🔘 Code Review 20260909 item 5: a key indented one level too deep is dropped, and the line listing what was ignored does not mention it.
-		- Reproduced: an `sshkey` written one tab further in than the keys around it does not apply, and `account list` reports only the unknown key beside it.
-		- Note: over-indent the key that picks the ssh key or the token file and the account applies without it, silently. The listing that always says, says nothing.
-		- Probable fix: walk the children of each key as well as the children of each block, and add whatever turns up to the ignored list.
-		- Origin: 8203670 (the shcl parser). Third instance of malformed input dropped silently, after 20260819d item 3 and the 20260821 fuzz find. The flat parser has ignored-list tests; this path has none. Confirmed.
-		- Sweep: every level the shcl loader walks, with a test per level.
-		- Sweep: every level the loader walks has a test: top-level keys, protocol, both account spellings, their fields, and anything under those at any depth. A stacked list and a raw block are not listed. A key inside a block with a refused name stays covered by the block's own entry.
-		- Fixed: the loader lists every key it does not read, at any depth. A key indented under another key is named by the path that reaches it and the key it sits under, such as `account[w].email.sshkey (indented under email)`. The key above it still applies. A stacked list and a raw block list nothing.
-		- Verified: 6 new checks in test.bash, 899 -> 905. Four fail on `gover`, and two are regression guards: the key above still applies, and a stacked list lists nothing. Two new Go tests and a fuzz target. The table fails on `gover` for every nested row and passes there for a stacked list, a raw block and a refused name. The depth cap test and every fuzz seed fail on `gover`. `FuzzConfigLoadDoc` passes over a 60 s run. fuzz.bash 301/0, parity.bash 27/0, and the quick pipeline and the pre-push gate are green. On vm925w the same Go tests fail on `gover` and pass on the branch. macOS and the BSDs untested.
-
 	- 🔘 Code Review 20260909 item 6: a whitespace-only ssh command crashes the program.
 		- Cause: an ssh command taken from the environment or from git config is passed through whenever it is not empty and carries no quotes, so a single space survives. Splitting it yields nothing, and the first element is read anyway.
 		- Note: it fires while printing the identity block, so every mutating command dies ahead of its plan.
@@ -198,16 +188,6 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- Note: the back-merge path in the same file handles the same failure the other way. It aborts, says what got through, and names the command to finish by hand.
 		- Probable fix: give the forward merge the same treatment.
 		- Origin: 0a3ef88; the frozen bash has the same asymmetry. Confirmed.
-
-	- 🔘 Code Review 20260909 item 11: being offline reads as "that repo doesn't exist".
-		- Cause: the remote probe answers missing for any failure. A comment a few lines above it says unknown must not collapse into missing, and the GitHub-side probe honors that by reading the error text.
-		- Note: offline, `repo connect` says a repo that exists does not, and points at the command that would create a second one.
-		- Probable fix: read the error text, keep "could not tell" as its own answer, and give it its own message.
-		- Origin: 0a3ef88. The same bug was fixed in `ghRepoState` (20260818 item 7), same file, and this sibling was missed. Confirmed.
-		- Sweep: every caller that turns a tool failure into an answer.
-		- Sweep: every place a tool's failure is read as an answer was checked. A tea that fails reads as having no login for the host; filed as its own bug. The rest either say unknown already, refuse on the answer they assume, or read local state that fails loudly a step later.
-		- Fixed: `repo connect` reads what git said, not only that it failed. Only git's words for a host that was reached and said no count as missing. Anything else refuses before the plan, says there is no telling whether the remote exists, repeats git's reason, and names no command. The missing message is reworded, and an answer nobody listed refuses instead of connecting.
-		- Verified: 7 new checks in test.bash, 905 -> 912. Four fail on `gover`, and three are regression guards: it refuses, nothing is set up, and a credential in the url is not printed. The credential check stays in the suite, and a Go row covers the same case. Two new Go tests, which don't build on `gover`. fuzz.bash 301/0, parity.bash 27/0, and the quick pipeline and the pre-push gate are green. On vm925w both Go tests pass. There an unreachable https remote reads as no telling whether it exists on the branch, where `gover` names `repo create`, and a missing local path reads as missing. macOS and the BSDs untested.
 
 	- 🔘 Code Review 20260909 item 12: install.ps1 fails on Windows PowerShell 5.1 in the default lookup.
 		- Cause: the release lookup reads a header through a property that exists on version 7's object and not on 5.1's. Strict mode turns that into an error inside the handler, so the fallback below is never reached.
@@ -381,6 +361,31 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- Note: regenerating publishes whichever marker is in the generator into the Windows file properties, where a user reads it. See enhancement 1, which has to be settled first.
 		- Fixed: the generator writes the plain copyright again, which is what both resource files already held. The check passes, and nothing needed regenerating.
 
+	- ✅ Code Review 20260909 item 5: a key indented one level too deep is dropped, and the line listing what was ignored does not mention it.
+		- Closed: 20260914-190531
+		- Reproduced: an `sshkey` written one tab further in than the keys around it does not apply, and `account list` reports only the unknown key beside it.
+		- Note: over-indent the key that picks the ssh key or the token file and the account applies without it, silently. The listing that always says, says nothing.
+		- Probable fix: walk the children of each key as well as the children of each block, and add whatever turns up to the ignored list.
+		- Origin: 8203670 (the shcl parser). Third instance of malformed input dropped silently, after 20260819d item 3 and the 20260821 fuzz find. The flat parser has ignored-list tests; this path has none. Confirmed.
+		- Sweep: every level the shcl loader walks, with a test per level.
+		- Sweep: every level the loader walks has a test: top-level keys, protocol, both account spellings, their fields, and anything under those at any depth. A stacked list and a raw block are not listed. A key inside a block with a refused name stays covered by the block's own entry.
+		- Fixed: the loader lists every key it does not read, at any depth. A key indented under another key is named by the path that reaches it and the key it sits under, such as `account[w].email.sshkey (indented under email)`. The key above it still applies. A stacked list and a raw block list nothing.
+		- Verified: 6 new checks in test.bash, 899 -> 905. Four fail on `gover`, and two are regression guards: the key above still applies, and a stacked list lists nothing. Two new Go tests and a fuzz target. The table fails on `gover` for every nested row and passes there for a stacked list, a raw block and a refused name. The depth cap test and every fuzz seed fail on `gover`. `FuzzConfigLoadDoc` passes over a 60 s run. fuzz.bash 301/0, parity.bash 27/0, and the quick pipeline and the pre-push gate are green. On vm925w the same Go tests fail on `gover` and pass on the branch. macOS and the BSDs untested.
+		- Reviewed before merge: nothing found.
+
+	- ✅ Code Review 20260909 item 11: being offline reads as "that repo doesn't exist".
+		- Closed: 20260914-190531
+		- Cause: the remote probe answers missing for any failure. A comment a few lines above it says unknown must not collapse into missing, and the GitHub-side probe honors that by reading the error text.
+		- Note: offline, `repo connect` says a repo that exists does not, and points at the command that would create a second one.
+		- Probable fix: read the error text, keep "could not tell" as its own answer, and give it its own message.
+		- Origin: 0a3ef88. The same bug was fixed in `ghRepoState` (20260818 item 7), same file, and this sibling was missed. Confirmed.
+		- Sweep: every caller that turns a tool failure into an answer.
+		- Sweep: every place a tool's failure is read as an answer was checked. A tea that fails reads as having no login for the host; filed as its own bug. The rest either say unknown already, refuse on the answer they assume, or read local state that fails loudly a step later.
+		- Fixed: `repo connect` reads what git said, not only that it failed. Only git's words for a host that was reached and said no count as missing. Anything else refuses before the plan, says there is no telling whether the remote exists, repeats git's reason, and names no command. The missing message is reworded, and an answer nobody listed refuses instead of connecting.
+		- Verified: 7 new checks in test.bash, 905 -> 912. Four fail on `gover`, and three are regression guards: it refuses, nothing is set up, and a credential in the url is not printed. The credential check stays in the suite, and a Go row covers the same case. Two new Go tests, which don't build on `gover`. fuzz.bash 301/0, parity.bash 27/0, and the quick pipeline and the pre-push gate are green. On vm925w both Go tests pass. There an unreachable https remote reads as no telling whether it exists on the branch, where `gover` names `repo create`, and a missing local path reads as missing. macOS and the BSDs untested.
+		- Reviewed before merge: an ssh key refusal reads as unknown, which is right, but the message said the remote couldn't be reached, and ssh had reached it. It now says "Couldn't get an answer from". A Go row covers the refusal, and the message check fails on the wording before. test.bash 912/0, parity.bash 27/0, Go tests green.
+		- Decided against: masking the reason git repeats. git hides a credential in its own messages, and ssh has none to print.
+
 	- ✅ Code Review 20260909 item 15: there is no fast gate and no pre-push hook.
 		- Closed: 20260914-134906
 		- The standing directive asks for a quick mode that checks formatting, lints with warnings as errors and runs the unit tests, registered as a pre-push hook, so nothing reaches dev or main unverified outside a full run.
@@ -550,7 +555,7 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- The new suite check runs the backport case against a stub serving a one-line payload; the previous installer fails it both ways.
 
 	- ✅ Code Review 20260821 item 2: `Get-Help` on install.ps1 showed an auto-generated stub.
-		- Comment help was binding to the first function. A blank line under the shebang and two above the function fix the binding; a comment marks them load-bearing.
+		- Comment help was binding to the first function. A blank line under the shebang and two above the function fix the binding, and a comment says to keep them.
 		- Also gone: the one `+=`-in-a-loop, and the `iex` one-liner's inability to take flags is now documented in the README with the script-block form.
 
 	- ✅ Code Review 20260821 item 3: `br prune`'s delete-time re-check forked git once per branch.
