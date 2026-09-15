@@ -50,6 +50,15 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 ### Bugs
 
+- 🔘 A Gitea remote's identity line says tea has no login for the host when tea failed to answer.
+	- Opened: 20260914-180511
+	- Reproduced: with a `tea` whose `logins list` exits 1, `status -NoFetch` on a Gitea remote printed `Git host .....: gitea.example.com (tea): unknown - 'tea login add' has no login for this host`. tea was asked and gave no answer, and the line says there is no login.
+	- Cause: `forgeLogin` returns nothing both when tea lists no login for the host and when `tea logins list` fails, and the identity line reads nothing as the first.
+	- Probable fix: keep the two apart. When tea fails, say it couldn't be asked and repeat tea's reason.
+	- Note: display only. The identity check already reads nothing as unknown, so no refusal acts on it.
+	- Note: found in the sweep for Code Review 20260909 item 11.
+	- Origin: 4573f4c added the tea path and this line. No earlier round saw it. Confirmed.
+
 - 🔘 With `XDG_CONFIG_HOME` set, `account set` creates a new accounts file that hides one in a `~/.config/gitsby` folder it can't search.
 	- Opened: 20260914-174736
 	- Reproduced: `~/.config/gitsby` at mode 0600 holding a readable accounts file, and `XDG_CONFIG_HOME` pointing at an empty folder. `account set kept email k@example.com` planned `create ~/xdg/gitsby/config.shcl`, wrote it and exited 0. Once the folder could be searched again, `account list` read the new file and showed none of the old accounts. `gover` does the same.
