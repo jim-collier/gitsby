@@ -368,6 +368,9 @@ The Bash and PowerShell files were ports of each other, and were kept in step fo
 	- It refuses a key the loader does not read, and a value the loader would drop. A line written past either check lands in the file and is ignored on every load, so the file says one thing and every command does another - the worst of the three possible outcomes.
 	- Everything it does not change comes back byte for byte, byte-order mark and line endings included. This file is hand-written and hand-commented; a command that reformatted it in passing would cost more than it saved.
 	- A key already present more than once is refused rather than guessed at. `path` and `pathcontains` are repeatable by design, and replacing the first of several would look like it worked and change nothing that is read.
+	- It never replaces a file it could not read. Reads pass over a discovered file that can't be read, as if it were not there, since nobody asserted it was. `account set` is the one thing that would act on that absence, so it refuses to create a file while anything is at a place gitsby looks, and names it. Decided 2026-09-14.
+		- An unreadable file had read as no file, and the create truncated it. With `XDG_CONFIG_HOME` set, the new file went in ahead of the old one instead and hid it from every later command.
+		- The create opens exclusively, so a file that turns up while it runs, or a link to a file that isn't there, is refused rather than written over or through.
 
 - The accounts file lives where the platform in hand keeps one, and the place it used to live is never taken away.
 	- Gitsby searched `$XDG_CONFIG_HOME`, then `~/.config`, then `%APPDATA%`, on every platform. That is a Linux convention applied everywhere: a Windows user's file landed under a dot-directory in their profile, a macOS user's outside `Application Support`, and both only because nothing had been found first.
