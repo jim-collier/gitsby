@@ -16,7 +16,9 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func planFor(t *testing.T, body string) *config {
@@ -778,6 +780,110 @@ func TestLookupFix(t *testing.T) {
 	for _, tc := range tests {
 		if got := lookupFix(tc.goos, tc.file, tc.cause); len(got) != 1 || got[0] != tc.want {
 			t.Errorf("lookupFix(%s, %s, %v) = %q, want %q", tc.goos, tc.file, tc.cause, got, tc.want)
+		}
+	}
+}
+
+// The item's case: two edits of one file at once, each saving the file whole. A
+// run that says it wrote keeps its key, and at most one of the two refuses.
+func TestAccountSetKeepsBothOfTwoEditsAtOnce(t *testing.T) {
+	for try := range 20 {
+		first, file := setApp(t, keptBody, "work", "email", "x@example.com")
+		second := newApp(newPrinter())
+		second.opt = first.opt
+		if err := second.cfg.load(second.opt); err != nil {
+			t.Fatalf("load: %v", err)
+		}
+		second.cmd = command{name: "account-set", arg: "work", arg2: "name", arg3: "Ada", mutating: true}
+		errs := make([]error, 2)
+		var wg sync.WaitGroup
+		for i, a := range []*app{first, second} {
+			wg.Go(func() { errs[i] = a.cmdAccountSet() })
+		}
+		wg.Wait()
+		got := readBack(t, file)
+		if errs[0] != nil && errs[1] != nil {
+			t.Fatalf("try %d: both refused: %v; %v", try, errs[0], errs[1])
+		}
+		for i, want := range []string{"email: x@example.com", "name: Ada"} {
+			switch {
+			case errs[i] == nil && !strings.Contains(got, want):
+				t.Fatalf("try %d: a run wrote %q and the file lacks it:\n%s", try, want, got)
+			case errs[i] != nil && !strings.HasPrefix(errs[i].Error(), "The accounts file changed while this ran."):
+				t.Fatalf("try %d: err = %v, want the changed refusal", try, errs[i])
+			}
+		}
+	}
+}
+
+// A file written after the load is refused and kept, not saved over with what the
+// plan read. The lock goes with the run.
+func TestAccountSetRefusesAFileThatChanged(t *testing.T) {
+	a, file := setApp(t, keptBody, "work", "email", "x@example.com")
+	const since = "account: work\n\tghaccount: keepme\n\tname: Ada\n"
+	if err := os.WriteFile(file, []byte(since), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := a.cmdAccountSet()
+	if err == nil {
+		t.Fatal("set: no refusal")
+	}
+	for _, want := range []string{"The accounts file changed while this ran.", "File: " + displayPath(file), "Kept: Nothing was written."} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal is missing %q:\n%s", want, err)
+		}
+	}
+	if got := readBack(t, file); got != since {
+		t.Errorf("the changed file was saved over:\n%q", got)
+	}
+	if _, err := os.Lstat(file + ".lock"); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the lock was left behind: %v", err)
+	}
+}
+
+// A held lock is waited on and then refused by name. Unlocking removes this run's
+// own lock, and leaves alone one another run made in its place.
+func TestLockAccountsFile(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "config.shcl")
+	lock := file + ".lock"
+	unlock, err := lockAccountsFile(file, 0)
+	if err != nil {
+		t.Fatalf("lock: %v", err)
+	}
+	if _, err := lockAccountsFile(file, 60*time.Millisecond); err == nil || !strings.Contains(err.Error(), "Lock: "+displayPath(lock)) {
+		t.Errorf("second lock: err = %v, want the refusal naming the lock", err)
+	}
+	unlock()
+	if _, err := os.Lstat(lock); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("unlock left the lock: %v", err)
+	}
+	if unlock, err = lockAccountsFile(file, 0); err != nil {
+		t.Fatalf("relock: %v", err)
+	}
+	if err := os.Remove(lock); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lock, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	unlock()
+	if _, err := os.Lstat(lock); err != nil {
+		t.Errorf("unlock removed a lock it didn't make: %v", err)
+	}
+}
+
+func TestLockFix(t *testing.T) {
+	tests := []struct {
+		goos, lock string
+		want       []string
+	}{
+		{"linux", "/h/c.shcl.lock", []string{"If no other gitsby is running, a run that was stopped left it behind. Remove it, then run this again:", "  rm '/h/c.shcl.lock'"}},
+		{"windows", "C:/h/c.shcl.lock", []string{"If no other gitsby is running, a run that was stopped left it behind. Remove it, then run this again."}},
+		{"linux", "/h/it's/c.shcl.lock", []string{"If no other gitsby is running, a run that was stopped left it behind. Remove it, then run this again."}},
+	}
+	for _, tc := range tests {
+		if got := lockFix(tc.goos, tc.lock); !slices.Equal(got, tc.want) {
+			t.Errorf("lockFix(%s, %s) = %q, want %q", tc.goos, tc.lock, got, tc.want)
 		}
 	}
 }
