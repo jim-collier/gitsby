@@ -86,10 +86,10 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 ### Features and enhancements
 
-- 🔘 No UI and UX style guide exists, and README points at none.
-	- Opened: 20260914-122353
-	- Note: the output rules are in design.md's UI section and nowhere else. This item writes `project/style-guide_cli.md` from them and links it from README.
-	- Note: bringing the output into line with the guide is a separate item, filed once the guide exists.
+- 🔘 Bring the output into line with the CLI style guide.
+	- Opened: 20260915-154529
+	- Seen while writing the guide: `WARNING:` lines are bracketed in some places and bare in others. `account list` prints `token ...: none` beside `github ..: (none)`. Most `Syntax:` lines name their placeholders without saying what they mean; only `account set` does.
+	- Note: `account list` prints a folder rule as its expanded path, while the file line above it folds home to `~`. The guide asks for `~` only in diagnostics, so this one wants a decision first.
 
 - 🛠️ Code review 20260909 - enhancements from the same pass. Twelve items, none of them urgent.
 	- Opened: 20260909-184419
@@ -1800,6 +1800,11 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- Added next to the bash badge in the header block, linking to the PowerShell docs.
 
 #### Done - Features and enhancements
+
+- ✅ No UI and UX style guide exists, and README points at none.
+	- Opened: 20260914-122353
+	- Closed: 20260915-154529
+	- Done: `project/style-guide_cli.md` holds the output, prompt and error rules from design.md, the diagnostics decisions, and what the program does today. README, contributing.md and design.md's UI section link to it.
 
 - ✅ Code review 20260909 - the closed enhancements from the same pass. The rest are still open under Features and enhancements.
 	- Opened: 20260909-184419

@@ -300,7 +300,7 @@ cicd/cicd.bash --install-hook   # run --gate on each pushed commit before every 
 
 With the hook installed, `git push --no-verify` skips the gate for one push.
 
-Full prerequisites and process: [contributing.md](contributing.md). Coding style: [style-guide.md](style-guide.md). There's also "[Git notes and one-liners](git_notes_and_oneliners.md)", covering simplified versions of what Gitsby does - useful when you want the raw commands.
+Full prerequisites and process: [contributing.md](contributing.md). Coding style: [style-guide.md](style-guide.md). Output, prompts and errors: [project/style-guide_cli.md](project/style-guide_cli.md). There's also "[Git notes and one-liners](git_notes_and_oneliners.md)", covering simplified versions of what Gitsby does - useful when you want the raw commands.
 
 ## Contributing
 
