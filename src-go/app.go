@@ -176,6 +176,7 @@ type app struct {
 	rel   releasePlan
 	tgt   repoTarget
 	pr    prRequest
+	set   *accountSetTarget
 
 	// Set by showList; callers that need "was it empty?" read it back.
 	lastListCount int

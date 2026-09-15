@@ -3935,6 +3935,30 @@ GHEOF
 	printf 'account.dup.path = /a\naccount.dup.path = /b\n' > "${fg}/dup.shcl"
 	fAssertOut "a key present twice is not guessed at"  'Edit it by hand' \
 		bash -c "cd '${fgRepo}' && PATH='${fgPath}' '${gitsby}' -q -NoFetch --config '${fg}/dup.shcl' account set dup path /c 2>&1"
+	## A refusal decided inside the plan printed as the plan, asked to continue, then refused with
+	## the same sentence.
+	printf 'account: work\n    host: github.com\n' > "${fg}/spaced.shcl"
+	fAssertNotOut "a refused account set shows no plan"  'Going to do' \
+		bash -c "cd '${fgRepo}' && PATH='${fgPath}' '${gitsby}' -q -NoFetch --config '${fg}/spaced.shcl' account set work host 'a b' 2>&1"
+	if ((hasPty)); then
+		fAssertNotOut "and asks nothing"  'Continue\?' \
+			fAnswerPrompt y "cd '${fgRepo}' && PATH='${fgPath}' '${gitsby}' -NoFetch --config '${fg}/spaced.shcl' account set work host 'a b'"
+	fi
+	## Only https and ssh are acted on. Anything else was written, shown as set, and ignored.
+	fAssertOut "a protocol gitsby doesn't use is refused"  "isn't a protocol gitsby uses" \
+		bash -c "cd '${fgRepo}' && PATH='${fgPath}' '${gitsby}' -q -NoFetch --config '${fg}/spaced.shcl' account set work protocol git 2>&1"
+	fAssertNotOut "and never reaches the file"  'protocol' \
+		cat "${fg}/spaced.shcl"
+	## Saves are canonical. The plan called a respacing of the whole file an edit of one line.
+	fAssertOut "an edit that respaces the file says so in the plan"  'also: +the rest of the file' \
+		bash -c "cd '${fgRepo}' && PATH='${fgPath}' '${gitsby}' -q -NoFetch --config '${fg}/spaced.shcl' account set work host gitea.com 2>&1"
+	fAssertNotOut "and a file already spaced that way hears nothing of it"  'also: ' \
+		bash -c "cd '${fgRepo}' && PATH='${fgPath}' '${gitsby}' -q -NoFetch --config '${fg}/spaced.shcl' account set work host git.example.org 2>&1"
+	printf 'protocol: git\naccount: work\n\tprotocol: xyz\n' > "${fg}/badproto.shcl"
+	fAssertOut "account list names a protocol nothing acts on as ignored"  'account\[work\]\.protocol \(not https or ssh\)' \
+		bash -c "cd '${fgRepo}' && PATH='${fgPath}' '${gitsby}' -q -NoFetch --config '${fg}/badproto.shcl' account list 2>&1"
+	fAssertOut "and the one for every account too"  'Ignored keys \.*: protocol \(not https or ssh\)' \
+		bash -c "cd '${fgRepo}' && PATH='${fgPath}' '${gitsby}' -q -NoFetch --config '${fg}/badproto.shcl' account list 2>&1"
 	## Three placeholders are the whole interface. Naming them without saying what they are answers
 	## nothing for the one reader who ever sees this - the one who just typed the command wrong.
 	fAssertOut "the syntax block says what '<account>' is"  '<account>  A string you define for one login' \
@@ -4142,3 +4166,4 @@ echo "passed: ${pass}, failed: ${fail}"
 ##		- 20260915 JC: A new release tag is spelled like the tag it counts from, and a typed version is tagged as typed. Typed versions in the older checks now carry the v they expect. Both new checks fail against the tree before them, and so does the count from a tag with no v, which now expects 1.4.3. 964 -> 966.
 ##		- 20260915 JC: The hotfix note is about more than documentation, not one folder. It fires for code in any folder, stays quiet in a repo with no release tags, and says so when the comparison can't run. The three older warning checks match the new wording. All six fail against the tree before them. 966 -> 969.
 ##		- 20260915 JC: Origin's copies of merged branches. A prune warning's advice, followed, clears the branch. A tag with a branch's name stops nothing, and br merge merges the branch rather than the tag. br merge --no-fetch keeps a copy someone else pushed to, and an offline br merge keeps the branch here so prune can clear both. Twelve of the fourteen fail against the tree before them; the kept tag and the merge's push are regression guards. The first prune's count drops by one, since the moved branch now stays here. 925 -> 939.
+##		- 20260915 JC: account set refuses before its plan, so a refused one shows no plan and asks nothing. A protocol other than https or ssh is refused and never written, and account list names one in a file as ignored, in an account and at the top. An edit that respaces the file says so in the plan. Seven of the eight fail against the tree before them; a plan for a file already spaced that way is a regression guard. The prompt check needs script. 969 -> 977.

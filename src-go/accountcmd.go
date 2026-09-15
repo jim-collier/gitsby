@@ -623,6 +623,7 @@ type accountSetTarget struct {
 	old      string // its value now, as typed
 	creates  bool   // the file itself does not exist yet
 	converts bool   // the file is in the old flat layout, and comes out in the current one
+	reshapes bool   // the save changes more of the file than the key: spacing, key case, line ends
 	read     string // the file as the plan read it; the save refuses once it holds anything else
 }
 
@@ -898,6 +899,12 @@ func (a *app) accountSetPlan() (accountSetTarget, error) {
 	if (t.field == "host" || t.field == "user") && !forgeWordOK.MatchString(t.value) {
 		return t, usagef("'%s' isn't a plain %s name; letters, digits, '.', '_' and '-' only.", t.value, t.field)
 	}
+	if t.field == "protocol" {
+		if !protocolOK(t.value) {
+			return t, usagef("'%s' isn't a protocol %s uses. One of: https, ssh.", t.value, meName)
+		}
+		t.value = strings.ToLower(t.value)
+	}
 	switch {
 	case a.cfg.file == "":
 		if t.file = defaultConfigFile(); t.file == "" {
@@ -929,6 +936,8 @@ func (a *app) accountSetPlan() (accountSetTarget, error) {
 	if lost := t.doc.LostCount(); lost > 0 {
 		return t, usagef("%d line(s) of %s couldn't be read, and a rewrite would drop them. Edit it by hand.", lost, displayPath(t.file))
 	}
+	// Taken before the edit, so only what the save changes besides the key counts.
+	t.reshapes = !t.creates && !t.converts && t.doc.ToCanonical() != t.read
 	blocks, _ := acctBlocks(t.doc)
 	for _, b := range blocks {
 		if b.name == name {
@@ -960,10 +969,14 @@ func (a *app) accountSetPlan() (accountSetTarget, error) {
 // tabs, lower-case keys, one blank line at most between blocks. Comments and
 // order come through; the spacing is the format's.
 func (a *app) cmdAccountSet() error {
-	t, err := a.accountSetPlan()
-	if err != nil {
-		return err
+	if a.set == nil {
+		t, err := a.accountSetPlan()
+		if err != nil {
+			return err
+		}
+		a.set = &t
 	}
+	t := *a.set
 	if !t.doc.SetString(t.path(), t.value) {
 		return usagef("'%s' isn't a setting the file can hold (%s).", t.disp+"."+t.field, t.doc.WriteReason(t.path()))
 	}

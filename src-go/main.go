@@ -352,6 +352,13 @@ func (a *app) preflight() error {
 			return err
 		}
 	}
+	if a.cmd.name == "account-set" {
+		t, err := a.accountSetPlan()
+		if err != nil {
+			return err
+		}
+		a.set = &t
+	}
 	return a.preflightBranch()
 }
 
