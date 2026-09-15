@@ -664,6 +664,18 @@ func configRefusal(file string, state candidateState, fi os.FileInfo, cause erro
 			kept,
 			noteLines("Fix", "Move it out of the way, then run this again."),
 		}
+	case candidateUnknown:
+		head = "Couldn't look for an accounts file where one can be."
+		why := "Looking there failed with: " + causeText(cause) + ", so there is no telling whether one is there."
+		if file != defaultConfigFile() {
+			why += " A new file would go in ahead of it and hide it."
+		}
+		notes = [][]string{
+			noteLines("File", displayPath(file)),
+			noteLines("Why", why),
+			kept,
+			noteLines("Fix", lookupFix(runtime.GOOS, file, cause)...),
+		}
 	default:
 		head = "An accounts file turned up while this ran."
 		notes = [][]string{
@@ -712,6 +724,26 @@ func unreadableFix(goos, file string, cause error) []string {
 	}
 	// A leading space makes it a literal line: indented, never wrapped.
 	return []string{"Make it readable, then run this again:", "  chmod u+r '" + file + "'"}
+}
+
+// lookupFix is the Fix for a place that couldn't be looked in. The command is given
+// only when the folder the file sits in is the one that can't be searched, which
+// looking up that folder itself proves. A folder further up is left to the reader.
+func lookupFix(goos, file string, cause error) []string {
+	dir := filepath.Dir(file)
+	switch {
+	case !errors.Is(cause, fs.ErrPermission):
+		return []string{"Run this again once it can be looked up."}
+	case goos == "windows":
+		return []string{"Give your account access to the folder it is in, then run this again."}
+	case strings.Contains(dir, "'"):
+		return []string{"Make the folder it is in searchable, then run this again."}
+	}
+	if _, err := os.Lstat(dir); err != nil {
+		return []string{"Make the folders above it searchable, then run this again."}
+	}
+	// A leading space makes it a literal line: indented, never wrapped.
+	return []string{"Make the folder it is in searchable, then run this again:", "  chmod u+x '" + dir + "'"}
 }
 
 // createAccountsFile makes the file and writes it through one handle. The open

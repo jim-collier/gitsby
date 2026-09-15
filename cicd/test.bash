@@ -2490,6 +2490,30 @@ GHEOF
 		fAssert "and nothing is created where it points"  bash -c "[[ ! -e '${acUnr}/dot/config.shcl' ]]"
 		fAssertOut "something that isn't a file is named as that"  "isn't a file is where the accounts file goes" \
 			bash -c "cd '${acWork}' && env ${acNoDiscovery} HOME='${acUnr}/dirhome' PATH='${ac}/bin:${PATH}' ${acUnrSet} 2>&1"
+		## A folder reads look in that can't be searched may hold an accounts file, and a new one in
+		## XDG_CONFIG_HOME would go in ahead of it and hide it.
+		local acShutDir="${acUnr}/shuthome/.config/gitsby"
+		mkdir -p "${acShutDir}" "${acUnr}/shutxdg"
+		cp "${acUnr}/body.shcl" "${acShutDir}/config.shcl"; chmod 600 "${acShutDir}"
+		local acShutEnv="${acNoDiscovery} XDG_CONFIG_HOME='${acUnr}/shutxdg' HOME='${acUnr}/shuthome' PATH='${ac}/bin:${PATH}'"
+		fAssertFail "'account set' refuses to create while a folder it looks in can't be searched" \
+			bash -c "cd '${acWork}' && env ${acShutEnv} ${acUnrSet}"
+		fAssertOut "and names the file it couldn't look for"  'File: +~/\.config/gitsby/config\.shcl' \
+			bash -c "cd '${acWork}' && env ${acShutEnv} ${acUnrSet} 2>&1"
+		fAssertOut "and gives the command that makes the folder searchable"  "chmod u\\+x '${acShutDir//./\\.}'" \
+			bash -c "cd '${acWork}' && env ${acShutEnv} ${acUnrSet} 2>&1"
+		fAssert "and no file is created ahead of it"  bash -c "[[ ! -e '${acUnr}/shutxdg/gitsby/config.shcl' ]]"
+		chmod 700 "${acShutDir}"
+		fAssertOut "once the folder can be searched, reads find that file"  'keptacct' \
+			bash -c "cd '${acWork}' && env ${acShutEnv} '${gitsby}' -q -NoFetch account 2>&1"
+		## A file that opens and then fails to read, which /proc/self/mem is on Linux.
+		if [[ -f /proc/self/mem ]]; then
+			fAssertOut "a named accounts file that fails to read is refused"  "GITSBY_CONFIG names '/proc/self/mem', which can't be read" \
+				bash -c "cd '${acWork}' && env ${acNoDiscovery} GITSBY_CONFIG=/proc/self/mem HOME='${acUnr}/home' PATH='${ac}/bin:${PATH}' ${acUnrSet} 2>&1"
+			mkdir -p "${acUnr}/memhome/.config/gitsby"; ln -sf /proc/self/mem "${acUnr}/memhome/.config/gitsby/config.shcl"
+			fAssertOut "and a found one is refused by 'account set' as a file it can't read"  "is already there, and it can't be read" \
+				bash -c "cd '${acWork}' && env ${acNoDiscovery} HOME='${acUnr}/memhome' PATH='${ac}/bin:${PATH}' ${acUnrSet} 2>&1"
+		fi
 		chmod 600 "${acUnrFile}"
 	fi
 	## A named file that isn't there is a typo, not a reason to fall back silently.
@@ -3900,3 +3924,4 @@ echo "passed: ${pass}, failed: ${fail}"
 ##		- 20260914 JC: A key indented under another key in the accounts file is listed by the path that reaches it: under an account's key, under a key nothing reads, and under protocol, and in the identity block too. The key it sits under still applies, and a stacked folder list lists nothing. Four of the six fail against the tree before them; two are regression guards. 899 -> 905.
 ##		- 20260914 JC: repo connect and a remote it can't reach: refused as unknown, with ssh's reason, no pointer at repo create, and nothing set up. A local path that isn't a repo still reads as missing, and a credential in an unreachable url is not printed. Four of the seven fail against the tree before them; three are regression guards. 905 -> 912.
 ##		- 20260914 JC: A tea that fails to list its logins: the Git host line says tea couldn't be asked and repeats why, not that tea holds no login, and a host tea has no login for still says so. Two of the three fail against the tree before them; the no-login check is a regression guard. 912 -> 915.
+##		- 20260914 JC: account set and a place it can't look: a folder that can't be searched is refused by name, with the chmod that fixes it, and nothing goes in ahead of it in XDG_CONFIG_HOME. A file that opens and then fails to read is refused when named and when found, where it crashed. Linux only. 915 -> 922.
