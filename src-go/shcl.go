@@ -101,9 +101,9 @@ func acctBlocks(doc *shcl.Document) (blocks []acctBlock, stray []string) {
 }
 
 // loadDoc reads the current layout into the model. Anything the reader cannot
-// place - a malformed line, a key nothing reads, an account named in a way that
-// could climb out of the include directory - goes on the ignored list, never
-// quietly by.
+// place - a malformed line, a key nothing reads, a key indented under another
+// key, an account named in a way that could climb out of the include directory -
+// goes on the ignored list, never quietly by.
 func (c *config) loadDoc(doc *shcl.Document) {
 	c.doc = doc
 	for _, d := range doc.Diagnostics() {
@@ -115,9 +115,16 @@ func (c *config) loadDoc(doc *shcl.Document) {
 		switch name {
 		case "protocol":
 			c.values[name] = lastString(doc, name)
+			for j := range doc.Count(name) {
+				c.listNested(doc, fmt.Sprintf("%s[#%d]", name, j), name, name)
+			}
 		case "account":
 		default:
 			c.unknown = append(c.unknown, name)
+			path := shcl.QuoteSegment(name)
+			for j := range doc.Count(path) {
+				c.listNested(doc, fmt.Sprintf("%s[#%d]", path, j), name, name)
+			}
 		}
 	}
 	blocks, stray := acctBlocks(doc)
@@ -141,6 +148,27 @@ func (c *config) loadDoc(doc *shcl.Document) {
 			default:
 				c.absorb(b.name, field, lastString(doc, path), b.disp+"."+field)
 			}
+			for j := range doc.Count(path) {
+				c.listNested(doc, fmt.Sprintf("%s[#%d]", path, j), b.disp+"."+field, field)
+			}
+		}
+	}
+}
+
+// listNested puts every key below one instance on the ignored list: nothing
+// reads a key from under another key, and a key indented one level too far is
+// otherwise gone without a word. at is the instance's lookup path, disp how the
+// list names it, parent the name of the key it sits under.
+func (c *config) listNested(doc *shcl.Document, at, disp, parent string) {
+	for _, name := range dedupe(doc.Children(at)) {
+		// Once per path: a repeated key with a child under each is one line to fix.
+		if entry := disp + "." + name + " (indented under " + parent + ")"; !contains(c.unknown, entry) {
+			c.unknown = append(c.unknown, entry)
+		}
+		// Per instance: Children of a path that matches more than one answers nothing.
+		path := at + "." + shcl.QuoteSegment(name)
+		for j := range doc.Count(path) {
+			c.listNested(doc, fmt.Sprintf("%s[#%d]", path, j), disp+"."+name, name)
 		}
 	}
 }

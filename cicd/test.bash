@@ -2389,6 +2389,33 @@ GHEOF
 		bash -c "cd '${acHome}' && env ${acEnv} '${gitsby}' -q -NoFetch -Config '${ac}/hier.shcl' status"
 	fAssertOut "a key nothing reads is named by the path that reaches it"  'Ignored keys \.+:.*account\[hw\]\.nonsense' \
 		bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q -NoFetch -Config '${ac}/hier.shcl' account"
+	## A key indented under another key is that key's child, and nothing reads a key from there. It
+	## is listed by the path that reaches it, and the key above it still applies. A stacked list
+	## holds its items as the key's value, so it lists nothing.
+	cat > "${ac}/nested.shcl" <<-EOF
+		protocol: https
+		    sshkey: ~/.ssh/id_proto
+		account: hn
+		    path:
+		        * ${acCanon}/trees/work
+		    name: Nested Person
+		    email: nested@example.com
+		        sshkey: ~/.ssh/id_nested
+		    nonsense: 1
+		        tokenfile: /t
+	EOF
+	fAssertOut "a key indented under another key is listed as ignored"  'account\[hn\]\.email\.sshkey \(indented under email\)' \
+		bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q -NoFetch -Config '${ac}/nested.shcl' account"
+	fAssertOut "and one under a key nothing reads"  'account\[hn\]\.nonsense\.tokenfile \(indented under nonsense\)' \
+		bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q -NoFetch -Config '${ac}/nested.shcl' account"
+	fAssertOut "and one under protocol"  'protocol\.sshkey \(indented under protocol\)' \
+		bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q -NoFetch -Config '${ac}/nested.shcl' account"
+	fAssertOut "and the identity block names the nested key"  'ignored: .*account\[hn\]\.email\.sshkey' \
+		bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q -NoFetch -Config '${ac}/nested.shcl' status"
+	fAssertOut "the key it sits under still applies"  'commits .*<nested@example\.com>' \
+		bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q -NoFetch -Config '${ac}/nested.shcl' account"
+	fAssertNotOut "a stacked folder list is not listed as ignored"  'account\[hn\]\.path\.' \
+		bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q -NoFetch -Config '${ac}/nested.shcl' account"
 	## 'account set' on a block-layout file edits the block and keeps the rest - comments included -
 	## where it was, in the format's own spacing.
 	cp "${ac}/hier.shcl" "${ac}/hier-set.shcl"
@@ -3841,3 +3868,4 @@ echo "passed: ${pass}, failed: ${fail}"
 ##		- 20260914 JC: A relative folder rule. account set resolves one from the folder it runs in, and plain git then applies the account there and nowhere else under home. A relative path already in a file, block or flat, is listed as ignored, shown as no folder, and named by the identity block; account apply writes no rule for one, and account list warns about one an earlier apply left behind until apply removes it. Another user's '~' is refused. Twelve of the thirteen fail against the tree before them; the warning going away is a regression guard. 863 -> 876.
 ##		- 20260914 JC: br prune asks origin before deleting there, and leases the delete: a branch moved or already deleted on origin since the last fetch, one moved during the prompt, and origin unreachable under --no-fetch.
 ##		- 20260914 JC: account set and an accounts file it can't read: refused, named, kept, still passed over by reads, not shadowed from XDG_CONFIG_HOME, and a dead link or a folder in its place. Linux only. Nine of the ten fail against the tree before them; the read check is a regression guard. 889 -> 899.
+##		- 20260914 JC: A key indented under another key in the accounts file is listed by the path that reaches it: under an account's key, under a key nothing reads, and under protocol, and in the identity block too. The key it sits under still applies, and a stacked folder list lists nothing. Four of the six fail against the tree before them; two are regression guards. 899 -> 905.
