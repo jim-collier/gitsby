@@ -163,7 +163,7 @@ for g in "${SHELL_LINT_WARN_GLOBS[@]:-}"; do for f in $g; do [[ -f "$f" ]] && sh
 ## Stage 1's body and stage 2's unit tests, as functions so that --gate runs the same code a
 ## full run does. Two copies would drift, and the hook would pass what the pipeline stops.
 fStageLint(){
-	local f g _ng n md_files ps_files toolDrift toolSpec toolName toolWant toolPath toolHave unformatted winres_status
+	local f g _ng n md_files ps_files py_cache toolDrift toolSpec toolName toolWant toolPath toolHave unformatted winres_status
 	((${#shell_files[@]})) || fDie "no shell files matched SHELL_LINT_GLOBS"
 	for f in "${shell_files[@]}"; do
 		bash -n "$f" || fDie "syntax error: $f"
@@ -197,7 +197,14 @@ fStageLint(){
 		fi
 	fi
 	if [[ -n "${PY_LINT_FILES+x}" ]] && ((${#PY_LINT_FILES[@]})); then
-		python3 -m py_compile "${PY_LINT_FILES[@]}" && rm -rf -- "${root:?}/cicd/utility/__pycache__"
+		## At the head of an && list a failure neither stopped the run nor fired the trap. The
+		## cache goes to a folder of our own, since py_compile writes one beside each file.
+		py_cache="$(mktemp -d)"
+		if ! PYTHONPYCACHEPREFIX="${py_cache}" python3 -m py_compile "${PY_LINT_FILES[@]}"; then
+			rm -rf -- "${py_cache:?}"
+			fDie "py_compile"
+		fi
+		rm -rf -- "${py_cache:?}"
 		fEcho "OK: py_compile (${#PY_LINT_FILES[@]} file(s))"
 	fi
 	if [[ -n "${PS_LINT_GLOBS+x}" ]] && ((${#PS_LINT_GLOBS[@]})); then

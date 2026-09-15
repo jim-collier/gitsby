@@ -209,6 +209,21 @@ func TestRemoteEnvKeepsTheConnectTimeoutOnOurOwnSSHCommand(t *testing.T) {
 	}
 }
 
+// A blank ssh command split into nothing, and the probe read its first word, which
+// crashed every push compared against an account.
+func TestGitSSHCommandBlank(t *testing.T) {
+	for _, blank := range []string{" ", "\t", " \n "} {
+		t.Setenv("GIT_SSH_COMMAND", blank)
+		a := &app{}
+		if got := a.gitSSHCommand(); got != "ssh" {
+			t.Errorf("gitSSHCommand() with %q = %q, want ssh", blank, got)
+		}
+		if !hasEnv(a.remoteEnv(), "GIT_SSH_COMMAND=ssh -o ConnectTimeout=3") {
+			t.Errorf("remoteEnv() with %q kept the blank command", blank)
+		}
+	}
+}
+
 func hasEnv(env []string, want string) bool {
 	for _, entry := range env {
 		if entry == want {

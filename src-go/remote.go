@@ -128,7 +128,9 @@ func (a *app) gitSSHCommand() string {
 	if cmd == "" {
 		cmd = a.coreSSHCommand()
 	}
-	if cmd == "" || strings.ContainsAny(cmd, `"'`) {
+	// Blank is as good as unset. A lone space split into nothing, and reading the
+	// command's first word killed every push compared against an account.
+	if strings.TrimSpace(cmd) == "" || strings.ContainsAny(cmd, `"'`) {
 		return "ssh"
 	}
 	return cmd
@@ -182,6 +184,9 @@ func probeSSHLogin(url, sshCommand string) string {
 		return "?"
 	}
 	sshCmd := strings.Fields(sshCommand)
+	if len(sshCmd) == 0 {
+		sshCmd = []string{"ssh"}
+	}
 	args := append(sshCmd[1:], "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3", "--", target)
 	// Both streams: ssh writes host-key and missing-identity warnings ahead of the
 	// greeting, so it is not reliably the first line - anchoring to the whole output
