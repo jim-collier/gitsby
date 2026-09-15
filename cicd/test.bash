@@ -460,6 +460,15 @@ fRunSuite(){
 	## A version you typed is deliberate, so it still works on an already-released commit.
 	fAssert     "an explicit version still releases the same commit"  bash -c "cd '${cloneA}' && '${gitsby}' -q release 1.4.0 && git rev-parse -q --verify refs/tags/v1.4.0 >/dev/null"
 
+	## Tags with no 'v' were invisible to the scan, so release started over at 0.1.0 and pushed it.
+	local bt="${work}/$1-baretag"
+	git init --quiet --bare -b main "${bt}/origin.git"
+	git clone --quiet "${bt}/origin.git" "${bt}/c" 2>/dev/null
+	( cd "${bt}/c" || exit 1; echo a > a.txt && git add --all && git commit --quiet -m init && git tag -a 1.4.2 -m 1.4.2 && git push --quiet -u origin main --tags && echo b > b.txt )
+	fAssert     "release counts on from a tag with no v"  bash -c "cd '${bt}/c' && '${gitsby}' -q -NoFetch release && git rev-parse -q --verify refs/tags/v1.4.3 >/dev/null && ! git rev-parse -q --verify refs/tags/v0.1.0 >/dev/null"
+	fAssertFail "a typed version already tagged with no v is refused"  bash -c "cd '${bt}/c' && '${gitsby}' -q -NoFetch release 1.4.2"
+	fAssertOut  "and names that tag"  "Tag '1\.4\.2' already exists"  bash -c "cd '${bt}/c' && '${gitsby}' -q -NoFetch release 1.4.2 2>&1"
+
 	## release started from a feature branch returns there; slash branch names work
 	fAssert "br create relfeat"  bash -c "cd '${cloneA}' && '${gitsby}' -q br create relfeat"
 	( cd "${cloneA}" && echo rel > rel.txt )
@@ -1507,6 +1516,27 @@ GHEOF
 	fAssert    "a conflicting back-merge leaves dev alone"  \
 		bash -c "cd '${hfc}' && git checkout --quiet dev && echo devtext > README.md && git commit --quiet -am devtext && git push --quiet && '${gitsby}' -q -NoFetch br hotfix clash >/dev/null 2>&1 && echo hftext > README.md && '${gitsby}' -q -NoFetch update wip >/dev/null 2>&1 && '${gitsby}' -q -NoFetch br land Clash >/dev/null 2>&1; [[ \"\$(git show origin/main:README.md)\" == hftext && \"\$(git show origin/dev:README.md)\" == devtext ]]"
 	fAssert    "and the tree is not left mid-merge"  bash -c "cd '${hfc}' && [[ ! -e .git/MERGE_HEAD ]] && [[ -z \"\$(git status --porcelain)\" ]]"
+	## The forward merge left the tree in conflict and the merge open, on a bare step failure.
+	local fm="${work}/$1-mergeclash"
+	git init --quiet --bare -b main "${fm}/origin.git"
+	git clone --quiet "${fm}/origin.git" "${fm}/c" 2>/dev/null
+	(
+		cd "${fm}/c" || exit 1
+		echo base > f.txt && git add --all && git commit --quiet -m init && git push --quiet -u origin main
+		git checkout --quiet -b dev && git push --quiet -u origin dev
+		git checkout --quiet -b clash && echo mine > f.txt && git commit --quiet -am mine && git push --quiet -u origin clash
+		git checkout --quiet dev && echo theirs > f.txt && git commit --quiet -am theirs && git push --quiet
+		git checkout --quiet clash
+	)
+	fAssertFail "a conflicting br merge refuses"  bash -c "cd '${fm}/c' && '${gitsby}' -q -NoFetch br merge Clash"
+	fAssert     "and backs the merge out"         bash -c "cd '${fm}/c' && [[ ! -e .git/MERGE_HEAD ]] && [[ -z \"\$(git status --porcelain)\" ]]"
+	fAssert     "and leaves dev as it was"        bash -c "cd '${fm}/c' && [[ \"\$(git show dev:f.txt)\" == theirs && \"\$(git show origin/dev:f.txt)\" == theirs ]]"
+	fAssert     "and goes back to the branch"     bash -c "cd '${fm}/c' && [[ \"\$(git branch --show-current)\" == clash ]]"
+	fAssertOut  "and names the commands to settle it"  "git merge dev, then '.*br merge'"  bash -c "cd '${fm}/c' && '${gitsby}' -q -NoFetch br merge Clash 2>&1"
+	## release merges dev into main the same way.
+	( cd "${fm}/c" || exit 1; git merge --abort 2>/dev/null || true; git checkout --quiet main && echo mainside > f.txt && git commit --quiet -am mainside && git push --quiet && git checkout --quiet clash )
+	fAssertFail "a release whose dev won't merge into main refuses"  bash -c "cd '${fm}/c' && '${gitsby}' -q -NoFetch release 1.0.0"
+	fAssert     "and backs it out, cuts no tag, and goes back"  bash -c "cd '${fm}/c' && [[ ! -e .git/MERGE_HEAD ]] && ! git rev-parse -q --verify refs/tags/v1.0.0 >/dev/null && [[ \"\$(git branch --show-current)\" == clash ]]"
 	## Feature branches must be untouched by all of this.
 	fAssert    "br create still branches off dev"  \
 		bash -c "cd '${hfc}' && git checkout --quiet dev && git checkout --quiet -- . 2>/dev/null; '${gitsby}' -q -NoFetch br create feat1 && git merge-base --is-ancestor origin/dev HEAD"
@@ -3732,6 +3762,9 @@ GHEOF
 		bash -c "cd '${fgRepo}' && '${gitsby}' -q -NoFetch repo url ssh >/dev/null && git -C '${fgRepo}' remote get-url origin | grep -qx 'git@git.example.test:acme/proj.git'"
 	fAssert    "and back to https" \
 		bash -c "cd '${fgRepo}' && '${gitsby}' -q -NoFetch repo url https >/dev/null && git -C '${fgRepo}' remote get-url origin | grep -qx 'https://git.example.test/acme/proj.git'"
+	## The plan named a github.com address, and the command then set the Gitea one.
+	fAssertPlan "repo url plans the Gitea address it sets"  'git remote set-url origin git@git\.example\.test:acme/proj\.git' \
+		bash -c "cd '${fgRepo}' && '${gitsby}' -q -NoFetch repo url ssh 2>&1; git -C '${fgRepo}' remote set-url origin https://git.example.test/acme/proj.git"
 
 	## The identity block exists to say who the next command acts as. On a host gh does not serve it
 	## had no answer at all - it printed nothing rather than saying it could not tell.
@@ -4082,4 +4115,5 @@ echo "passed: ${pass}, failed: ${fail}"
 ##		- 20260915 JC: account apply takes a --config named with no folder, and includes the fragments beside it by absolute path. Both fail against the tree before them. 939 -> 941.
 ##		- 20260915 JC: A folder rule holding '[' binds that folder in plain git and not the one it would match as a pattern, for path and pathcontains. A relative tokenfile or sshkey is listed as ignored, reads no token and writes no key; account set writes a relative tokenfile absolute, and refuses a relative key typed in a folder with a space. All nine fail against the tree before them. 941 -> 950.
 ##		- 20260915 JC: A blank GIT_SSH_COMMAND or core.sshCommand is read as plain ssh when a push is compared against the account, and the gate fails when py_compile does. All three fail against the tree before them. 950 -> 953.
+##		- 20260915 JC: release counts on from a tag with no v and refuses a typed version tagged that way. A br merge or release that conflicts is backed out, leaves the target alone, and goes back to the branch it ran from. repo url plans a Gitea remote's own address. Eight fail against the tree before them; the two refusals and the untouched dev are regression guards. 953 -> 964.
 ##		- 20260915 JC: Origin's copies of merged branches. A prune warning's advice, followed, clears the branch. A tag with a branch's name stops nothing, and br merge merges the branch rather than the tag. br merge --no-fetch keeps a copy someone else pushed to, and an offline br merge keeps the branch here so prune can clear both. Twelve of the fourteen fail against the tree before them; the kept tag and the merge's push are regression guards. The first prune's count drops by one, since the moved branch now stays here. 925 -> 939.

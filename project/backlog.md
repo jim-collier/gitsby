@@ -61,12 +61,6 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 	- Fix order: by class, each class across all its sites in one group of commits. 5 with 11 (unknown is listed, unknown is not missing); 9 with 19 (preview follows command, one spawn per run); 3 and 8 without moving the decisions they sit on; 12 and 20 only once reproduced. 15 and 16 early, since the pipeline is what proves the rest.
 	- Note: about twelve of the twenty sit in code that rounds 20260819b, c, d and 20260821 declared clean. Those rounds read the Go and grepped the rest.
 
-	- 🔘 Code Review 20260909 item 7: `release` invents version 0.1.0 in a repo whose tags carry no leading `v`.
-		- Cause: the tag scan matches a `v` followed by a digit, so a tag like `1.0.0` is invisible and the next version starts from nothing. The duplicate-tag guard below it does see those tags, so the two halves of one command disagree about which tags exist.
-		- Note: unattended there is no prompt, and the invented tag is pushed.
-		- Probable fix: rank all tags with the leading `v` optional, or refuse to invent a version when the newest tag does not parse.
-		- Origin: f669f14 (the port); `legacy/bin/gitsby:2232` has the same scan. Confirmed.
-
 	- 🔘 Code Review 20260909 item 8: three flaws in `account set`.
 		- The refusals are decided inside the preview, so the refusal prints as the plan and it still asks you to confirm. Answering yes fails with the same sentence. Every other command settles its refusals before the plan.
 		- A save rewrites the file into the canonical layout, which is the settled decision, but the plan calls it an edit of one line. Space indentation, mixed-case keys, line endings and duplicate blocks are all reshaped with no word.
@@ -74,19 +68,6 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- Probable fix: settle the refusals ahead of the preview, add a reformat line to the plan when the file is not already canonical, and validate `protocol` the way the other closed-set keys are validated.
 		- Origin: 9282c09 for the refusals. The plan text is left over from the byte-for-byte decision that 8203670 reversed. Confirmed.
 		- Keep: saves stay canonical. The plan says so; nothing goes back to byte-for-byte.
-
-	- 🔘 Code Review 20260909 item 9: `repo url` previews a github.com address on every host.
-		- Reproduced: against a Gitea remote the plan named a github.com URL, and the command then set the Gitea one.
-		- Cause: the preview builds its line with the GitHub-only helper while the command uses the host-aware one. The read-only half was widened and the preview was left behind.
-		- Probable fix: build the preview line the way the command does.
-		- Origin: 4573f4c moved the command to `forgeURL` and left the preview on `githubURL`. Confirmed.
-		- Sweep: every preview line against the command it previews, not just this one.
-
-	- 🔘 Code Review 20260909 item 10: a conflicted `br merge` leaves the merge in progress and says nothing useful.
-		- Reproduced: a conflicting merge onto the protected branch ended on a bare step failure, with the tree in conflict and the merge still open.
-		- Note: the back-merge path in the same file handles the same failure the other way. It aborts, says what got through, and names the command to finish by hand.
-		- Probable fix: give the forward merge the same treatment.
-		- Origin: 0a3ef88; the frozen bash has the same asymmetry. Confirmed.
 
 	- 🔘 Code Review 20260909 item 12: install.ps1 fails on Windows PowerShell 5.1 in the default lookup.
 		- Cause: the release lookup reads a header through a property that exists on version 7's object and not on 5.1's. Strict mode turns that into an error inside the handler, so the fallback below is never reached.
@@ -377,6 +358,34 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 - ✅ Code review 20260909 - the closed part of the pass against the standing directives. The rest is still open under Bugs.
 	- Opened: 20260909-184419
+
+	- ✅ Code Review 20260909 item 10: a conflicted `br merge` leaves the merge in progress and says nothing useful.
+		- Closed: 20260915-124817
+		- Reproduced: a conflicting merge onto the protected branch ended on a bare step failure, with the tree in conflict and the merge still open.
+		- Note: the back-merge path in the same file handles the same failure the other way. It aborts, says what got through, and names the command to finish by hand.
+		- Origin: 0a3ef88; the frozen bash has the same asymmetry. Confirmed.
+		- Fixed: a merge stopped by conflicts is aborted, the run goes back to the branch it started on, and the refusal names the commands to settle it there. The target branch is left as it was.
+		- Sweep: `release` merges `dev` into the default branch the same way and left it mid-merge too, with nothing tagged. Same fix. The back-merge already aborted, and the other merges are fast-forward only.
+		- Verified: 7 new checks in test.bash. Four fail on `gover`: the tree left mid-merge, the branch left behind, the missing advice, and `release` left mid-merge on the default branch. Two refusals and the untouched `dev` are regression guards.
+
+	- ✅ Code Review 20260909 item 9: `repo url` previews a github.com address on every host.
+		- Closed: 20260915-124817
+		- Reproduced: against a Gitea remote the plan named a github.com URL, and the command then set the Gitea one.
+		- Cause: the preview builds its line with the GitHub-only helper while the command uses the host-aware one. The read-only half was widened and the preview was left behind.
+		- Origin: 4573f4c moved the command to `forgeURL` and left the preview on `githubURL`. Confirmed.
+		- Fixed: the plan builds the address the way the command does.
+		- Sweep: every preview line against its command. No other plan names a different host, branch or command than the one run. The other `githubURL` callers take `owner/name`, which has only ever meant github.com.
+		- Verified: 1 new check in test.bash, which fails on `gover`.
+
+	- ✅ Code Review 20260909 item 7: `release` invents version 0.1.0 in a repo whose tags carry no leading `v`.
+		- Closed: 20260915-124817
+		- Cause: the tag scan matches a `v` followed by a digit, so a tag like `1.0.0` is invisible and the next version starts from nothing. The duplicate-tag guard below it does see those tags, so the two halves of one command disagree about which tags exist.
+		- Note: unattended there is no prompt, and the invented tag is pushed.
+		- Origin: f669f14 (the port); `legacy/bin/gitsby:2232` has the same scan. Confirmed.
+		- Fixed: a tag with no `v` counts too, when it is a whole X.Y.Z, so a date or build number can't restart the numbering. The duplicate guard refuses either spelling. The new tag still carries the `v`, the same as a typed version.
+		- Decided against: following the repo's own spelling for the new tag. A typed version has always gained the `v`, and the two paths would then disagree.
+		- Sweep: `cicd/release.bash` and the demo stamp scan only this project's own tags, which all carry the `v`. The frozen bash is left as it is.
+		- Verified: 3 new checks in test.bash, all failing on `gover`, where `TestNewestReleaseTag` doesn't build. 953 -> 964 with items 9 and 10.
 
 	- ✅ Code Review 20260909 item 1: a folder rule typed as `.` binds every repo under the home directory to that account.
 		- Closed: 20260914-155309
