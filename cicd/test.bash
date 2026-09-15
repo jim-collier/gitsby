@@ -3479,8 +3479,9 @@ EOF
 #!/usr/bin/env bash
 [[ -n "${FAKE_TEA_LOG:-}" ]] && echo "$*" >> "${FAKE_TEA_LOG}"
 case "$1 $2" in
-"logins list") printf '"Name"\t"URL"\t"SSHHost"\t"User"\t"Default"\n' ;
-               printf '"work"\t"https://git.example.test"\t""\t"%s"\t"true"\n' "${FAKE_TEA_USER:-giteauser}" ;;
+"logins list") [[ -n "${FAKE_TEA_FAIL:-}" ]] && { echo "${FAKE_TEA_FAIL}" >&2; exit 1; }
+               printf '"Name"\t"URL"\t"SSHHost"\t"User"\t"Default"\n' ;
+               printf '"work"\t"%s"\t""\t"%s"\t"true"\n' "${FAKE_TEA_URL:-https://git.example.test}" "${FAKE_TEA_USER:-giteauser}" ;;
 "pulls list")  printf '"index"\t"head"\n' ; [[ -n "${FAKE_TEA_EXISTING:-}" ]] && printf '"%s"\t"%s"\n' "${FAKE_TEA_EXISTING}" "${FAKE_TEA_HEAD:-feat}" ;;
 *)             : ;;
 esac
@@ -3563,6 +3564,14 @@ GHEOF
 		bash -c "cd '${fgRepo}' && PATH='${fgPath}' '${gitsby}' -q -NoFetch identity 2>&1"
 	fAssertNotOut "and prints no GitHub line for it"      'GitHub .gh.' \
 		bash -c "cd '${fgRepo}' && PATH='${fgPath}' '${gitsby}' -q -NoFetch identity 2>&1"
+	## A tea that fails has said nothing about logins. "No login" would send someone off to add one
+	## they may already have.
+	fAssertOut    "a tea that fails is not read as holding no login"  "unknown - couldn't ask tea: tea config is unreadable" \
+		bash -c "cd '${fgRepo}' && PATH='${fgPath}' FAKE_TEA_FAIL='tea config is unreadable' '${gitsby}' -q -NoFetch identity 2>&1"
+	fAssertNotOut "and does not say tea has no login"  'has no login for this host' \
+		bash -c "cd '${fgRepo}' && PATH='${fgPath}' FAKE_TEA_FAIL='tea config is unreadable' '${gitsby}' -q -NoFetch identity 2>&1"
+	fAssertOut    "a tea with no login for the host still says so"  "unknown - 'tea login add' has no login for this host" \
+		bash -c "cd '${fgRepo}' && PATH='${fgPath}' FAKE_TEA_URL='https://other.example.test' '${gitsby}' -q -NoFetch identity 2>&1"
 
 	## A token is a credential for the forge that issued it. An account that banks at github.com must
 	## not have its token handed to a Gitea push - and the block has to say why, not report a missing
@@ -3890,3 +3899,4 @@ echo "passed: ${pass}, failed: ${fail}"
 ##		- 20260914 JC: account set and an accounts file it can't read: refused, named, kept, still passed over by reads, not shadowed from XDG_CONFIG_HOME, and a dead link or a folder in its place. Linux only. Nine of the ten fail against the tree before them; the read check is a regression guard. 889 -> 899.
 ##		- 20260914 JC: A key indented under another key in the accounts file is listed by the path that reaches it: under an account's key, under a key nothing reads, and under protocol, and in the identity block too. The key it sits under still applies, and a stacked folder list lists nothing. Four of the six fail against the tree before them; two are regression guards. 899 -> 905.
 ##		- 20260914 JC: repo connect and a remote it can't reach: refused as unknown, with ssh's reason, no pointer at repo create, and nothing set up. A local path that isn't a repo still reads as missing, and a credential in an unreachable url is not printed. Four of the seven fail against the tree before them; three are regression guards. 905 -> 912.
+##		- 20260914 JC: A tea that fails to list its logins: the Git host line says tea couldn't be asked and repeats why, not that tea holds no login, and a host tea has no login for still says so. Two of the three fail against the tree before them; the no-login check is a regression guard. 912 -> 915.

@@ -138,11 +138,15 @@ func (a *app) showForgeLine() {
 	case a.isOffline():
 		line += " (" + cli + ") - offline, so who it acts as is unknown"
 	default:
-		who := a.forgeLogin(cli, host)
-		if who == "" {
-			who = "unknown - '" + cli + " login add' has no login for this host"
+		who, failure := a.forgeLogin(cli, host)
+		switch {
+		case failure != "":
+			line += " (" + cli + "): unknown - couldn't ask " + cli + ": " + failure
+		case who == "":
+			line += " (" + cli + "): unknown - '" + cli + " login add' has no login for this host"
+		default:
+			line += " (" + cli + "): " + who
 		}
-		line += " (" + cli + "): " + who
 		// Only a write can act as the wrong account, so only a write gets the
 		// comparison - the same rule the gh line above follows, and the reason this
 		// block exists at all rather than just naming the host.

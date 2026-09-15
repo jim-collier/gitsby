@@ -10,7 +10,10 @@
 
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // Only spellings that need no ssh_config lookup: an alias would send this to a
 // real ssh, and what the box outside answers is not this test's business.
@@ -246,12 +249,51 @@ func TestForgeCLIWho(t *testing.T) {
 	// survives being concatenated into a message.
 	tea := newApp(newPrinter())
 	tea.gh.tool, tea.gh.cli = toolTea, "tea"
-	tea.forge.login.set("")
+	tea.forge.login.set(forgeAnswer{})
 	if got := tea.forgeCLIWho(); got != "?" {
 		t.Errorf("forgeCLIWho with no tea login = %q, want ?", got)
 	}
-	tea.forge.login.set("gitfriend")
+	tea.forge.login.set(forgeAnswer{failure: "tea config is unreadable"})
+	if got := tea.forgeCLIWho(); got != "?" {
+		t.Errorf("forgeCLIWho when tea failed = %q, want ?", got)
+	}
+	tea.forge.login.set(forgeAnswer{user: "gitfriend"})
 	if got := tea.forgeCLIWho(); got != "gitfriend" {
 		t.Errorf("forgeCLIWho = %q, want gitfriend", got)
+	}
+}
+
+// A tea that failed is not a tea with no login, and only a login tea named is
+// compared with the ssh key's account. "No login" is not a login called that.
+func TestShowForgeLine(t *testing.T) {
+	tests := []struct {
+		name   string
+		answer forgeAnswer
+		has    string
+		lacks  []string
+	}{
+		{"a login", forgeAnswer{user: "gitfriend"}, "(tea): gitfriend  <-- NOT the ssh key's account ('alice')", nil},
+		{"no login", forgeAnswer{}, "(tea): unknown - 'tea login add' has no login for this host", []string{"NOT the ssh key"}},
+		{"tea failed", forgeAnswer{failure: "tea config is unreadable"}, "(tea): unknown - couldn't ask tea: tea config is unreadable", []string{"login add", "NOT the ssh key"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p, out, _ := testPrinter()
+			a := newApp(p)
+			a.git.originRef.set(remoteRef{host: "git.example.test", owner: "acme", name: "proj"})
+			a.forge.tea.set("tea")
+			a.forge.login.set(tc.answer)
+			a.gh.isWrite, a.gh.probeURL = true, "git@git.example.test:acme/proj.git"
+			a.gh.sshLogins = map[string]string{a.gh.probeURL: "alice"}
+			a.showForgeLine()
+			if !strings.Contains(out.String(), tc.has) {
+				t.Errorf("%q does not say %q", out, tc.has)
+			}
+			for _, s := range tc.lacks {
+				if strings.Contains(out.String(), s) {
+					t.Errorf("%q says %q", out, s)
+				}
+			}
+		})
 	}
 }

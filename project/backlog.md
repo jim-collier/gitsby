@@ -50,15 +50,6 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 ### Bugs
 
-- 🔘 A Gitea remote's identity line says tea has no login for the host when tea failed to answer.
-	- Opened: 20260914-180511
-	- Reproduced: with a `tea` whose `logins list` exits 1, `status -NoFetch` on a Gitea remote printed `Git host .....: gitea.example.com (tea): unknown - 'tea login add' has no login for this host`. tea was asked and gave no answer, and the line says there is no login.
-	- Cause: `forgeLogin` returns nothing both when tea lists no login for the host and when `tea logins list` fails, and the identity line reads nothing as the first.
-	- Probable fix: keep the two apart. When tea fails, say it couldn't be asked and repeat tea's reason.
-	- Note: display only. The identity check already reads nothing as unknown, so no refusal acts on it.
-	- Note: found in the sweep for Code Review 20260909 item 11.
-	- Origin: 4573f4c added the tea path and this line. No earlier round saw it. Confirmed.
-
 - 🔘 With `XDG_CONFIG_HOME` set, `account set` creates a new accounts file that hides one in a `~/.config/gitsby` folder it can't search.
 	- Opened: 20260914-174736
 	- Reproduced: `~/.config/gitsby` at mode 0600 holding a readable accounts file, and `XDG_CONFIG_HOME` pointing at an empty folder. `account set kept email k@example.com` planned `create ~/xdg/gitsby/config.shcl`, wrote it and exited 0. Once the folder could be searched again, `account list` read the new file and showed none of the old accounts. `gover` does the same.
@@ -310,6 +301,19 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 ### Done
 
 #### Done - Bugs
+
+- ✅ A Gitea remote's identity line says tea has no login for the host when tea failed to answer.
+	- Closed: 20260914-191247
+	- Opened: 20260914-180511
+	- Reproduced: with a `tea` whose `logins list` exits 1, `status -NoFetch` on a Gitea remote printed `Git host .....: gitea.example.com (tea): unknown - 'tea login add' has no login for this host`. tea was asked and gave no answer, and the line says there is no login.
+	- Cause: `forgeLogin` returns nothing both when tea lists no login for the host and when `tea logins list` fails, and the identity line reads nothing as the first.
+	- Probable fix: keep the two apart. When tea fails, say it couldn't be asked and repeat tea's reason.
+	- Note: display only. The identity check already reads nothing as unknown, so no refusal acts on it.
+	- Note: found in the sweep for Code Review 20260909 item 11.
+	- Origin: 4573f4c added the tea path and this line. No earlier round saw it. Confirmed.
+	- Sweep: `forgeCLIWho`, which the identity check reads, already takes both as unknown, and the two `pulls list` reads in `pr` check whether tea ran. The Git host line also compared its "unknown" text with the ssh key's account, so a write with no tea login printed a NOT-the-key warning. Fixed here.
+	- Fixed: the Git host line says tea couldn't be asked and repeats tea's reason when tea fails, and keeps "has no login for this host" for a tea that answered. Only a login tea named is compared with the ssh key's account.
+	- Verified: 3 new checks in test.bash, 912 -> 915. Two fail on `gover`, and the no-login check is a regression guard. `TestShowForgeLine` fails on `gover` for the no-login row. Go tests green, parity.bash 27/0. Linux only.
 
 - ✅ Code review 20260909 - the closed part of the pass against the standing directives. The rest is still open under Bugs.
 	- Opened: 20260909-184419

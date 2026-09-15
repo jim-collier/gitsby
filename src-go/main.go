@@ -506,7 +506,7 @@ func (a *app) forgeCLIWho() string {
 	case toolGh:
 		return a.ghLogin()
 	case toolTea:
-		if who := a.forgeLogin(a.gh.cli, a.originHost()); who != "" {
+		if who, _ := a.forgeLogin(a.gh.cli, a.originHost()); who != "" {
 			return who
 		}
 	}
