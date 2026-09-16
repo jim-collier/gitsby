@@ -113,6 +113,11 @@ type ghState struct {
 	// Keyed by remote: one slot answered for whichever url asked first, and three
 	// callers ask about three different ones in the same run.
 	sshLogins map[string]string
+	// Keyed by login: the listing asks after every account that names one, and
+	// 'account set' prints that listing before its own edit, so the same names come
+	// round more than once. Nothing logs gh in or out mid-run, and the answer is
+	// keyed by the login rather than by whoever gh currently acts as.
+	tokens map[string]string
 }
 
 // account is who this run acts as, and what selecting them actually changed.

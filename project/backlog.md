@@ -52,20 +52,9 @@ To make using these icons easier if desired, add them to a clipboard or key macr
 	- Note: split from Code Review 20260909 item 16. The budget leaves room for two or three scenes, so this waits on a decision about which ones the README keeps.
 	- Origin: aa63736, the first demo, looped in 18.4 s. 7096bdd took it to 67 s, 9e16dd5 to 84 s and 48089c6 to 122 s. The directives have asked for twenty to thirty seconds since at least 2026-08-22. Confirmed.
 
-- 🛠️ Code review 20260909 - a pass against the standing directives, aimed at the work since the last round. Twenty defects, twelve enhancements.
-	- Opened: 20260909-184419
-	- Fix order: by class, each class across all its sites in one group of commits. 5 with 11 (unknown is listed, unknown is not missing); 9 with 19 (preview follows command, one spawn per run); 3 and 8 without moving the decisions they sit on; 12 and 20 only once reproduced. 15 and 16 early, since the pipeline is what proves the rest.
-	- Note: about twelve of the twenty sit in code that rounds 20260819b, c, d and 20260821 declared clean. Those rounds read the Go and grepped the rest.
-
-	- 🔘 Code Review 20260909 item 19: `account list` runs one `gh` per configured account.
-		- The token lookup sits inside the listing loop. One account costs one process and twenty cost twenty, and `account set` pays the same bill before its edit, because it prints the listing first.
-		- Note: this is the only per-item process spawn left in the program, and the style guide states the rule it breaks.
-		- Probable fix: remember the answer per login for the length of the run.
-		- Origin: 0a3ef88; 7abe3f7 widened the listing two days after the 20260818 memoization round. Confirmed, measured.
-
 ### Features and enhancements
 
-- 🔘 Bring the output into line with the CLI style guide.
+- 🔘 Bring the output into line with the UI and UX style guide.
 	- Opened: 20260915-154529
 	- Seen while writing the guide: `WARNING:` lines are bracketed in some places and bare in others. `account list` prints `token ...: none` beside `github ..: (none)`. Most `Syntax:` lines name their placeholders without saying what they mean; only `account set` does.
 	- Note: `account list` prints a folder rule as its expanded path, while the file line above it folds home to `~`. The guide asks for `~` only in diagnostics, so this one wants a decision first.
@@ -296,8 +285,19 @@ To make using these icons easier if desired, add them to a clipboard or key macr
 	- Fixed: a file counts as readable only once it reads to the end, and the loader records it only after the read. A named file that fails to read is refused like one that won't open. A found one is passed over by reads and refused by `account set` as a file it can't read.
 	- Verified: 2 new checks in test.bash, and with the 5 above, 915 -> 922. On `gover` the named case panics and the found one is taken up, and the new Go test fails there. Go tests green, parity.bash 27/0. Linux only, since the case needs `/proc/self/mem`.
 
-- ✅ Code review 20260909 - the closed part of the pass against the standing directives. The rest is still open under Bugs.
+- ✅ Code review 20260909 - the pass against the standing directives. Every defect is closed; the enhancements are still open under Features and enhancements.
 	- Opened: 20260909-184419
+	- Fix order: by class, each class across all its sites in one group of commits. 5 with 11 (unknown is listed, unknown is not missing); 9 with 19 (preview follows command, one spawn per run); 3 and 8 without moving the decisions they sit on; 12 and 20 only once reproduced. 15 and 16 early, since the pipeline is what proves the rest.
+	- Note: about twelve of the twenty sit in code that rounds 20260819b, c, d and 20260821 declared clean. Those rounds read the Go and grepped the rest.
+
+	- ✅ Code Review 20260909 item 19: `account list` runs one `gh` per configured account.
+		- Closed: 20260916-080622
+		- The token lookup sits inside the listing loop. One account costs one process and twenty cost twenty, and `account set` pays the same bill before its edit, because it prints the listing first.
+		- Origin: 0a3ef88; 7abe3f7 widened the listing two days after the 20260818 memoization round. Confirmed, measured.
+		- Fixed: the answer is remembered per login for the run, in the same place the ssh logins already were. Nothing logs gh in or out mid-run, and the answer is keyed by the login rather than by whoever gh acts as, so there is no invalidation to get wrong.
+		- Note: gh answers about one login at a time, so twenty distinct logins still cost twenty. What is gone is asking twice for the same one - which the listing did for every account sharing a login, and `account set` did by printing the whole listing before its edit.
+		- Note: the item said the style guide states the rule this breaks. It does not; that guide covers output.
+		- Verified: 1 new check, 1012 -> 1013, watched red against the pre-fix build. Two accounts on one login ask gh once. Go tests green, fuzz 301/0, parity 27/0. Spawn counts unchanged, since that fixture configures no accounts - it guards the listing rather than proving it.
 
 	- ✅ Code Review 20260909 item 18: public documents contradict the code.
 		- Closed: 20260915-155308

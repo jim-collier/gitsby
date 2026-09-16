@@ -127,9 +127,23 @@ func resolveSSHHost(alias string) string {
 }
 
 // ghTokenFor reads the stored token for an account gh already holds, or nothing.
-// gh's own credential store - no network, no prompt - so it doubles as the
-// "does gh have this account" test.
-func ghTokenFor(who string) string {
+// Asked once per login: gh answers about one account at a time, so the listing
+// spent a process on every account it printed, twice over for 'account set'.
+func (a *app) ghTokenFor(who string) string {
+	if token, asked := a.gh.tokens[who]; asked {
+		return token
+	}
+	token := probeGhToken(who)
+	if a.gh.tokens == nil {
+		a.gh.tokens = map[string]string{}
+	}
+	a.gh.tokens[who] = token
+	return token
+}
+
+// probeGhToken asks gh's own credential store - no network, no prompt - so it
+// doubles as the "does gh have this account" test.
+func probeGhToken(who string) string {
 	if who == "" || !inPath("gh") {
 		return ""
 	}
@@ -266,7 +280,7 @@ func (a *app) accountToken(host string) (string, tokenSource, string) {
 	// gh's own store, only for a host gh serves. Asking it about a Gitea account is
 	// asking after a login that was never going to be there.
 	if isGitHubHost(host) {
-		if token := ghTokenFor(a.acct.ghWho); token != "" {
+		if token := a.ghTokenFor(a.acct.ghWho); token != "" {
 			return token, tokenFromGh, ""
 		}
 	}
