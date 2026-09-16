@@ -533,6 +533,10 @@ The rules these entries lead to are collected in [style-guide_ui-ux.md](style-gu
 
 - Where a feature is about context - which folder, which account - the demo has to show that context. That is why the prompt carries the working directory: a scene proving the folder decides who you act as, above a prompt that never names a folder, asks to be taken on trust.
 
+- The confirmation is answered on camera rather than described. The scene that starts a branch runs with a terminal on its stdin, so the tool really does stop and ask, and the `y` on screen is what let it go on. Drawing a question that was never asked was rejected for the same reason the commands really run: the demo's worth is that nothing in it can be arranged to look right.
+
+- The length target is about fifty seconds, not the twenty to thirty written down earlier. Five scenes of real output, one of them waiting to be answered, come to roughly forty-seven. The earlier figure predates the decision above, and meeting it now would cost either a scene or the time needed to read one. Captions stopped being typed out for the same reason: typing them was 12.9 seconds of a 67.4-second loop, more screen time than the commands they introduce.
+
 ### Release policy
 
 A version whose tag carries a semver suffix - `v3.0.0-beta.1` - is published as a pre-release. A plain `vX.Y.Z` is published as a full release. The tag decides it, with no flag to pass and nothing to remember, because the tag is already the only place a version is written.

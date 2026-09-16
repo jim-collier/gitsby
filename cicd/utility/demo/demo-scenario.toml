@@ -15,12 +15,17 @@
 # file. The arc is one feature start to finish, then the folder rule that decided
 # who it all went out as. Step 1's run= builds the world (output hidden); every
 # later step re-enters it and sources the env the builder wrote, since each run= is
-# its own shell. Mutating commands need -y with no tty, so the typed line omits it
-# and run= adds it.
+# its own shell.
 #
-# cwd= is not cosmetic here: the second half of the demo is about which folder you
-# are standing in, so the prompt has to say. HOME is the demo root, so every cwd=
-# below is literally the directory its run= enters.
+# Two of the five scenes are about the confirmation, which is the thing the README
+# leads with. Step 2 carries ask=/answer=, so it runs with a terminal on its stdin,
+# really stops at the question, and has the answer typed on camera. Step 3 types its
+# own -y, which is the way past the question and worth seeing once. The rest are
+# read-only and need neither.
+#
+# cwd= is not cosmetic here: the last two scenes are about which folder you are
+# standing in, so the prompt has to say. HOME is the demo root, so every cwd= below
+# is literally the directory its run= enters.
 #
 # Every step clears first, which is what keeps the file affordable: a smooth
 # scroll redraws the whole text block each frame, so the cost tracks how far the
@@ -30,8 +35,8 @@
 # cicd stamps the demo's build with the newest release rather than the commit, so
 # a fixed scenario means identical commit hashes, identical output, identical gif
 # bytes - and cicd only rewrites assets/demo.gif when the demo really changed.
-# Don't demo a bare `update`/`commit` (no message): the auto-generated message is
-# a timestamp, which would make the gif differ on every run.
+# Don't demo a bare `sync` (no message): the auto-generated message is a timestamp,
+# which would make the gif differ on every run.
 
 title = "gitsby"
 prog  = "gitsby"
@@ -40,69 +45,43 @@ font  = ["Monaspace Argon SemiBold"]
 end_hold  = 1.6
 end_black = 3.0
 
+# Captions appear whole rather than being typed out. Typing the five of them cost
+# 12.9 seconds of a 67.4-second loop - more than the commands they introduce.
+type_notes = false
+
 [[step]]
 clear = true
 cwd   = "~/dev/github.com/acme-corp/acme-api"
 note  = "Fetch, then show exactly where you stand"
 show  = "{prog} status"
 run   = "bash cicd/utility/demo/demo-repo.bash >/dev/null 2>&1 && cd /tmp/gitsby-demo/dev/github.com/acme-corp/acme-api && source /tmp/gitsby-demo/demo.env && {bin} status"
-pause = 5.7
+pause = 2.6
+
+[[step]]
+clear  = true
+cwd    = "~/dev/github.com/acme-corp/acme-api"
+note   = "New branch. It shows the git first, and asks"
+show   = "{prog} br create add-retries"
+run    = "cd /tmp/gitsby-demo/dev/github.com/acme-corp/acme-api && source /tmp/gitsby-demo/demo.env && {bin} br create add-retries"
+ask    = "Continue? (y|n): "
+answer = "y"
+pause  = 3.2
 
 [[step]]
 clear = true
 cwd   = "~/dev/github.com/acme-corp/acme-api"
-note  = "New branch - uncommitted work comes along"
-show  = "{prog} br create add-retries"
-run   = "cd /tmp/gitsby-demo/dev/github.com/acme-corp/acme-api && source /tmp/gitsby-demo/demo.env && {bin} br create add-retries -y"
-pause = 5.2
+note  = "Commit, pull and push. -y answers the question"
+show  = "{prog} sync \"Retry failed API calls\" -y"
+run   = "cd /tmp/gitsby-demo/dev/github.com/acme-corp/acme-api && source /tmp/gitsby-demo/demo.env && {bin} sync \"Retry failed API calls\" -y"
+pause = 3.2
 
 [[step]]
 clear = true
 cwd   = "~/dev/github.com/acme-corp/acme-api"
-note  = "Commit and pull, as often as you like"
-show  = "{prog} pullcom \"Retry failed API calls\""
-run   = "cd /tmp/gitsby-demo/dev/github.com/acme-corp/acme-api && source /tmp/gitsby-demo/demo.env && {bin} pullcom \"Retry failed API calls\" -y"
-pause = 5.2
-
-[[step]]
-clear = true
-cwd   = "~/dev/github.com/acme-corp/acme-api"
-note  = "Make a change to a source file..."
-show  = "echo 'retry_backoff: 250ms' >> config.yml"
-run   = "cd /tmp/gitsby-demo/dev/github.com/acme-corp/acme-api && echo 'retry_backoff: 250ms' >> config.yml"
-pause = 2.4
-
-[[step]]
-clear = true
-cwd   = "~/dev/github.com/acme-corp/acme-api"
-note  = "...then commit, pull and push in one go"
-show  = "{prog} sync \"Back off between retries\""
-run   = "cd /tmp/gitsby-demo/dev/github.com/acme-corp/acme-api && source /tmp/gitsby-demo/demo.env && {bin} sync \"Back off between retries\" -y"
-pause = 5.2
-
-[[step]]
-clear = true
-cwd   = "~/dev/github.com/acme-corp/acme-api"
-note  = "Ship it: merge back, push, delete the branch"
-show  = "{prog} br merge \"Add retries\""
-run   = "cd /tmp/gitsby-demo/dev/github.com/acme-corp/acme-api && source /tmp/gitsby-demo/demo.env && {bin} br merge \"Add retries\" -y"
-pause = 7.8
-
-[[step]]
-clear = true
-cwd   = "~/dev/github.com/acme-corp/acme-api"
-note  = "That all went out as mika-at-acme. Here is why"
-show  = "cat ~/.config/gitsby/config.shcl"
-run   = "cd /tmp/gitsby-demo/dev/github.com/acme-corp/acme-api && source /tmp/gitsby-demo/demo.env && cat ~/.config/gitsby/config.shcl"
-pause = 7.0
-
-[[step]]
-clear = true
-cwd   = "~/dev/github.com/acme-corp/acme-api"
-note  = "Two folder names, matched anywhere in the path"
+note  = "That went out as mika-at-acme. Here is why"
 show  = "{prog} account"
 run   = "cd /tmp/gitsby-demo/dev/github.com/acme-corp/acme-api && source /tmp/gitsby-demo/demo.env && {bin} account"
-pause = 6.5
+pause = 2.8
 
 [[step]]
 clear = true
@@ -110,4 +89,4 @@ cwd   = "~/code/github.com/mika-rivers/dotfiles"
 note  = "Another tree, another root - another account"
 show  = "{prog} account"
 run   = "cd /tmp/gitsby-demo/code/github.com/mika-rivers/dotfiles && source /tmp/gitsby-demo/demo.env && {bin} account"
-pause = 7.8
+pause = 3.2

@@ -127,6 +127,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Other work
 
+- The demo gif runs about forty-seven seconds instead of just over two minutes, and is less than half the size. Five scenes rather than nine, and one of them stops on its confirmation and is answered on camera - the tool showing its Git and asking first is the first thing the README claims, and the demo had never shown it happening. Captions now appear whole instead of arriving a letter at a time, which had been taking more screen time than the commands they introduce.
+
 - The installers' fallback release lookup - the path taken when the newest publication is a pre-release - now takes the highest-versioned release rather than the newest-published one, so a fix backported to an older line can never install over a newer release. The lookup also stopped depending on how GitHub formats the list, and `Get-Help` on `install.ps1` shows the real help instead of an auto-generated stub.
 
 - `br prune` re-checks its delete candidates in one git call instead of one per branch, so pruning many branches costs the same handful of processes as pruning one.

@@ -25,12 +25,12 @@
 </table>
 
 <!-- Pin to the gif's native 960px. GitHub's max-width:100% still shrinks it on narrow columns; a % width would blow it up past native on wide ones. -->
-<img src="assets/demo.gif" width="960" alt="Demo: a feature taken from branch to merge, then the same command in two folders acting as two different GitHub accounts."/><br />
+<img src="assets/demo.gif" width="960" alt="Demo: a branch started and pushed, with the Git shown and confirmed before it runs, then the same command in two folders acting as two different GitHub accounts."/><br />
 <sub><i>Like the smooth-scrolling terminal output and cursor? Take a look at <a href="https://github.com/jim-collier/silkterm">SilkTerm</a>!</i></sub>
 
 <!--
 	Demo video: https://www.youtube.com/watch?v=REPLACE_WITH_VIDEO_ID
-	<img src="assets/demo.gif" width="960" alt="Demo: a feature taken from branch to merge, then the same command in two folders acting as two different GitHub accounts."/>
+	<img src="assets/demo.gif" width="960" alt="Demo: a branch started and pushed, with the Git shown and confirmed before it runs, then the same command in two folders acting as two different GitHub accounts."/>
 -->
 
 <!-- TOC ignore:true -->
@@ -289,7 +289,7 @@ cd gitsby/src-go && go build -o gitsby .
 `cicd/cicd.bash` is the local pipeline and the one command to know. Run it before opening a PR. Seven stages, numbered as the run prints them, behind a stage 0 that fast-forwards from origin so everything after it tests the tree that is actually going out:
 
 1. Lints (gofmt, vet, staticcheck, golangci-lint, shellcheck).
-2. Builds, runs the unit tests, and runs the 1013-check regression suite against the binary it just built.
+2. Builds, runs the unit tests, and runs the 1016-check regression suite against the binary it just built.
 3. Runs the 301 fuzz vectors and the native Go fuzz targets, checks the standard library for known problems, and counts the processes each command spawns.
 4. Compares the build against the frozen v2.1.0 one across 27 checks, for backwards compatibility.
 5. Cross-builds every target and installs each to its own tool directory.

@@ -46,12 +46,6 @@ To make using these icons easier if desired, add them to a clipboard or key macr
 
 ### Bugs
 
-- 🛠️ The demo gif runs about two minutes, against a budget of twenty to thirty seconds.
-	- Opened: 20260914-140251
-	- Reproduced: the committed gif loops in 123.8 s over nine scenes. The shortest scene, a one-line `echo`, takes 8.6 s, and `br merge` takes 20.9 s. The holds alone add up to 52.8 s.
-	- Note: split from Code Review 20260909 item 16. The budget leaves room for two or three scenes, so this waits on a decision about which ones the README keeps.
-	- Origin: aa63736, the first demo, looped in 18.4 s. 7096bdd took it to 67 s, 9e16dd5 to 84 s and 48089c6 to 122 s. The directives have asked for twenty to thirty seconds since at least 2026-08-22. Confirmed.
-
 ### Features and enhancements
 
 - 🔘 Bring the output into line with the UI and UX style guide.
@@ -119,6 +113,16 @@ To make using these icons easier if desired, add them to a clipboard or key macr
 ### Done
 
 #### Done - Bugs
+
+- ✅ The demo gif runs about two minutes, against a budget of twenty to thirty seconds.
+	- Closed: 20260916-140754
+	- Opened: 20260914-140251
+	- Reproduced: the committed gif loops in 123.8 s over nine scenes. The shortest scene, a one-line `echo`, takes 8.6 s, and `br merge` takes 20.9 s. The holds alone add up to 52.8 s.
+	- Note: split from Code Review 20260909 item 16. The budget leaves room for two or three scenes, so this waits on a decision about which ones the README keeps.
+	- Fixed: five scenes, 47.7 s and 5.65 MB. `br create` stops on its confirmation and is answered on camera. Captions appear whole instead of being typed.
+	- Note: the old target predates showing the confirmation. design.md now puts it at about fifty seconds.
+	- Verified: 3 new checks, 1013 -> 1016, each watched red against the code before this.
+	- Origin: aa63736, the first demo, looped in 18.4 s. 7096bdd took it to 67 s, 9e16dd5 to 84 s and 48089c6 to 122 s. The directives have asked for twenty to thirty seconds since at least 2026-08-22. Confirmed.
 
 - ✅ The backlog gate says nothing is listed, whatever the backlog holds.
 	- Closed: 20260916-075518

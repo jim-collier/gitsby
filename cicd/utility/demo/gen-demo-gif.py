@@ -5,7 +5,9 @@
 ##		scenario file scripts the session; each command is "typed" into a fake
 ##		terminal window with human timing (slower digits, a beat before flags,
 ##		the occasional corrected typo), then actually executed so the captured
-##		output can never go stale. Scrolling is pixel-smooth (content settles
+##		output can never go stale. A command that stops to ask something gets a
+##		terminal on its stdin, so it really does ask, and its answer is typed on
+##		camera like every other keystroke. Scrolling is pixel-smooth (content settles
 ##		back onto the line grid at rest) and the cursor glides between cells
 ##		rather than teleporting. At the end it holds the last frame still, then
 ##		hard-cuts to a black frame before repeating - a held black frame is one
@@ -28,7 +30,7 @@
 ##	SPDX-License-Identifier: MIT
 
 
-import argparse, os, random, re, shlex, subprocess, sys, unicodedata
+import argparse, os, random, re, shlex, subprocess, sys, time, unicodedata
 
 try:
 	import tomllib
@@ -79,6 +81,7 @@ TYPO_RATE     = 0.018        # per letter; capped at 2 fixes per command
 BLINK_MS      = 520          # a multiple of FRAME_MS, so blinks stay on the grid
 FRAME_MS      = 20           # 50 fps: every frame duration is a multiple of this
 SCROLL_RATE   = 150          # px/s smooth scroll; per-step scrollrate overrides
+NOTE_HOLD_MS  = 700          # a caption that appears whole still has to be read
 
 QWERTY_ROWS = ["1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm"]
 
@@ -148,6 +151,7 @@ def fLoadScenario(path):
 	##	  title = "window title"        prog = "name shown in typed commands"
 	##	  font = ["pref1", "pref2"]     seed = 11
 	##	  wpm_digits = 42               digit typing speed (numbers-heavy demos: raise it)
+	##	  type_notes = false            captions appear whole instead of being typed out
 	##	  end_hold = 3.0                seconds the final frame holds before the loop
 	##	  end_black = 2.0               seconds of black after the hold, then repeat
 	##	  [[step]]
@@ -160,6 +164,8 @@ def fLoadScenario(path):
 	##	  linems = 20                   ms per output line before scrolling kicks in
 	##	  clear = true                  wipe the scrollback first, as `clear` does
 	##	  cwd = "~/dev/thing"           shown in the prompt (default: "~")
+	##	  ask = "Continue? (y|n): "     text the command stops on and waits for input
+	##	  answer = "y"                  typed on camera in reply, then Enter
 	try:
 		with open(path, "rb") as f:
 			sc = tomllib.load(f)
@@ -170,20 +176,80 @@ def fLoadScenario(path):
 	return sc
 
 
+def fLines(text):
+	##	Captured bytes -> terminal lines: escapes gone, tabs expanded, no trailing
+	##	blanks on the ends of lines.
+	return [ln.expandtabs(8).rstrip() for ln in ANSI_RE.sub("", text).split("\n")]
+
+
 def fRunStep(step, prog, binpath):
-	##	Execute the step's command for real. stderr shares the stdout pipe rather
-	##	than being appended after it, so a program that mixes the two (git writes
-	##	most of its progress to stderr) reads in the order it actually printed.
+	##	Execute the step's command for real, and hand back the pieces the step will
+	##	draw: ("out", lines) for ordinary output, ("ask", question, answer) where the
+	##	command stopped and waited. stderr shares the stdout pipe rather than being
+	##	appended after it, so a program that mixes the two (git writes most of its
+	##	progress to stderr) reads in the order it actually printed.
 	cmd = step.get("run", step["show"])
 	cmd = cmd.replace("{bin}", shlex.quote(binpath)).replace("{prog}", shlex.quote(binpath))
+	if step.get("ask"):
+		return fRunAsked(cmd, str(step["ask"]), str(step.get("answer", "")))
 	try:
 		res = subprocess.run(["bash", "-c", cmd], stdout=subprocess.PIPE,
 		                     stderr=subprocess.STDOUT, text=True,
 		                     timeout=30, errors="replace")
 	except subprocess.TimeoutExpired:
 		fSkip(f"command timed out: {cmd}")
-	out = ANSI_RE.sub("", res.stdout)
-	return [ln.expandtabs(8).rstrip() for ln in out.rstrip("\n").split("\n")]
+	return [("out", fLines(res.stdout.rstrip("\n")))]
+
+
+def fRunAsked(cmd, ask, answer):
+	##	A command that asks before it acts will not ask a pipe - it either skips the
+	##	question or refuses - so stdin gets a real terminal. Only stdin: stdout stays
+	##	a pipe, so colour and cursor tricks meant for a terminal stay out of the
+	##	captured text and the frames look the same as every other step's.
+	##	The answer goes in here to unblock the command; drawing it is the render
+	##	loop's job, from this same string, so what runs and what is on screen cannot
+	##	disagree.
+	import pty, select      # local: no ptys off Unix, and only this path needs one
+	master, slave = pty.openpty()
+	proc = subprocess.Popen(["bash", "-c", cmd], stdin=slave,
+	                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+	os.close(slave)
+	buf, sent, deadline = b"", False, time.monotonic() + 30
+	while True:
+		if time.monotonic() > deadline:
+			proc.kill()
+			fSkip(f"command never asked {ask!r}, and timed out: {cmd}")
+		if select.select([proc.stdout], [], [], 0.2)[0]:
+			chunk = os.read(proc.stdout.fileno(), 65536)
+			if not chunk:
+				break
+			buf += chunk
+		if not sent and ANSI_RE.sub("", buf.decode("utf-8", "replace")).endswith(ask):
+			os.write(master, (answer + "\n").encode())
+			sent = True
+	proc.wait()
+	os.close(master)
+	text = ANSI_RE.sub("", buf.decode("utf-8", "replace"))
+	if not sent:
+		fSkip(f"command exited without asking {ask!r}: {cmd}")
+	##	The question is written without a newline and the answer is read back, so
+	##	neither is a line yet. Split there: what precedes it is ordinary output, the
+	##	last piece of it shares the question's line, and what follows starts with the
+	##	newline the typed Enter would have supplied.
+	at = text.index(ask)
+	before = fLines(text[:at])
+	lead = before.pop()
+	return [("out", before), ("ask", lead + ask, answer),
+	        ("out", fLines(text[at + len(ask):].rstrip("\n")))]
+
+
+def fStepText(segs):
+	##	Every line a step will put on screen, for the palette scan below.
+	for seg in segs:
+		if seg[0] == "ask":
+			yield seg[1] + seg[2]
+		else:
+			yield from seg[1]
 
 
 def fTypeEvents(text, rng, wpm_range, typos=True, wpmDigits=WPM_DIGITS):
@@ -560,13 +626,14 @@ def fMain():
 	##	Run every command up front: the outputs feed the demo AND tell the
 	##	palette which emoji it must carry before the first frame renders.
 	stepOut = [fRunStep(step, prog, binpath) for step in sc["step"]]
-	emojiSet = sorted({ch for lines in stepOut for ln in lines for ch in ln
+	emojiSet = sorted({ch for segs in stepOut for ln in fStepText(segs) for ch in ln
 	                   if scr.fIsEmoji(ch)})
 	tiles = [t for t in (scr.fEmojiTile(ch) for ch in emojiSet) if t]
 	scr.pal = fBuildPalette(userTint, hostTint, tiles)
 
 	mov = Movie()
 	wpmDigits = sc.get("wpm_digits", WPM_DIGITS)
+	typeNotes = bool(sc.get("type_notes", True))
 	shown = list(scr.fCursorTarget())    # displayed cursor; glides toward its cell
 
 	def snap(ms, cursor=True):
@@ -604,6 +671,38 @@ def fMain():
 			on = not on
 			left -= step
 
+	def drawOut(lines, rate, lineMs, overflow):
+		for ln in lines:
+			scr.fPutText(ln, "fg", overflow)
+			if scr.fRestScroll() > scr.scroll + 0.5:
+				settle(rate, cursor=False)
+			else:
+				snap(lineMs, cursor=False)
+
+	def drawAsk(ask, answer, rate):
+		##	The question is a live line, the way the shell's own prompt is: it holds
+		##	the cursor, the answer types onto it, and Enter commits the pair. A demo
+		##	of a tool whose whole claim is that it asks first has to show somebody
+		##	being asked, so this is played out rather than skipped past.
+		shellPrompt = scr.prompt
+		scr.prompt, scr.showPrompt = [(ask, "fg")], True
+		shown[:] = scr.fCursorTarget()
+		if scr.fRestScroll() > scr.scroll + 0.5:
+			settle(rate)
+		blinkPause(rng.uniform(900, 1400))           # read the plan before answering
+		for (action, ch), delay in fTypeEvents(answer, rng, WPM_LETTERS, False, wpmDigits):
+			if action == "type":
+				scr.typed += ch
+			elif action == "bs":
+				scr.typed = scr.typed[:-1]
+			glideCursor(delay)
+		snap(rng.uniform(260, 480))                  # beat before Enter
+		scr.fPut([(ask, "fg"), (scr.typed, "fg")])
+		scr.typed = ""
+		scr.prompt, scr.showPrompt = shellPrompt, False
+		if scr.fRestScroll() > scr.scroll + 0.5:
+			settle(rate, cursor=False)
+
 	snap(700)                                        # opening frame = loop-in target
 	for stepIdx, step in enumerate(sc["step"]):
 		rate = float(step.get("scrollrate", SCROLL_RATE))
@@ -621,13 +720,21 @@ def fMain():
 				(step["show"].replace("{prog}", prog).replace("{bin}", prog), "fg", WPM_LETTERS, True)):
 			if noteOrCmd is None:
 				continue
-			for (action, ch), delay in fTypeEvents(noteOrCmd, rng, wpm, typos, wpmDigits):
-				if action == "type":
-					scr.typed += ch
-				elif action == "bs":
-					scr.typed = scr.typed[:-1]
-				glideCursor(delay)
-			snap(rng.uniform(260, 480) if key == "fg" else 130)   # beat before Enter
+			if key == "dim" and not typeNotes:
+				##	A caption is narration, not demonstration. Watching one arrive a
+				##	letter at a time costs more screen time than the command it
+				##	introduces, so it appears whole and is simply read.
+				scr.typed = noteOrCmd
+				shown[:] = scr.fCursorTarget()
+				blinkPause(NOTE_HOLD_MS)
+			else:
+				for (action, ch), delay in fTypeEvents(noteOrCmd, rng, wpm, typos, wpmDigits):
+					if action == "type":
+						scr.typed += ch
+					elif action == "bs":
+						scr.typed = scr.typed[:-1]
+					glideCursor(delay)
+				snap(rng.uniform(260, 480) if key == "fg" else 130)   # beat before Enter
 			scr.fPut(list(scr.prompt) + [(scr.typed, key)])
 			scr.typed = ""
 			if key == "dim":                         # notes: no output to run
@@ -638,18 +745,20 @@ def fMain():
 				snap(140)
 				continue
 			##	Prompt stays hidden until the command's output is fully in, the
-			##	way a real shell does it.
+			##	way a real shell does it - except where the command stops to ask
+			##	something, which puts a live line back on screen mid-output.
 			scr.showPrompt = False
 			if scr.fRestScroll() > scr.scroll + 0.5:
 				settle(rate, cursor=False)
-			outLines = stepOut[stepIdx]
-			for ln in outLines:
-				scr.fPutText(ln, "fg", step.get("overflow", "truncate"))
-				if scr.fRestScroll() > scr.scroll + 0.5:
-					settle(rate, cursor=False)
+			tail = []
+			for seg in stepOut[stepIdx]:
+				if seg[0] == "ask":
+					drawAsk(seg[1], seg[2], rate)
+					tail = []
 				else:
-					snap(lineMs, cursor=False)
-			if outLines and outLines[-1].strip():
+					drawOut(seg[1], rate, lineMs, step.get("overflow", "truncate"))
+					tail = seg[1]
+			if tail and tail[-1].strip():
 				scr.fPut([("", "fg")])               # breathe before the next prompt
 				settle(rate, cursor=False)
 			scr.showPrompt = True
@@ -687,6 +796,13 @@ if __name__ == "__main__":
 
 
 ##	History:
+##		- 20260916: type_notes = false shows each caption whole instead of typing
+##			it out. Typing them was 12.9s of a 67.4s loop - more screen time than
+##			the commands they introduce, spent on narration.
+##		- 20260916: A step can carry ask= and answer=. The command runs with a
+##			terminal on its stdin, so it really does stop and ask, and the answer
+##			is typed on camera before the rest of its output arrives. stdout stays
+##			a pipe, so nothing a program saves for a terminal reaches the frames.
 ##		- 20260914: -q is accepted as well as --quiet. The pipeline hands the
 ##			same flag to everything it runs.
 ##		- 20260727: Every frame duration now snaps to the FRAME_MS grid, so the

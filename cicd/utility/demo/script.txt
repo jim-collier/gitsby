@@ -3,8 +3,8 @@
 @
 @ How to read it:
 @   A bare line is typed on camera, exactly as written.
-@   A line starting with # is also typed on camera, as a shell comment - that is
-@   the caption that introduces each command.
+@   A line starting with # is the caption that introduces each command. It is
+@   shown as a shell comment, appearing whole rather than being typed out.
 @   A line whose first non-blank character is @ is an editing note and never
 @   appears on screen.
 @   Indentation is for reading only - it means nothing.
@@ -26,17 +26,30 @@
 @
 @ Gif only, no video: 960x540, 50 fps, silent.   -> assets/demo.gif (README)
 @
-@ Currently 2694 frames, 124.8 seconds, 12.41 MB. There is no size cliff to stay
+@ Currently 902 frames, 47.7 seconds, 5.65 MB. There is no size cliff to stay
 @ under - the file is committed and served from raw, where the limits are 50 MB
 @ (warning) and 100 MB (blocked). GitHub's 10 MB figure is for attachments and
 @ Camo's 5 MB is for external images; neither applies. So size is a judgment
 @ about load time on a slow connection, not a budget.
+@
+@ Length is a different matter. The written target is twenty to thirty seconds,
+@ and this does not meet it. Five scenes of real output, one of which stops and
+@ waits to be answered, come to about 47 seconds with nothing left to trim that
+@ would not cost either a scene or the ability to read one. The target was
+@ written before the demo had to show the tool asking before it acts. See
+@ design.md, which records what the number is now and why it moved.
 @
 @ What actually costs bytes: about 97% of the file is smooth-scroll frames, and
 @ they run ~1.27 MB per extra frame-per-line. Pauses, cursor blink and the held
 @ end frames are free - an identical frame stores as no change. So the levers, in
 @ order, are the number of output lines, the scroll rate, and the per-scene clear.
 @ Read time can be increased freely; it costs nothing.
+@
+@ What costs seconds is different, and it is mostly typing. Measured on the nine
+@ scenes this replaced: captions 12.9s, commands 13.5s, output and scrolling
+@ 10.7s, read pauses 24.5s. That is why the captions stopped being typed out -
+@ watching narration arrive a letter at a time cost more screen time than the
+@ commands it introduced.
 
 
 @ •••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
@@ -45,7 +58,7 @@
 @ A drawn terminal window on black - title bar, three muted traffic lights, square
 @ corners, no shadow. Nothing is screen-recorded; the frames are drawn.
 @ Dark warm-gray background, pale green text, gray prompt punctuation, dimmer gray
-@ for the typed comments.
+@ for the captions.
 @ The prompt's user@host is picked from a generic list and tinted, seeded so it is
 @ the same every run - no real username, hostname or path is ever on screen.
 @ The prompt also shows the folder the command runs in. The back half of the demo
@@ -57,8 +70,9 @@
 @ Font: Monaspace Argon SemiBold, falling back through JetBrains Mono, Cascadia
 @ Mono and DejaVu Sans Mono to whatever monospace the system offers. The font is
 @ resolved through fontconfig, which is the reason a render is a Linux job.
-@ Typing is at a human pace - roughly 135-183 wpm, slower on digits, a beat of
-@ thought before a -flag, and the occasional typo typed and corrected.
+@ Commands are typed at a human pace - roughly 135-183 wpm, slower on digits, a
+@ beat of thought before a -flag, and the occasional typo typed and corrected.
+@ Captions are not typed; they appear whole and hold for a moment to be read.
 @ The cursor glides between cells rather than jumping, and blinks every 520ms.
 @
 @ Every scene clears the screen before it starts, as though `clear` had been
@@ -74,12 +88,13 @@
 @ throwaway HOME and gitconfig, no real paths.
 @
 @ Two repos, in two folder trees that differ from their first folder down:
-@   ~/dev/github.com/acme-corp/acme-api        the service the first six scenes work on
+@   ~/dev/github.com/acme-corp/acme-api        the service the first three scenes work on
 @   ~/code/github.com/mika-rivers/dotfiles     somewhere else entirely
 @ acme-api has a local bare "origin" beside it, one commit, a clean push, and one
 @ uncommitted edit waiting in config.yml - so the very first scene has something
-@ to show. dotfiles only ever has `account` run in it; what matters is that it is
-@ a real repo under a different root.
+@ to show, the branch scene has something to carry along, and the sync scene has
+@ something to commit. dotfiles only ever has `account` run in it; what matters is
+@ that it is a real repo under a different root.
 @
 @ A gitsby config file gives each tree its own GitHub account, matched on the
 @ folder names "github.com/acme-corp" and "github.com/mika-rivers". The roots
@@ -102,11 +117,8 @@
 @ lets the pipeline rewrite assets/demo.gif only when the demo really changed.
 @ The banner therefore names the last release, not the build in progress.
 @ So: keep every commit message and every edit in this file fixed. In particular
-@ never demo a bare `pullcom` or `sync` with no message - the auto-generated
-@ message is a timestamp, and the gif would differ on every render.
-@
-@ The demo types each command without -y; the confirmation is answered off camera,
-@ because there is no terminal attached to answer it on.
+@ never demo a bare `sync` with no message - the auto-generated message is a
+@ timestamp, and the gif would differ on every render.
 
 
 @ •••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
@@ -117,90 +129,56 @@
 # Fetch, then show exactly where you stand
 gitsby status
 
-@ hold 5.7 seconds
+@ hold 2.6 seconds
 
 
 @ •••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
-@ Scene 2: start the feature
-@ The uncommitted edit from the fixture is still sitting there, which is the
-@ point - it comes along to the new branch instead of being left behind or
-@ committed to the default branch.
+@ Scene 2: start the feature, and be asked first
+@ Two things at once. The uncommitted edit from the fixture comes along to the new
+@ branch instead of being left behind or committed to the default branch. And the
+@ command stops on its confirmation, which is answered on camera - "shows you the
+@ exact Git it will run, and asks first" is the README's opening claim, so the
+@ demo has to show somebody being asked rather than assert it.
+@ This scene runs with a real terminal on its stdin, which is the only way the
+@ question gets asked at all. Nothing is faked: the plan on screen is the plan,
+@ and the y is really what let it proceed.
 
-# New branch - uncommitted work comes along
+# New branch. It shows the git first, and asks
 gitsby br create add-retries
 
-@ hold 5.2 seconds
+@ answers: y
+@ hold 3.2 seconds
 
 
 @ •••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
-@ Scene 3: park the work
+@ Scene 3: share it
+@ Commits the edit that has been pending since the first scene, then pulls and
+@ pushes. Types its own -y, which is the way past the question scene 2 just
+@ showed - worth seeing once, since it is what anyone scripting this will use.
 
-# Commit and pull, as often as you like
-gitsby pullcom "Retry failed API calls"
+# Commit, pull and push. -y answers the question
+gitsby sync "Retry failed API calls" -y
 
-@ hold 5.2 seconds
-
-
-@ •••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
-@ Scene 4: do some work
-@ An ordinary shell line, not a gitsby command. It is here so the next scene has
-@ something real to commit, and so the demo shows gitsby sitting alongside the
-@ shell rather than replacing it.
-
-# Make a change to a source file...
-echo 'retry_backoff: 250ms' >> config.yml
-
-@ hold 2.4 seconds - much shorter, there is only one line of output to read
-@ The caption runs on into the next scene's, so the two have to move together.
+@ hold 3.2 seconds
 
 
 @ •••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
-@ Scene 5: share it
-
-# ...then commit, pull and push in one go
-gitsby sync "Back off between retries"
-
-@ hold 5.2 seconds
-
-
-@ •••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
-@ Scene 6: ship it
-@ The closer, and the densest scene - it merges, pushes, and cleans up both
-@ copies of the branch, so it holds the longest.
-
-# Ship it: merge back, push, delete the branch
-gitsby br merge "Add retries"
-
-@ hold 7.8 seconds
-
-
-@ •••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
-@ Scene 7: who was that?
+@ Scene 4: who was that?
 @ The turn. Every scene so far carried "Account ...: mika-at-acme" and an
-@ acme.example author line without saying where they came from; this answers it.
-@ Still in the work repo - the prompt does not move until scene 9, so that the
+@ acme.example author line without saying where they came from; this answers it,
+@ and marks which account this folder resolves to. The "anywhere" line is the rule
+@ itself: a run of folder names, not a path on this machine.
+@ Still in the work repo - the prompt does not move until scene 5, so that the
 @ folder is visibly the only thing that changes.
 
-# That all went out as mika-at-acme. Here is why
-cat ~/.config/gitsby/config.shcl
-
-@ hold 7.0 seconds - thirteen lines of config to read
-
-
-@ •••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
-@ Scene 8: the rule, applied here
-@ Reads back what gitsby made of the file, and marks which account this folder
-@ resolves to. The "anywhere" line is the rule itself: a run of folder names,
-@ not a path on this machine.
-
-# Two folder names, matched anywhere in the path
+# That went out as mika-at-acme. Here is why
 gitsby account
 
-@ hold 6.5 seconds
+@ hold 2.8 seconds
 
 
 @ •••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
-@ Scene 9: the same command, somewhere else
+@ Scene 5: the same command, somewhere else
 @ The payoff, and the closing scene. Same command, no flags, nothing configured
 @ per repo - only the folder in the prompt differs, and the arrow has moved to
 @ the other account. The two roots are different ("code" against "dev"), which is
@@ -209,7 +187,7 @@ gitsby account
 # Another tree, another root - another account
 gitsby account
 
-@ hold 7.8 seconds
+@ hold 3.2 seconds
 
 
 @ •••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
@@ -233,6 +211,12 @@ gitsby account
 @ (note=, show=, pause=). The folder shown in the prompt is cwd=, defaulting to
 @ "~". The command that really runs is run=, which is where the -y and the repo
 @ setup hide - and which has to enter the same folder cwd= claims.
+@ A scene that stops to be answered carries ask= (the text the command waits on)
+@ and answer= (what gets typed). That step alone runs with a terminal on its
+@ stdin; stdout stays a pipe, so nothing a program saves for a terminal reaches
+@ the frames.
+@ Captions appearing whole rather than being typed is type_notes = false, set once
+@ at the top of the scenario.
 @ Canvas size, colors, fonts, typing speed, blink and the 50 fps grid are
 @ constants near the top of gen-demo-gif.py. Scroll rate is one of those too
 @ (150 px/s), overridable per scene.
