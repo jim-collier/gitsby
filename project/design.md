@@ -389,6 +389,12 @@ The Bash and PowerShell files were ports of each other, and were kept in step fo
 	- That costs a Windows or Mac user upgrading from a version that did search `~/.config` - the file stops being found, and "no accounts file" is a valid state rather than an error, so nothing says so. It was decided the platform's own convention is worth that, and the changelog carries the one-line move.
 	- One ordered list answers both questions - where a run looks and where a new file is created - so the file `account set` writes is always the file the next command finds.
 
+- The config file takes any spelling of a path that names the same place, on every platform. `~`, `${HOME}` and `%USERPROFILE%` mean the same thing wherever gitsby runs, and a rule may be written with either slash. One file can then be synced between a Windows box and a Linux one without rules that only half apply.
+	- The variables are a closed set, expanded by gitsby itself. A config value ends up in a git credential helper, which a shell runs, so none of this is handed to a shell to expand.
+	- A variable this machine does not set makes the rule ignored and listed, never an empty expansion. `path = ${NOPE}/dev` would otherwise become `/dev` and claim every repo on the disk.
+	- A drive letter is not mapped across platforms. `C:\Users\pat\dev` read on Linux would name `/Users/pat/dev`, which exists often enough on macOS to match the wrong tree in silence. A rule absolute only on another platform stays ignored and listed, as decided 2026-09-14.
+	- `account apply` still writes plain absolute paths into git's `includeIf` rules, since git knows none of these spellings. The synced file stays portable and the generated git rules stay per machine.
+
 ## Branching model
 
 Gitsby's own repo runs the model gitsby enforces, so the tool is its own first user.
@@ -494,6 +500,8 @@ The rules these entries lead to are collected in [style-guide_ui-ux.md](style-gu
 	- The path of the file to edit goes on its own labeled line. It is the one thing here that can be arbitrarily long, and folding it into a sentence is what wrecks the wrapping. Displayed paths fold a leading home directory back to `~`, so they read as somebody would type them.
 
 	- Where a value came from is named the same way, on its own line, and in terms that can be gone and looked at - the variable, the Git config key, or the account block and its file. "config" alone is ambiguous wherever a program reads more than one.
+
+- A path is printed as it is, never re-spelled to save room. One gitsby worked out itself - the accounts file it found, the directory it is standing in - prints in full, and one that came from the config file prints the way the file writes it. Folding a leading home back to `~` was dropped on 2026-09-16: it shortened one line while the folder rules under it printed in full, and a screen that spells the same prefix two ways costs more than the width it saved. That reverses the display half of the Windows fix which had taught that fold to match either slash.
 
 ### Testing
 
