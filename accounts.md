@@ -59,7 +59,7 @@ Per-account keys, all optional except a `path` to match on:
 
 | Key             | What it does
 | :--             | :--
-| `path`          | A folder tree this account owns, as an absolute path or one starting with `~`. More than one: `path: ~/dev/work, ~/dev/other`, or repeat the key. The longest match wins, so a tree nested inside another account's tree belongs to the inner one. A relative path is listed as ignored, since a file cannot say what it was relative to; `account set` turns one into the folder it names from where you run it.
+| `path`          | A folder tree this account owns, as an absolute path or one starting at the home folder: `~`, `${HOME}` and `%USERPROFILE%` all mean it, on every platform, with either slash. No other variable is expanded, and a rule starting with one is listed as ignored. More than one: `path: ~/dev/work, ~/dev/other`, or repeat the key. The longest match wins, so a tree nested inside another account's tree belongs to the inner one. A relative path is listed as ignored, since a file cannot say what it was relative to; `account set` turns one into the folder it names from where you run it.
 | `pathcontains`  | A run of folder names that appears anywhere in the path, so the same rule works on machines whose roots differ. Whole names only - `alice` never matches `alice-old`. Repeatable.
 | `ghaccount`  | The GitHub login to act as.
 | `tokenfile`  | A file holding that account's token, for a machine where `gh` was never logged in as it.
@@ -76,7 +76,7 @@ The file is meant to be edited by hand, but you don't have to. `gitsby account s
 
 ~~~console
 $ gitsby account set work host gitea.com
-    edit ~/.config/gitsby/config.shcl, line 8
+    edit /home/pat/.config/gitsby/config.shcl, line 8
       was:     host: github.com
       becomes: host: gitea.com
 ~~~
@@ -97,7 +97,7 @@ account: personal
 	ghaccount: my-personal-login
 ~~~
 
-That resolves under `C:/src/github.com/my-work-login/...` and `~/dev/github.com/my-work-login/...` alike, so the file syncs unchanged.
+That resolves under `C:/src/github.com/my-work-login/...` and `~/dev/github.com/my-work-login/...` alike, so the file syncs unchanged. A `path` under the home folder syncs too, since `~/dev/work` names the same folder on Windows as on Linux.
 
 - Whole folder names only. `alice` never matches a directory called `alice-old`.
 

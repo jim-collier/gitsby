@@ -51,6 +51,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `--about` prints what Gitsby is, who wrote it, the license it is under, and where it lives. `--donate` prints the sponsorship link. Both work outside a repository, and both are spelled as bare words too.
 
+- The accounts file takes `~`, `${HOME}` and `%USERPROFILE%` as the home folder on every platform, with either slash, so one file synced between Windows and Linux applies on both. No other variable is expanded, and a rule that starts with one is listed as ignored.
+
 ### Changed
 
 - The accounts file is in [SHCL](https://github.com/jim-collier/shcl) now - `key: value`, one indented block per account - read and written through that format's own module rather than a parser of Gitsby's own. Several folders for one account are a list: `path: ~/dev/work, ~/dev/other`. Key names settle on lower case (`ghaccount`, `tokenfile`, `sshkey`, `pathcontains`); the file takes any casing. A file in the old flat `key = value` layout is still read as it is, and the first `account set` rewrites it in the new layout with its comments kept. A file `account set` creates ends with a footer naming the format and where its syntax is written down.
@@ -65,11 +67,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `br land` is now `br merge`, the word most people reach for first. `br land` still works.
 
-- On Windows, every path Gitsby prints is spelled the Windows way - backslashes and an upper-case drive letter. `account list` was showing its folder rules in the internal form paths are matched in, so a rule read as `c:/opt/dev` two lines under the directory it claims, printed as `C:\opt\dev`. Same place, two spellings, on the one screen that exists to say which rule covers where you are.
+- On Windows, every path Gitsby works out itself is spelled the Windows way - backslashes and an upper-case drive letter. `account list` prints each rule the way the config file writes it. It was showing folder rules in the internal form paths are matched in, lower case with links resolved, so the folder on screen was one nobody had typed.
 
 - One word per thing, across every screen. The current directory is `Current dir` everywhere; `status` and `whoami` called it `Directory` and `account list` called it `Here`. `account list`'s `Resolves to` is now `Account`, which is what `status` already called the same answer - the old label named no actor, so the first question it raised was who was doing the resolving. A folder with nothing configured gets `(nothing configured)` and nothing further; it used to go on to name `gh`, which is wrong on every host `gh` does not serve and answers a question about Git's own fallback that nobody asked. An account that resolves but names no login no longer assumes `gh` either - it names whichever tool serves that account's own host, and names none where there is none.
 
-- The identity display now says where the account it is using came from, and which file that is, on their own lines: `From: An account block named 'acme', because its folder rule covers this directory.` and `File: ~/.config/gitsby/config.shcl`. The old `(from config 'acme')` named neither, and "config" is ambiguous here - `gitsby.ghAccount` is a Git config key and the account blocks are not.
+- The identity display now says where the account it is using came from, and which file that is, on their own lines: `From: An account block named 'acme', because its folder rule covers this directory.` and `File: /home/pat/.config/gitsby/config.shcl`. The old `(from config 'acme')` named neither, and "config" is ambiguous here - `gitsby.ghAccount` is a Git config key and the account blocks are not.
 
 - Where an account resolves but cannot be applied, that block goes on to explain it rather than trailing one long clause off the end of the line. It says which half of the account did still apply - an SSH key and a commit identity go in whether or not a token does - why the rest didn't, and the `account set` command that fixes it.
 
@@ -105,7 +107,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `br prune` no longer deletes a branch on origin that has moved since your last fetch. It asks origin just before deleting, leaves a moved branch alone, and reports one already deleted there instead of abandoning the rest. This happened with `--no-fetch`, or when someone pushed while the prompt waited. With `--no-fetch` and origin unreachable, it now says so instead of guessing the branches were already gone.
 
-- A folder rule has to be absolute or start with `~`. A relative one is listed as ignored and `account apply` no longer writes it, since git read `path: .` as the whole home folder, in 2.1.0 as well. `account set` turns a relative path into the folder it names from where you run it, and `account list` warns about a relative rule an earlier `account apply` left in your global git config.
+- A folder rule has to be absolute or start at the home folder. A relative one is listed as ignored and `account apply` no longer writes it, since git read `path: .` as the whole home folder, in 2.1.0 as well. `account set` turns a relative path into the folder it names from where you run it, and `account list` warns about a relative rule an earlier `account apply` left in your global git config.
 
 - `repo clone` picks its account from the folder the clone lands in, not the folder you launched it from. Cloning into your personal tree while standing in a work repository used the work account - the one case where the folder that decides is not the one you are in. A `gitsby.ghAccount` set on the surrounding repository no longer follows the clone out of it either, and the owner of a repository being cloned is not taken as evidence that it is yours: with no rule for the destination, gh stays on its own account.
 
