@@ -248,6 +248,12 @@ On Windows the PowerShell installer also puts that directory on your PATH, since
 
 For anything else - installing for everyone, taking an older release, or naming the architecture yourself - download the installer and run it with `--help`.
 
+A pre-release is flagged as one, so neither installer takes it by default: both go for the newest full release. Name its tag to install one.
+
+~~~bash
+curl -fsSL https://raw.githubusercontent.com/jim-collier/gitsby/main/install.bash | bash -s -- --tag v3.0.0-beta.1
+~~~
+
 ### Without the installer
 
 Every release publishes one binary per platform alongside a `SHA256SUMS`. Download the one you want, check it, and drop it somewhere on your PATH - that is the whole of what the installers do. Uninstalling is deleting the file, and on Windows the PATH entry too, if the installer added one.
@@ -265,6 +271,8 @@ sha256sum gitsby
 
 Substitute the release you are checking - the tag carries the leading `v` and the version stamped into the binary does not. The build number comes from the tagged commit's time, which is what the `git log` part reads. Set `GOOS` and `GOARCH` for a platform other than this one. Nobody has to take our word for what is in a download, including us.
 
+Every command prints that version and build number above its output, so a bug report can name the build it came from. Two builds of one commit carry the same number, because it comes from the commit's time and not from the clock.
+
 ### Coming from 2.x
 
 Back then Gitsby was a Bash script and a PowerShell one: install over the top and delete the old `gitsby` or `gitsby.ps1` by hand. Every 2.x command still works, and `update` and `br land` are still accepted alongside their current names, `pullcom` and `br merge`. The scripts themselves are retired - the v2.1.0 tag is where they live.
@@ -281,9 +289,9 @@ cd gitsby/src-go && go build -o gitsby .
 `cicd/cicd.bash` is the local pipeline and the one command to know. Run it before opening a PR. Seven stages, numbered as the run prints them, behind a stage 0 that fast-forwards from origin so everything after it tests the tree that is actually going out:
 
 1. Lints (gofmt, vet, staticcheck, golangci-lint, shellcheck).
-2. Builds, runs the unit tests, and runs the regression suite against the binary it just built.
-3. Runs the fuzz vectors and the native Go fuzz targets, checks the standard library for known problems, and counts the processes each command spawns.
-4. Compares the build against the frozen v2.1.0 one, for backwards compatibility.
+2. Builds, runs the unit tests, and runs the 1013-check regression suite against the binary it just built.
+3. Runs the 301 fuzz vectors and the native Go fuzz targets, checks the standard library for known problems, and counts the processes each command spawns.
+4. Compares the build against the frozen v2.1.0 one across 27 checks, for backwards compatibility.
 5. Cross-builds every target and installs each to its own tool directory.
 6. Rebuilds the demo gif, if it changed.
 7. **Commits and pushes.** It ends by publishing - worth knowing before you run it on a fork.
@@ -304,7 +312,7 @@ Full prerequisites and process: [contributing.md](contributing.md). Coding style
 
 ## Contributing
 
-Given that you may be using this for mission-critical work (as I do), Gitsby aims to be bulletproof, unsurprising, and useful, in that order. It is currently simple enough that the first two are attainable, and they're believed met now - through manual QA, an automated suite of several hundred checks against every build, and near-daily use.
+Given that you may be using this for mission-critical work (as I do), Gitsby aims to be bulletproof, unsurprising, and useful, in that order. It is currently simple enough that the first two are attainable, and they're believed met now - through manual QA, an automated suite of more than thirteen hundred checks against every build, and near-daily use.
 
 Given how it's written, even if a feature fails its design, it should in theory still never compromise your work.
 

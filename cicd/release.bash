@@ -31,6 +31,9 @@
 ##		- Guards that have caught real mistakes: the harnesses must carry a
 ##		  history-footer entry newer than the last release tag, and the changelog
 ##		  must have a real vNEXT section rather than the decoy template heading.
+##		- A version with a semver suffix - v3.0.0-beta.1 - publishes as a pre-release,
+##		  so 'releases/latest' and both installers go on resolving to the newest full
+##		  release. Asking for one is 'install.bash --tag v3.0.0-beta.1'.
 
 ##	History: At bottom of script.
 
@@ -145,6 +148,14 @@ if [[ -z "${version}" ]]; then
 fi
 [[ "${version}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([A-Za-z0-9.-]+)?$ ]] || fDie "'${version}' is not a vX.Y.Z version."
 git rev-parse -q --verify "refs/tags/${version}" >/dev/null && fDie "tag ${version} already exists."
+
+## A suffixed version is a candidate, and GitHub is told so. The tag decides it, because the tag
+## is already the only place a version is written. 'releases/latest' skips pre-releases, which is
+## what keeps a beta off the documented one-liner installs until a full release replaces it.
+prerelease=0; [[ "${version}" == *-* ]] && prerelease=1
+if ((prerelease)); then
+	fEcho_Clean "${version} carries a semver suffix, so it publishes as a pre-release."
+fi
 
 ## The history footers are maintained by hand and are missed most rounds, so check rather than
 ## trust. Every pipeline or installer script that keeps one and has changed since the last
@@ -273,9 +284,12 @@ else
 	fEcho_Clean "WARNING: couldn't read a build number out of ${nativeAsset}; the notes will not name one."
 fi
 
-if ! fWould "gh release create ${version} with ${#RELEASE_TARGETS[@]} binaries and SHA256SUMS"; then
+preArgs=(); preSay=""
+if ((prerelease)); then preArgs=(--prerelease); preSay=" as a pre-release"; fi
+if ! fWould "gh release create ${version}${preSay} with ${#RELEASE_TARGETS[@]} binaries and SHA256SUMS"; then
 	"${gitsby}" -q raw gh release create "${version}" --title "${version}" --notes-file "${notes}" \
-		"${assets}"/* || fDie "publishing the release failed; the tag is pushed, so re-run 'gh release create ${version}' by hand."
+		"${preArgs[@]}" "${assets}"/* \
+		|| fDie "publishing the release failed; the tag is pushed, so re-run 'gh release create ${version}${preSay:+ --prerelease}' by hand."
 fi
 
 ## Prove it the way a user meets it, not by trusting the steps above: fetch the asset for THIS
@@ -283,7 +297,15 @@ fi
 ## That is the whole contract - a download whose checksum matches and whose --version is right.
 if ! fWould "verify releases/latest, then download and run this platform's published binary"; then
 	latest="$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/jim-collier/gitsby/releases/latest" 2>/dev/null | sed -n 's|.*/releases/tag/||p')"
-	[[ "${latest}" == "${version}" ]] || fEcho_Clean "WARNING: releases/latest resolves to '${latest}', not ${version}."
+	## 'releases/latest' is the newest release NOT flagged as a pre-release, so a candidate must
+	## not resolve there and a full release must. Asking it the same question both ways round
+	## would warn on every good beta, which is the failure the 20260814 entry below is about.
+	if ((prerelease)); then
+		[[ "${latest}" != "${version}" ]] \
+			|| fEcho_Clean "WARNING: releases/latest resolves to ${version}, which was meant to publish as a pre-release."
+	else
+		[[ "${latest}" == "${version}" ]] || fEcho_Clean "WARNING: releases/latest resolves to '${latest}', not ${version}."
+	fi
 	## Seconds after publication GitHub serves the tag but not yet the assets, and the installers
 	## stop rather than quietly skip verification when SHA256SUMS can't be fetched - so a first
 	## attempt can fail against a release that is perfectly good. It did on v2.1.0: the same check
@@ -343,3 +365,4 @@ echo
 ##		- 20260821 JC: -q runs the release unattended, with the phase 1 pipeline quiet too.
 ##		- 20260826 JC: Phase 3 rebuilds the assets from the tagged commit, since the build number comes from that commit's date. The phase 1 build is only a compile gate now.
 ##		- 20260915 JC: The footer check covers every pipeline and installer script that keeps a history and changed since the last release, not only the two harnesses. Three pipeline files had gone a month without an entry. The notes' build line is the banner's first line, now that the copyright has a line of its own.
+##		- 20260916 JC: A version with a semver suffix publishes as a pre-release. The tag decides it, since the tag is already the only thing that names a version. 'releases/latest' skips pre-releases by definition, so the phase 3 proof now checks that a candidate does NOT resolve there; the old check would have warned on every good one.

@@ -535,9 +535,13 @@ The rules these entries lead to are collected in [style-guide_ui-ux.md](style-gu
 
 ### Release policy
 
-GitHub's `releases/latest` returns the newest release not flagged as a pre-release, and both installers resolve through that redirect. Among the options - flag candidates as pre-releases and teach the installers a `--pre` switch, or publish everything as a full release - we decided on the latter. The semver suffix in the tag already tells a reader that `v2.0.0-rc1` is a candidate, and it keeps the documented one-liner installs working with no extra arguments. `--tag`/`-Tag` covers anyone who wants a specific release.
+A version whose tag carries a semver suffix - `v3.0.0-beta.1` - is published as a pre-release. A plain `vX.Y.Z` is published as a full release. The tag decides it, with no flag to pass and nothing to remember, because the tag is already the only place a version is written.
+
+GitHub's `releases/latest` returns the newest release not flagged as a pre-release, and that is the point. A candidate sits beside the full release without displacing it, so every documented one-liner install goes on resolving to the newest full version until a full version replaces it. Asking for a candidate is `--tag`/`-Tag`.
 
 The installers read the release list rather than that redirect. They take the highest full release, and the newest pre-release only when there is no full one, so a repo whose only publication is a pre-release still installs.
+
+This reverses an earlier decision to publish everything as a full release. That one was taken while both installers resolved through the `releases/latest` redirect, which would have left a flagged candidate uninstallable, so the suffix in the tag was the only signal available. The installers read the list now, so the reason is gone, and the first Go publication is a beta that must not land on everyone who follows the install line in the README.
 
 ### Automating a release
 
