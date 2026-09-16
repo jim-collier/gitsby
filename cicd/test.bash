@@ -3333,6 +3333,11 @@ GHEOF
 		grep -qE '\{(prog|bin)\} (update|br land)' "${root}/cicd/utility/demo/demo-scenario.toml"
 	fAssertFail "and the demo notes point at no deleted engine" \
 		grep -q 'cicd-win' "${root}/cicd/utility/demo/script.txt"
+	## "shows you the exact Git it will run, and asks first" is the README's opening claim, so
+	## the demo has to show it being answered. Both halves: a scene that answers a prompt, and
+	## the prompt it answers being the one the program actually writes.
+	fAssert "the demo shows a command being confirmed, with the prompt the program writes" \
+		bash -c "grep -q 'ask .*= \"Continue? (y|n): \"' '${root}/cicd/utility/demo/demo-scenario.toml' && grep -q 'confirm(\"Continue? (y|n): \")' '${root}/src-go/main.go'"
 	## Two things the demo started putting on camera once the binary grew the checks that
 	## noticed them: a warning about its own fixture's file permissions, and - by way of the
 	## real gh - the name of whoever is logged in on the machine doing the rendering.
@@ -3358,6 +3363,40 @@ EOF
 		## Regression guard. The pipeline's compare, and design.md's byte-for-byte sentence, rest on it.
 		fAssert "and renders one scenario to the same bytes twice" \
 			bash -c "cd '${work}' && python3 '${root}/cicd/utility/demo/gen-demo-gif.py' --quiet --scenario '${work}/tiny-demo.toml' --out '${work}/tiny2.gif' && python3 '${root}/cicd/utility/demo/gen-demo-gif.py' --quiet --scenario '${work}/tiny-demo.toml' --out '${work}/tiny3.gif' && cmp -s '${work}/tiny2.gif' '${work}/tiny3.gif'"
+		## A step that stops to be answered. The marker is written only if the typed answer
+		## really reached the command's stdin, which is the whole point: a renderer that
+		## ignored ask=/answer= would still produce a perfectly good gif of nothing happening.
+		cat > "${work}/ask-demo.toml" <<'EOF'
+title = "demo"
+prog  = "demo"
+end_hold  = 0
+end_black = 0.1
+[[step]]
+show   = "demo go"
+run    = "printf 'Q: '; read a; test x$a = xy && : > answered"
+ask    = "Q: "
+answer = "y"
+pause  = 0.1
+EOF
+		rm -f -- "${work:?}/answered"
+		fAssert "the renderer answers a step that stops to ask" \
+			bash -c "cd '${work}' && python3 '${root}/cicd/utility/demo/gen-demo-gif.py' --quiet --scenario '${work}/ask-demo.toml' --out '${work}/ask1.gif' && [[ -f '${work}/answered' ]]"
+		## The opposite, because silence here would be a gif that quietly stopped showing the
+		## confirmation. It has to stop rather than render what it could not ask for.
+		cat > "${work}/ask-none.toml" <<'EOF'
+title = "demo"
+prog  = "demo"
+end_hold  = 0
+end_black = 0.1
+[[step]]
+show   = "demo quiet"
+run    = "echo nothing to ask"
+ask    = "Never: "
+answer = "y"
+pause  = 0.1
+EOF
+		fAssertFail "and stops when a step that should ask never does" \
+			bash -c "cd '${work}' && python3 '${root}/cicd/utility/demo/gen-demo-gif.py' --quiet --scenario '${work}/ask-none.toml' --out '${work}/ask2.gif'"
 		## The directive asks for three seconds of black at the loop boundary, and the committed
 		## file is the one a reader sees.
 		fAssert "the committed demo gif ends on three seconds of black" \
