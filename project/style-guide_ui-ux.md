@@ -75,7 +75,7 @@ New output follows this guide. Where the program and the guide disagree, one of 
 
 - The help pads each entry with dots so the descriptions in a group line up. It lists only spellings the parser takes.
 
-- A path is shown the way its platform spells it, with backslashes and an upper-case drive letter on Windows. In a diagnostic, a leading home folder folds back to `~`. The form used to match paths is never printed.
+- A path is shown the way its platform spells it, with backslashes and an upper-case drive letter on Windows. It is never re-spelled to be shorter: one gitsby worked out itself prints in full, and one the config file holds prints the way the file holds it. The form used to match paths is never printed.
 
 ## Plans and prompts
 

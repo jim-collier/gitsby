@@ -57,7 +57,15 @@ To make using these icons easier if desired, add them to a clipboard or key macr
 - 🔘 Bring the output into line with the UI and UX style guide.
 	- Opened: 20260915-154529
 	- Seen while writing the guide: `WARNING:` lines are bracketed in some places and bare in others. `account list` prints `token ...: none` beside `github ..: (none)`. Most `Syntax:` lines name their placeholders without saying what they mean; only `account set` does.
-	- Note: `account list` prints a folder rule as its expanded path, while the file line above it folds home to `~`. The guide asks for `~` only in diagnostics, so this one wants a decision first.
+	- Note: the home-folder spelling that used to sit here is its own item now, decided and split out.
+
+- 🔘 Paths are spelled more than one way between the config file and the screen.
+	- Opened: 20260916-110027
+	- Decided 20260916: a path is never re-spelled for display. One gitsby worked out itself prints in full, one the config file holds prints as the file holds it. The accounts file line stops folding to `~`, which reverses the display half of 82b924f.
+	- Decided 20260916: the config file takes `~`, `${HOME}` and `%USERPROFILE%` as the same thing on every platform, and either slash in any rule. Closed set of variables, expanded by gitsby, never through a shell. One this machine does not set makes the rule ignored and listed. No drive-letter mapping across platforms.
+	- Already handled on read: `\` to `/`, `~`, `~/`, `~\`, and `/c/x` to `C:/x` on Windows. New: the variables, and keeping the text as written.
+	- Work: `displayPath` only folds, so it collapses into `nativePath` at 28 call sites. The value model has to keep the as-written text beside the canonical form, since a value is normalized on read - `a\tb` reads back as `a/tb` today. Four checks assert a printed `~` (test.bash 2412, 2776, 2824, 2850) and change with the code; their labels do not.
+	- Note: the guide states the new rule already, so it and the program disagree until this is done. Closing that is what this item is.
 
 - 🛠️ Code review 20260909 - enhancements from the same pass. Twelve items, none of them urgent.
 	- Opened: 20260909-184419
