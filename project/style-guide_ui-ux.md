@@ -133,8 +133,8 @@ When a line can't just state a fact, the explanation goes in labeled notes under
 
 ~~~text
 gitsby: Another run is editing the accounts file.
-  File: ~/.config/gitsby/config.shcl
-  Lock: ~/.config/gitsby/config.shcl.lock
+  File: /home/pat/.config/gitsby/config.shcl
+  Lock: /home/pat/.config/gitsby/config.shcl.lock
   Why:  Edits go in one at a time, and the lock beside the file
         was still there after waiting for it.
   Kept: Nothing was written.

@@ -46,15 +46,17 @@ To make using these icons easier if desired, add them to a clipboard or key macr
 
 ### Bugs
 
-### Features and enhancements
+- ✋ A Windows path with backslashes can read as a different folder. In the block layout, shcl v2 reads `\t` and `\n` as a tab and a newline, quoted or not, so `path: ~\dev\tools` names `~\dev` + tab + `ools` and the rule never matches. `\\` reads as one backslash. The old flat layout is not affected.
+	- Opened: 20260916-163000
+	- Origin: 20260826, the move to the shcl module. Found on b29w while checking the path-spelling feature. Confirmed on Linux and Windows.
+	- shcl 3.0, not yet released, reads a backslash outside double quotes as a plain character. Moving to it fixes this, or gitsby reads the key's raw text by the same rule until then.
+	- Decided 20260916: wait for shcl 3.0, with no workaround in gitsby. Reopen when shcl's Go module publishes v3.
 
-- 🔘 Paths are spelled more than one way between the config file and the screen.
-	- Opened: 20260916-110027
-	- Decided 20260916: a path is never re-spelled for display. One gitsby worked out itself prints in full, one the config file holds prints as the file holds it. The accounts file line stops folding to `~`, which reverses the display half of 82b924f.
-	- Decided 20260916: the config file takes `~`, `${HOME}` and `%USERPROFILE%` as the same thing on every platform, and either slash in any rule. Closed set of variables, expanded by gitsby, never through a shell. One this machine does not set makes the rule ignored and listed. No drive-letter mapping across platforms.
-	- Already handled on read: `\` to `/`, `~`, `~/`, `~\`, and `/c/x` to `C:/x` on Windows. New: the variables, and keeping the text as written.
-	- Work: `displayPath` only folds, so it collapses into `nativePath` at 28 call sites. The value model has to keep the as-written text beside the canonical form, since a value is normalized on read - `a\tb` reads back as `a/tb` today. Four checks assert a printed `~` (test.bash 2412, 2776, 2824, 2850) and change with the code; their labels do not.
-	- Note: the guide states the new rule already, so it and the program disagree until this is done. Closing that is what this item is.
+- 🔘 `status` says an account came from "gitsby.ghAccount in this repo's git config" when the key reached git through an `account apply` fragment included from the global config. The line also starts with a capital `G`, which no key is spelled with.
+	- Opened: 20260916-163000
+	- Origin: seen on b29w 2026-09-16, not traced to a commit. Confirmed.
+
+### Features and enhancements
 
 - 🛠️ Code review 20260909 - enhancements from the same pass. Twelve items, none of them urgent.
 	- Opened: 20260909-184419
@@ -1823,6 +1825,17 @@ To make using these icons easier if desired, add them to a clipboard or key macr
 		- Added next to the bash badge in the header block, linking to the PowerShell docs.
 
 #### Done - Features and enhancements
+
+- ✅ Paths are spelled more than one way between the config file and the screen.
+	- Opened: 20260916-110027
+	- Closed: 20260916-164500
+	- Decided 20260916: a path is never re-spelled for display. One gitsby worked out itself prints in full, one the config file holds prints as the file holds it. The accounts file line stops folding to `~`, which reverses the display half of 82b924f.
+	- Decided 20260916: the config file takes `~`, `${HOME}` and `%USERPROFILE%` as the same thing on every platform, and either slash in any rule. Closed set of variables, expanded by gitsby, never through a shell. One this machine does not set makes the rule ignored and listed. No drive-letter mapping across platforms.
+	- Already handled on read: `\` to `/`, `~`, `~/`, `~\`, and `/c/x` to `C:/x` on Windows. New: the variables, and keeping the text as written.
+	- Work: `displayPath` only folds, so it collapses into `nativePath` at 28 call sites. The value model has to keep the as-written text beside the canonical form, since a value is normalized on read - `a\tb` reads back as `a/tb` today. Four checks assert a printed `~` (test.bash 2412, 2776, 2824, 2850) and change with the code; their labels do not.
+	- Note: the guide states the new rule already, so it and the program disagree until this is done. Closing that is what this item is.
+	- 20260916: built on `pathspell`, all Linux suites green. Go tests pass on b29w with and without HOME, and a real `account list` and `account apply` there take all three spellings.
+	- Either slash does not hold yet for a backslash before `t` or `n`. Filed under Bugs, since it predates this item.
 
 - ✅ Bring the output into line with the UI and UX style guide.
 	- Opened: 20260915-154529

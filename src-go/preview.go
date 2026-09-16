@@ -82,15 +82,15 @@ func (a *app) preview(what string) {
 		t := a.set
 		switch {
 		case t.creates:
-			a.out.clean(pad + "create " + displayPath(t.file))
+			a.out.clean(pad + "create " + nativePath(t.file))
 		case t.converts:
 			// The whole file changes shape, so no line number: the one it has now
 			// is not the one the key ends up on.
-			a.out.clean(pad + "rewrite " + displayPath(t.file) + " in the current layout - it is in the old flat one")
+			a.out.clean(pad + "rewrite " + nativePath(t.file) + " in the current layout - it is in the old flat one")
 		case t.lineNum > 0:
-			a.out.clean(pad + "edit " + displayPath(t.file) + ", line " + strconv.Itoa(t.lineNum))
+			a.out.clean(pad + "edit " + nativePath(t.file) + ", line " + strconv.Itoa(t.lineNum))
 		default:
-			a.out.clean(pad + "edit " + displayPath(t.file))
+			a.out.clean(pad + "edit " + nativePath(t.file))
 		}
 		if t.exists {
 			a.out.clean(pad + "  was:     " + t.field + ": " + t.old)

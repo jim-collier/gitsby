@@ -74,6 +74,17 @@ func (c *config) segmentsOf(name string) []string {
 	return matchesOf(c.segments, name)
 }
 
+// rulesOf is matchesOf with the whole rule, for a caller that prints one.
+func rulesOf(rules []acctRule, name string) []acctRule {
+	var out []acctRule
+	for _, r := range rules {
+		if r.acct == name && r.match != "" {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 func matchesOf(rules []acctRule, name string) []string {
 	var out []string
 	for _, r := range rules {
@@ -232,7 +243,7 @@ func (c *config) accountManagedIncludes() []string {
 
 func (a *app) cmdAccountList() {
 	a.out.clean("")
-	configDisp := displayPath(a.cfg.file)
+	configDisp := nativePath(a.cfg.file)
 	if configDisp == "" {
 		configDisp = "(none found)"
 	}
@@ -299,6 +310,7 @@ func (c *config) contestedRules() []string {
 	var out []string
 	for _, rules := range [][]acctRule{c.paths, c.segments} {
 		byMatch := map[string][]string{}
+		written := map[string]string{}
 		var order []string
 		for _, r := range rules {
 			if r.match == "" || slices.Contains(byMatch[r.match], r.acct) {
@@ -306,12 +318,14 @@ func (c *config) contestedRules() []string {
 			}
 			if len(byMatch[r.match]) == 0 {
 				order = append(order, r.match)
+				// The first spelling, since two that match alike can be written apart.
+				written[r.match] = r.written
 			}
 			byMatch[r.match] = append(byMatch[r.match], r.acct)
 		}
 		for _, match := range order {
 			if len(byMatch[match]) > 1 {
-				out = append(out, match+": "+strings.Join(byMatch[match], ", "))
+				out = append(out, written[match]+": "+strings.Join(byMatch[match], ", "))
 			}
 		}
 	}
@@ -351,11 +365,11 @@ func (a *app) showAccount(name string, isHere bool) {
 	if ghWho != "" && a.ghTokenFor(ghWho) != "" {
 		tokenFrom = "gh's own store"
 	} else if readTokenFile(a.cfg.value(name, "tokenFile")) != "" {
-		tokenFrom = nativePath(a.cfg.value(name, "tokenFile"))
+		tokenFrom = a.cfg.value(name, "tokenFile")
 	}
 	a.out.clean("     token ...: " + tokenFrom)
 	if sshKey := a.cfg.value(name, "sshKey"); sshKey != "" {
-		a.out.clean("     ssh key .: " + nativePath(sshKey))
+		a.out.clean("     ssh key .: " + sshKey)
 	}
 	acctUser := a.cfg.value(name, "name")
 	acctEmail := a.cfg.value(name, "email")
@@ -371,21 +385,23 @@ func (a *app) showAccount(name string, isHere bool) {
 	if proto := a.cfg.value(name, "protocol"); proto != "" {
 		a.out.clean("     protocol : " + proto)
 	}
-	for _, folder := range a.cfg.foldersOf(name) {
+	// Each rule as the file writes it. The canonical form is lower case on Windows
+	// with every link resolved, so printing that named a folder nobody had typed.
+	for _, r := range rulesOf(a.cfg.paths, name) {
 		// A rule pointing at nothing matches nothing, and reads exactly like no rule
 		// at all - which is how you end up acting as the wrong account while believing
 		// you configured it. Usually a typo; on Windows it is also how a shell-only
 		// path spelling such as '/tmp/...' looks, since only the shell build can
 		// resolve one.
-		if isDir(folder) {
-			a.out.clean("     folder ..: " + nativePath(folder))
+		if isDir(r.match) {
+			a.out.clean("     folder ..: " + r.written)
 		} else {
-			a.out.clean("     folder ..: " + nativePath(folder) + "  (no such directory - this rule can never match)")
+			a.out.clean("     folder ..: " + r.written + "  (no such directory - this rule can never match)")
 		}
 	}
 	// No existence check on these: naming no machine in particular is the point.
-	for _, seg := range a.cfg.segmentsOf(name) {
-		a.out.clean("     anywhere : " + nativePath(".../"+seg+"/..."))
+	for _, r := range rulesOf(a.cfg.segments, name) {
+		a.out.clean("     anywhere : .../" + strings.Trim(r.written, `/\`) + "/...")
 	}
 }
 
@@ -401,12 +417,12 @@ func (a *app) cmdAccountApply() error {
 		return usagef("No config file, so there is nowhere to write the account fragments.")
 	}
 	if pathExists(dir) && !isDir(dir) {
-		return usagef("'%s' is where the account fragments go, and it isn't a directory. Move or remove it, then re-run.", displayPath(dir))
+		return usagef("'%s' is where the account fragments go, and it isn't a directory. Move or remove it, then re-run.", nativePath(dir))
 	}
 	// 0700, not 0777-and-hope-for-umask: these fragments name your accounts and
 	// point at your token file, and they sit under your own config directory.
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return usagef("Couldn't create '%s' for the account fragments. Check permissions on '%s'.", displayPath(dir), displayPath(filepath.Dir(dir)))
+		return usagef("Couldn't create '%s' for the account fragments. Check permissions on '%s'.", nativePath(dir), nativePath(filepath.Dir(dir)))
 	}
 	for _, name := range a.cfg.accountNames() {
 		if err := a.writeAccountFragment(dir, name); err != nil {
@@ -467,7 +483,8 @@ func (a *app) writeAccountFragment(dir, name string) error {
 		// Naming the user is what makes a credential manager look up that account's
 		// entry rather than any entry for the host.
 		{"credential.https://github.com.username", a.cfg.value(name, "ghAccount")},
-		{"gitsby.ghTokenFile", a.cfg.value(name, "tokenFile")},
+		// Expanded, since git knows none of the home spellings the accounts file takes.
+		{"gitsby.ghTokenFile", expandHome(a.cfg.value(name, "tokenFile"))},
 	}
 	for _, e := range entries {
 		if e.value == "" {
@@ -478,7 +495,7 @@ func (a *app) writeAccountFragment(dir, name string) error {
 		}
 	}
 	if sshKey := a.cfg.value(name, "sshKey"); sshKey != "" {
-		if err := write("core.sshCommand", "ssh -i "+sshKey+" -o IdentitiesOnly=yes"); err != nil {
+		if err := write("core.sshCommand", "ssh -i "+sshKeyArg(sshKey)+" -o IdentitiesOnly=yes"); err != nil {
 			return err
 		}
 	}
@@ -548,8 +565,8 @@ func canonAccountField(field string) string {
 // command runs in, as it would for any command, and the file can never say that
 // later - so it goes in absolute. Spelled the way the platform spells it rather
 // than in canonical form, since the file is edited by hand, and with forward
-// slashes, since a backslash in a bare value is an escape. A '~' value is written
-// as typed, so one file still works where home differs.
+// slashes, since a backslash in a bare value is an escape. A value starting at
+// home is written as typed, so one file still works where home differs.
 func absPathValue(value, what string) (string, error) {
 	// filepath.Abs("") is the current directory, which nobody typed.
 	if value == "" {
@@ -559,9 +576,11 @@ func absPathValue(value, what string) (string, error) {
 	case "":
 		return value, nil
 	case ruleNoHome:
-		return "", usagef("'%s' starts with '~', and this machine names no home folder for it. Give the full path.", value)
+		return "", usagef("'%s' starts at the home folder, and this machine names none. Give the full path.", value)
 	case ruleOtherHome:
 		return "", usagef("'%s' names another user's home folder, and only a bare '~' is expanded. Give the full path.", value)
+	case ruleOtherVar:
+		return "", usagef("'%s' starts with a variable %s doesn't expand. Only '~', '${HOME}' and '%%USERPROFILE%%' are, or give the full path.", value, meName)
 	}
 	abs, err := filepath.Abs(value)
 	if err == nil {
@@ -654,14 +673,14 @@ func configRefusal(file string, state candidateState, fi os.FileInfo, cause erro
 	case candidateUnreadable:
 		head = "An accounts file is already there, and it can't be read."
 		notes = [][]string{
-			noteLines("File", displayPath(file)),
+			noteLines("File", nativePath(file)),
 			noteLines("Why", "A new file here would replace it. Opening it failed with: "+causeText(cause)+"."),
 			kept,
 			noteLines("Fix", unreadableFix(runtime.GOOS, file, cause)...),
 		}
 	case candidateBrokenLink:
 		head = "The accounts file is a link to something that isn't there."
-		notes = [][]string{noteLines("File", displayPath(file))}
+		notes = [][]string{noteLines("File", nativePath(file))}
 		if target, err := os.Readlink(file); err == nil {
 			notes = append(notes, noteLines("Link", target))
 		}
@@ -677,7 +696,7 @@ func configRefusal(file string, state candidateState, fi os.FileInfo, cause erro
 		}
 		head = "Something that isn't a file is where the accounts file goes."
 		notes = [][]string{
-			noteLines("File", displayPath(file)),
+			noteLines("File", nativePath(file)),
 			noteLines("Why", "It is a "+kind+", and the accounts file has to go in its place."),
 			kept,
 			noteLines("Fix", "Move it out of the way, then run this again."),
@@ -689,7 +708,7 @@ func configRefusal(file string, state candidateState, fi os.FileInfo, cause erro
 			why += " A new file would go in ahead of it and hide it."
 		}
 		notes = [][]string{
-			noteLines("File", displayPath(file)),
+			noteLines("File", nativePath(file)),
 			noteLines("Why", why),
 			kept,
 			noteLines("Fix", lookupFix(runtime.GOOS, file, cause)...),
@@ -697,7 +716,7 @@ func configRefusal(file string, state candidateState, fi os.FileInfo, cause erro
 	default:
 		head = "An accounts file turned up while this ran."
 		notes = [][]string{
-			noteLines("File", displayPath(file)),
+			noteLines("File", nativePath(file)),
 			noteLines("Why", "This command read the accounts before the file was there, so its edit would replace what the file holds now."),
 			kept,
 			noteLines("Fix", "Run this again. It will edit the file that is there now."),
@@ -824,11 +843,11 @@ func lockAccountsFile(file string, wait time.Duration) (func(), error) {
 		pending := runtime.GOOS == "windows" && errors.Is(err, fs.ErrPermission)
 		switch {
 		case !held && (!pending || time.Now().After(deadline)):
-			return nil, usagef("Couldn't make the lock '%s' beside the accounts file, so nothing was written. Check permissions on the folder it is in.", displayPath(lock))
+			return nil, usagef("Couldn't make the lock '%s' beside the accounts file, so nothing was written. Check permissions on the folder it is in.", nativePath(lock))
 		case time.Now().After(deadline):
 			return nil, refusalBlock("Another run is editing the accounts file.", [][]string{
-				noteLines("File", displayPath(file)),
-				noteLines("Lock", displayPath(lock)),
+				noteLines("File", nativePath(file)),
+				noteLines("Lock", nativePath(lock)),
 				noteLines("Why", "Edits go in one at a time, and the lock beside the file was still there after waiting for it."),
 				noteLines("Kept", "Nothing was written."),
 				noteLines("Fix", lockFix(runtime.GOOS, lock)...),
@@ -857,7 +876,7 @@ func changedRefusal(file string, cause error) error {
 		why = "Reading it again before the save failed with: " + causeText(cause) + "."
 	}
 	return refusalBlock("The accounts file changed while this ran.", [][]string{
-		noteLines("File", displayPath(file)),
+		noteLines("File", nativePath(file)),
 		noteLines("Why", why),
 		noteLines("Kept", "Nothing was written."),
 		noteLines("Fix", "Run this again. It will edit the file as it is now."),
@@ -893,7 +912,7 @@ func (a *app) accountSetPlan() (accountSetTarget, error) {
 	// read, so the file says one thing and every command does another. The key is
 	// checked as it will be written, since the folder a relative one was typed in
 	// can carry a space.
-	if t.field == "sshkey" && strings.ContainsAny(t.value, sshKeyShellChars) {
+	if t.field == "sshkey" && strings.ContainsAny(sshKeyArg(t.value), sshKeyShellChars) {
 		return t, usagef("git hands a key path to a shell, so one carrying whitespace or a shell character is re-parsed rather than used. Move the key somewhere plainer.")
 	}
 	if (t.field == "host" || t.field == "user") && !hostWordOK.MatchString(t.value) {
@@ -923,7 +942,7 @@ func (a *app) accountSetPlan() (accountSetTarget, error) {
 		// written for the scripted builds, and this is the command that moves it on.
 		data, err := os.ReadFile(a.cfg.file)
 		if err != nil {
-			return t, usagef("Couldn't read '%s'.", displayPath(a.cfg.file))
+			return t, usagef("Couldn't read '%s'.", nativePath(a.cfg.file))
 		}
 		t.file, t.converts, t.read = a.cfg.file, true, string(data)
 		t.doc = shcl.Parse(flatToSHCL(strings.TrimPrefix(string(data), utf8BOM)))
@@ -934,7 +953,7 @@ func (a *app) accountSetPlan() (accountSetTarget, error) {
 	// read dropped something the rewrite would then lose. Said here, before the
 	// plan, rather than after the confirmation.
 	if lost := t.doc.LostCount(); lost > 0 {
-		return t, usagef("%d line(s) of %s couldn't be read, and a rewrite would drop them. Edit it by hand.", lost, displayPath(t.file))
+		return t, usagef("%d line(s) of %s couldn't be read, and a rewrite would drop them. Edit it by hand.", lost, nativePath(t.file))
 	}
 	// Taken before the edit, so only what the save changes besides the key counts.
 	t.reshapes = !t.creates && !t.converts && t.doc.ToCanonical() != t.read
@@ -953,7 +972,7 @@ func (a *app) accountSetPlan() (accountSetTarget, error) {
 	// in there twice by accident. Replacing the first and leaving the rest would
 	// look like it worked and change nothing, so say so rather than guess.
 	if n := t.doc.Count(t.path()); n > 1 {
-		return t, usagef("'%s' is in %s %d times. Edit it by hand - there is no telling which one you meant.", t.disp+"."+t.field, displayPath(t.file), n)
+		return t, usagef("'%s' is in %s %d times. Edit it by hand - there is no telling which one you meant.", t.disp+"."+t.field, nativePath(t.file), n)
 	}
 	if read := t.doc.ReadString(t.path()); read.Status != shcl.NotFound {
 		t.exists, t.lineNum = true, read.Line
@@ -983,7 +1002,7 @@ func (a *app) cmdAccountSet() error {
 	if t.creates {
 		dir := filepath.Dir(t.file)
 		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return usagef("Couldn't create '%s' to put the accounts file in.", displayPath(dir))
+			return usagef("Couldn't create '%s' to put the accounts file in.", nativePath(dir))
 		}
 	}
 	// Over a create too: one between its open and its write holds an empty file,
@@ -1000,15 +1019,15 @@ func (a *app) cmdAccountSet() error {
 		opened, err := createAccountsFile(t.file, t.doc.ToCanonical())
 		switch {
 		case err == nil:
-			a.out.status("Wrote " + displayPath(t.file))
+			a.out.status("Wrote " + nativePath(t.file))
 			return nil
 		case opened:
-			return usagef("Couldn't finish writing '%s', so it may be incomplete. Check the disk it is on before running this again.", displayPath(t.file))
+			return usagef("Couldn't finish writing '%s', so it may be incomplete. Check the disk it is on before running this again.", nativePath(t.file))
 		case errors.Is(err, fs.ErrExist):
 			state, fi, perr := probeConfigCandidate(t.file)
 			return configRefusal(t.file, state, fi, perr)
 		}
-		return usagef("Couldn't write '%s'. Check permissions on it.", displayPath(t.file))
+		return usagef("Couldn't write '%s'. Check permissions on it.", nativePath(t.file))
 	}
 	if now, err := os.ReadFile(t.file); err != nil || string(now) != t.read {
 		return changedRefusal(t.file, err)
@@ -1016,10 +1035,10 @@ func (a *app) cmdAccountSet() error {
 	if err := t.doc.SaveFile(t.file); err != nil {
 		var refused *shcl.SaveRefused
 		if errors.As(err, &refused) {
-			return usagef("%d line(s) of %s couldn't be read, and a rewrite would drop them. Edit it by hand.", refused.Lost, displayPath(t.file))
+			return usagef("%d line(s) of %s couldn't be read, and a rewrite would drop them. Edit it by hand.", refused.Lost, nativePath(t.file))
 		}
-		return usagef("Couldn't write '%s'. Check permissions on it.", displayPath(t.file))
+		return usagef("Couldn't write '%s'. Check permissions on it.", nativePath(t.file))
 	}
-	a.out.status("Wrote " + displayPath(t.file))
+	a.out.status("Wrote " + nativePath(t.file))
 	return nil
 }

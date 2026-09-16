@@ -187,10 +187,10 @@ const dirLabel = "Current dir ..: "
 // "add a line to your config" is not advice until it says which file.
 func (a *app) accountFile() string {
 	if a.cfg.file != "" {
-		return displayPath(a.cfg.file)
+		return nativePath(a.cfg.file)
 	}
 	if d := defaultConfigFile(); d != "" {
-		return displayPath(d)
+		return nativePath(d)
 	}
 	return "~/.config/gitsby/config.shcl"
 }
@@ -514,7 +514,7 @@ func readSSHConfig(target string) sshConfig {
 			}
 		case "identityfile":
 			if cfg.keyFile == "" {
-				if isReadableFile(expandTilde(value)) {
+				if isReadableFile(expandHome(value)) {
 					cfg.keyFile = value
 				}
 			}

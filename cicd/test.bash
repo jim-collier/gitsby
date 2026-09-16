@@ -2407,9 +2407,9 @@ GHEOF
 	## "(from config 'work')" named neither the file nor which config - and there are two in play,
 	## since 'gitsby.ghAccount' is a git config key and the account blocks are not. An account that
 	## applied cleanly says where to go and look, same as one that didn't.
-	## Folded back to '~' as well: it lives under home, and its absolute spelling is long enough to
-	## be the whole line.
-	fAssertOut "and names the file that rule is written in"  'File: ~/\.config/gitsby/config\.shcl' \
+	## In full, never folded back to '~': the folder rules under it print in full, and one screen
+	## spelling home two ways reads as two places.
+	fAssertOut "and names the file that rule is written in"  "File: ${ac//./\\.}/home/\\.config/gitsby/config\\.shcl" \
 		bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q -NoFetch status"
 	fAssertOut "a sibling tree resolves to the other one" "Account \.+: homeacct"       bash -c "cd '${acHome}' && env ${acEnv} '${gitsby}' -q -NoFetch status"
 	fAssertNotOut "and not to the first"                  "workacct"                    bash -c "cd '${acHome}' && env ${acEnv} '${gitsby}' -q -NoFetch status"
@@ -2694,6 +2694,33 @@ GHEOF
 		bash -c "cd '${ac}/rel' && env ${acRelEnv} '${gitsby}' -q -NoFetch --config rel.shcl account apply >/dev/null"
 	fAssert "and writes the fragments beside it, included by absolute path" \
 		bash -c "[[ -f '${ac}/rel/accounts/rel.gitconfig' ]] && env ${acRelEnv} git config --global --get-regexp '^includeif\.' | grep -qE ' /.+/rel/accounts/rel\.gitconfig$'"
+	## '~', '${HOME}' and '%USERPROFILE%' are one folder on every platform, so a file synced from a
+	## Windows box applies here too. git knows none of them, so apply hands it the folder itself, and
+	## the ssh command gets the '~' its shell expands.
+	mkdir -p "${ac}/varhome/trees"
+	git init --quiet -b main "${ac}/varhome/trees/varproj"
+	git init --quiet -b main "${ac}/varhome/trees/pctproj"
+	cat > "${ac}/varhome/vars.shcl" <<-'EOF'
+		account.dollar.path      = ${HOME}/trees/varproj
+		account.dollar.ghAccount = dollaracct
+		account.dollar.sshKey    = ${HOME}\.ssh\id_var
+		account.pct.path         = %USERPROFILE%\trees\pctproj
+		account.pct.ghAccount    = pctacct
+	EOF
+	local acVarEnv="${acNoDiscovery} HOME='${ac}/varhome' GIT_CONFIG_GLOBAL='${ac}/varhome/.gitconfig' PATH='${ac}/bin:${PATH}'"
+	: > "${ac}/varhome/.gitconfig"
+	fAssertOut "a '\${HOME}' folder rule claims its folder"  "Account \.+: dollaracct" \
+		bash -c "cd '${ac}/varhome/trees/varproj' && env ${acVarEnv} '${gitsby}' -q -NoFetch --config '${ac}/varhome/vars.shcl' status"
+	fAssertOut "and a '%USERPROFILE%' one with backslashes"  "Account \.+: pctacct" \
+		bash -c "cd '${ac}/varhome/trees/pctproj' && env ${acVarEnv} '${gitsby}' -q -NoFetch --config '${ac}/varhome/vars.shcl' status"
+	fAssertOut "and account list prints each rule as the file writes it"  'folder \.\.: %USERPROFILE%\\trees\\pctproj' \
+		bash -c "cd '${ac}/varhome' && env ${acVarEnv} '${gitsby}' -q -NoFetch --config '${ac}/varhome/vars.shcl' account list"
+	fAssert "account apply takes both" \
+		bash -c "cd '${ac}/varhome/trees/varproj' && env ${acVarEnv} '${gitsby}' -q -NoFetch --config '${ac}/varhome/vars.shcl' account apply >/dev/null"
+	fAssertOut "and gives git the folder, not the variable"  "gitdir/i:${ac//./\\.}/varhome/trees/pctproj/\\.path" \
+		bash -c "env ${acVarEnv} git config --global --get-regexp '^includeif\.'"
+	fAssertOut "and gives the ssh command a key its shell expands"  '^ssh -i ~/\.ssh/id_var -o IdentitiesOnly=yes$' \
+		bash -c "cd '${ac}/varhome/trees/varproj' && env ${acVarEnv} git config core.sshCommand"
 	## A trailing '# ...' is a comment, not part of the value - the documented example config writes
 	## them. Folded in, a path became a rule that could never match any directory, and a rule that
 	## never matches reads exactly like no rule at all: the command went out as gh's own account.
@@ -2773,7 +2800,7 @@ GHEOF
 	## A file created from nothing carries a header naming the keys and a footer naming the format,
 	## and is readable by nobody else: it names accounts and points at token files.
 	local acNew="${ac}/newhome"; mkdir -p "${acNew}"
-	fAssertOut "'account set' creates the file where the next run looks"  'create ~/.config/gitsby/config.shcl' \
+	fAssertOut "'account set' creates the file where the next run looks"  "create ${acNew//./\\.}/\\.config/gitsby/config\\.shcl" \
 		bash -c "cd '${acWork}' && env ${acNoDiscovery} HOME='${acNew}' PATH='${ac}/bin:${PATH}' '${gitsby}' -q -NoFetch account set fresh ghaccount freshacct 2>&1"
 	fAssertOut "and it names the format it is in"  'This config file format is SHCL'  cat "${acNew}/.config/gitsby/config.shcl"
 	fAssertOut "and the keys it takes"  '^#   pathcontains '  cat "${acNew}/.config/gitsby/config.shcl"
@@ -2821,7 +2848,7 @@ GHEOF
 		local acUnrSet="'${gitsby}' -q -NoFetch account set kept email k@example.com"
 		fAssertFail "'account set' refuses to create over an accounts file it can't read" \
 			bash -c "cd '${acWork}' && env ${acUnrEnv} ${acUnrSet}"
-		fAssertOut "and names the file"  'File: +~/\.config/gitsby/config\.shcl' \
+		fAssertOut "and names the file"  "File: +${acUnr//./\\.}/home/\\.config/gitsby/config\\.shcl" \
 			bash -c "cd '${acWork}' && env ${acUnrEnv} ${acUnrSet} 2>&1"
 		fAssertOut "and says why it can't read it"  'permission denied' \
 			bash -c "cd '${acWork}' && env ${acUnrEnv} ${acUnrSet} 2>&1"
@@ -2847,7 +2874,7 @@ GHEOF
 		local acShutEnv="${acNoDiscovery} XDG_CONFIG_HOME='${acUnr}/shutxdg' HOME='${acUnr}/shuthome' PATH='${ac}/bin:${PATH}'"
 		fAssertFail "'account set' refuses to create while a folder it looks in can't be searched" \
 			bash -c "cd '${acWork}' && env ${acShutEnv} ${acUnrSet}"
-		fAssertOut "and names the file it couldn't look for"  'File: +~/\.config/gitsby/config\.shcl' \
+		fAssertOut "and names the file it couldn't look for"  "File: +${acUnr//./\\.}/shuthome/\\.config/gitsby/config\\.shcl" \
 			bash -c "cd '${acWork}' && env ${acShutEnv} ${acUnrSet} 2>&1"
 		fAssertOut "and gives the command that makes the folder searchable"  "chmod u\\+x '${acShutDir//./\\.}'" \
 			bash -c "cd '${acWork}' && env ${acShutEnv} ${acUnrSet} 2>&1"
