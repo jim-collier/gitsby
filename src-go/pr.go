@@ -21,8 +21,8 @@ type prRequest struct {
 	num        string
 	title      string
 	headBranch string
-	tool       forgeTool // which CLI answers for this repo's host
-	cli        string    // that tool as this machine spells it
+	tool       hostTool // which CLI answers for this repo's host
+	cli        string   // that tool as this machine spells it
 }
 
 var prNumRE = regexp.MustCompile(`^[0-9]+$`)
@@ -71,7 +71,7 @@ func (a *app) settlePrTool() error {
 	}
 	// A host we could name, and nothing here that speaks to it.
 	if host := a.originHost(); host != "" {
-		return usagef("Nothing installed here can talk to %s. %s", host, a.forgeCLIHint())
+		return usagef("Nothing installed here can talk to %s. %s", host, a.hostCLIHint())
 	}
 	// No host to name at all - a local path, or a URL shape we don't parse. Not a
 	// refusal: this codebase's standing rule is that a remote we don't understand
@@ -84,7 +84,7 @@ func (a *app) settlePrTool() error {
 		return nil
 	}
 	return usagef("Can't tell which git host '%s' is, and no CLI for one is installed to ask. %s",
-		maskURL(a.originURL()), a.forgeCLIHint())
+		maskURL(a.originURL()), a.hostCLIHint())
 }
 
 // The pull-request vocabulary, per tool. Every caller - the preview and the
@@ -146,12 +146,12 @@ func (a *app) prCleanArgs() []string {
 // prDisp is one call written out the way the preview shows it.
 func (a *app) prDisp(args []string) string { return a.pr.cli + " " + strings.Join(args, " ") }
 
-// parseForgeTable reads tea's tabular output: one header line naming the fields,
+// parseTeaTable reads tea's tabular output: one header line naming the fields,
 // then a row per record. Anything that doesn't have both comes back empty, and
 // every caller treats empty as "couldn't tell" rather than as "no such thing" -
 // the two are not the same answer, and acting on the wrong one is how a plan ends
 // up confidently about a pull request nobody asked for.
-func parseForgeTable(out string) []map[string]string {
+func parseTeaTable(out string) []map[string]string {
 	lines := splitLines(out)
 	if len(lines) < 2 {
 		return nil
@@ -231,7 +231,7 @@ func (a *app) openPrForBranch(prBranch string) string {
 		if !ok {
 			return ""
 		}
-		for _, record := range parseForgeTable(out) {
+		for _, record := range parseTeaTable(out) {
 			if headBranchName(record["head"]) == prBranch {
 				return record["index"]
 			}
@@ -252,7 +252,7 @@ func (a *app) readPr() (head, state string, ok bool) {
 		if !ran {
 			return "", "", false
 		}
-		records := parseForgeTable(out)
+		records := parseTeaTable(out)
 		if len(records) != 1 {
 			return "", "", false
 		}

@@ -43,14 +43,14 @@ func FuzzSplitRemoteURL(f *testing.F) {
 	})
 }
 
-func FuzzParseForgeTable(f *testing.F) {
+func FuzzParseTeaTable(f *testing.F) {
 	f.Add("Index\tTitle\tState\n1\tFix the thing\topen\n")
 	f.Add("a\tb\nx\n\n")
 	f.Add("")
 	f.Fuzz(func(t *testing.T, out string) {
-		records := parseForgeTable(out)
+		records := parseTeaTable(out)
 		if len(records) > len(splitLines(out)) {
-			t.Errorf("parseForgeTable made %d records from %d lines", len(records), len(splitLines(out)))
+			t.Errorf("parseTeaTable made %d records from %d lines", len(records), len(splitLines(out)))
 		}
 	})
 }

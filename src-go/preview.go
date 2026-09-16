@@ -73,7 +73,7 @@ func (a *app) preview(what string) {
 		a.out.clean(pad + "git clone " + maskURL(a.tgt.cloneURL) + " " + a.tgt.cloneDir)
 		a.out.clean(pad + "git -C " + a.tgt.cloneDir + " checkout dev *")
 	case "repo-url":
-		a.out.clean(pad + "git remote set-url origin " + forgeURL(a.originHost(), remoteTarget(a.originURL()), a.cmd.arg))
+		a.out.clean(pad + "git remote set-url origin " + hostURL(a.originHost(), remoteTarget(a.originURL()), a.cmd.arg))
 	case "account-set":
 		// Names the file and both versions of the line, because this is the one
 		// command that edits the accounts file for you - and a config file you did

@@ -60,7 +60,8 @@ noOrigin="$(awk '
 	/^\t\t- Origin:/ { found = 1 }
 	END { if (cur != "" && !found) print cur }
 ' "${backlog}")"
-openCount="$(grep -cE '^\t- .*Code Review [0-9]+ (item|enhancement) [0-9]+:' "${backlog}" || true)"
+## A real tab, not '\t': -E leaves the escape alone, so this counted nothing at all.
+openCount="$(grep -E $'^\t- .*Code Review [0-9]+ (item|enhancement) [0-9]+:' "${backlog}" | grep -cvE '✅|✋|🚫' || true)"
 if [[ -n "${noOrigin}" ]]; then
 	echo "backlog-check: open review items with no 'Origin:' sub-bullet:"
 	while IFS= read -r line; do echo "  ${line}"; done <<< "${noOrigin}"

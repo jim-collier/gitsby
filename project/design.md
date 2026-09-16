@@ -363,7 +363,7 @@ The Bash and PowerShell files were ports of each other, and were kept in step fo
 
 - A diagnostic explains itself in the reader's vocabulary, and offers its fix as a command.
 	- The identity block's unapplied-account notes, read on a real Gitea repository, raised more questions than they answered: which token, applied to what, what the quoted string even was, and what a "forge" is. Among these options, it was decided that the block must answer all four without the reader knowing anything about how gitsby resolves accounts.
-	- "Forge" is gone from everything the tool prints and from its docs, the status line included - it is a word for people who already know the answer. A few names in the code still carry it. The line is `Git host`, and the notes name the host outright wherever they can.
+	- "Forge" is gone from the whole tool: what it prints, its docs, its code and its suites. It is a word for people who already know the answer. The status line is `Git host`, and the notes name the host outright wherever they can.
 	- `From:` says what the name *is* and which of several possible sources produced it, rather than repeating the name already on the line above. That was the question the old wording could not answer.
 	- Every note names only what is actually on screen. `Kept:` pointed at "the SSH and Author lines" whichever half of the account applied, which sent readers looking for an SSH line that was never printed - a second thing gone wrong, apparently.
 	- Advice that can be a command is a command. `Fix:` names `gitsby account set <account> <key> <value>`, which makes the edit itself, rather than a config line to retype. It cannot be mistyped and cannot name a key the parser does not take, which the advice had already done once.
@@ -475,7 +475,7 @@ See also the release policy under Architecture, which covers how releases are pu
 
 ### UI
 
-The rules these entries lead to are collected in [style-guide_cli.md](style-guide_cli.md). This section keeps the reasons.
+The rules these entries lead to are collected in [style-guide_ui-ux.md](style-guide_ui-ux.md). This section keeps the reasons.
 
 - Terminal text, one screen at a time. Output opens and closes with a blank line, and sections are separated by blank lines rather than rules.
 

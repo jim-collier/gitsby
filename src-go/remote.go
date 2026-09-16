@@ -39,20 +39,20 @@ func (a *app) coreSSHCommand() string {
 // tell, which is not the same as being wrong. The tool is named rather than
 // assumed - a message about what 'gh' is doing, printed for a run going through
 // tea, sends you to check an account that had nothing to do with it.
-func identityMismatchText(cli, forgeWho, sshWho string) string {
+func identityMismatchText(cli, cliWho, sshWho string) string {
 	if cli == "" {
 		cli = "the host's CLI"
 	}
-	if forgeWho == "" {
-		forgeWho = "?"
+	if cliWho == "" {
+		cliWho = "?"
 	}
 	if sshWho == "" {
 		sshWho = "?"
 	}
-	if forgeWho == "?" || sshWho == "?" || forgeWho == sshWho {
+	if cliWho == "?" || sshWho == "?" || cliWho == sshWho {
 		return ""
 	}
-	return cli + " acts as '" + forgeWho + "', but this remote's key authenticates as '" + sshWho + "'."
+	return cli + " acts as '" + cliWho + "', but this remote's key authenticates as '" + sshWho + "'."
 }
 
 // sshTarget is the host to ask ssh about, pulled out of a remote URL. Empty for
