@@ -46,10 +46,11 @@ To make using these icons easier if desired, add them to a clipboard or key macr
 
 ### Bugs
 
-- 🔘 A Windows path with backslashes can read as a different folder. In the block layout, shcl v2 reads `\t` and `\n` as a tab and a newline, quoted or not, so `path: ~\dev\tools` names `~\dev` + tab + `ools` and the rule never matches. `\\` reads as one backslash. The old flat layout is not affected.
+- ✋ A Windows path with backslashes can read as a different folder. In the block layout, shcl v2 reads `\t` and `\n` as a tab and a newline, quoted or not, so `path: ~\dev\tools` names `~\dev` + tab + `ools` and the rule never matches. `\\` reads as one backslash. The old flat layout is not affected.
 	- Opened: 20260916-163000
 	- Origin: 20260826, the move to the shcl module. Found on b29w while checking the path-spelling feature. Confirmed on Linux and Windows.
 	- shcl 3.0, not yet released, reads a backslash outside double quotes as a plain character. Moving to it fixes this, or gitsby reads the key's raw text by the same rule until then.
+	- Decided 20260916: wait for shcl 3.0, with no workaround in gitsby. Reopen when shcl's Go module publishes v3.
 
 - 🔘 `status` says an account came from "gitsby.ghAccount in this repo's git config" when the key reached git through an `account apply` fragment included from the global config. The line also starts with a capital `G`, which no key is spelled with.
 	- Opened: 20260916-163000
@@ -57,8 +58,9 @@ To make using these icons easier if desired, add them to a clipboard or key macr
 
 ### Features and enhancements
 
-- 🛠️ Paths are spelled more than one way between the config file and the screen.
+- ✅ Paths are spelled more than one way between the config file and the screen.
 	- Opened: 20260916-110027
+	- Closed: 20260916-164500
 	- Decided 20260916: a path is never re-spelled for display. One gitsby worked out itself prints in full, one the config file holds prints as the file holds it. The accounts file line stops folding to `~`, which reverses the display half of 82b924f.
 	- Decided 20260916: the config file takes `~`, `${HOME}` and `%USERPROFILE%` as the same thing on every platform, and either slash in any rule. Closed set of variables, expanded by gitsby, never through a shell. One this machine does not set makes the rule ignored and listed. No drive-letter mapping across platforms.
 	- Already handled on read: `\` to `/`, `~`, `~/`, `~\`, and `/c/x` to `C:/x` on Windows. New: the variables, and keeping the text as written.
