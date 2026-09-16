@@ -368,12 +368,14 @@ func (a *app) preflightBranch() error {
 	switch a.cmd.name {
 	case "br-create":
 		if a.cmd.arg == "" {
-			return usagef("No branch name given. Syntax: %s br create <new branch name>", meName)
+			return syntaxUsage("No branch name given.", "br create <new branch name>",
+				placeholder{"<new branch name>", "The branch to create off " + mergeTargetLabel + ", e.g. login-form."})
 		}
 		return checkNewBranchName(a.cmd.arg)
 	case "br-hotfix":
 		if a.cmd.arg == "" {
-			return usagef("No name given. Syntax: %s br hotfix <name>", meName)
+			return syntaxUsage("No name given.", "br hotfix <name>",
+				placeholder{"<name>", "The fix's branch name, e.g. crash-on-start. It is created as hotfix/<name>, off the default branch."})
 		}
 		// The prefix is the marker, so put it on ourselves - and accept it if the user
 		// typed it.

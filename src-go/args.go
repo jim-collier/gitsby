@@ -147,7 +147,11 @@ func collapseCommand(cmd command) (command, error) {
 		case "url":
 			cmd.name = "repo-url"
 		case "":
-			return cmd, usagef("Syntax: %s repo <clone <url> [dir] | create <owner/name> | connect [url] | url [https|ssh]>", meName)
+			return cmd, syntaxUsage("", "repo <clone <url> [directory] | create <owner/name> | connect [url | owner/name] | url [https|ssh]>",
+				repoURLDef("<url>"),
+				repoDirDef(),
+				repoOwnerNameDef(),
+				placeholder{"[https|ssh]", "Switches origin to that kind of address. Without it, 'repo url' shows which one origin uses."})
 		default:
 			return cmd, usagef("Unknown 'repo' subcommand '%s'. One of: clone, create, connect, url.", cmd.arg)
 		}
@@ -295,7 +299,7 @@ scan:
 			// Past the tool name every option is the tool's, so one typed here is
 			// ours arriving too late - not a subcommand nobody has heard of.
 			if strings.HasPrefix(arg, "-") {
-				return "", nil, usagef("'%s' is an option, and %s's own options come before 'raw'. Syntax: %s raw <git|gh> <arguments ...>", arg, meName, meName)
+				return "", nil, syntaxUsage("'"+arg+"' is an option, and "+meName+"'s own options come before 'raw'.", "raw <git|gh> <arguments ...>", rawDefs()...)
 			}
 			if arg != "git" && arg != "gh" {
 				return "", nil, usagef("Unknown 'raw' subcommand '%s'. One of: git, gh.", arg)
@@ -326,7 +330,14 @@ scan:
 		}
 	}
 	if wantTool {
-		return "", nil, usagef("Syntax: %s raw <git|gh> <arguments ...>", meName)
+		return "", nil, syntaxUsage("", "raw <git|gh> <arguments ...>", rawDefs()...)
 	}
 	return tool, ptArgs, nil
+}
+
+func rawDefs() []placeholder {
+	return []placeholder{
+		{"<git|gh>", "The tool to run as the account this folder belongs to."},
+		{"<arguments ...>", "Handed to that tool unchanged."},
+	}
 }

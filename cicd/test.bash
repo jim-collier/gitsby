@@ -2880,6 +2880,10 @@ GHEOF
 	fAssertOut "and marks the one this folder uses"   '^-> work$'                bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q account"
 	fAssertOut "and says where a token would come from, not what it is"  "token \.+: gh's own store"  bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q account"
 	fAssertNotOut "never printing the token itself"   'gho_faketoken'            bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q account"
+	## A missing login and a missing token are the same kind of answer, so they print the same way.
+	printf 'account.bare.path = %s/trees/work\n' "${acCanon}" > "${ac}/bare.shcl"
+	fAssertOut "an account with no token source says (none), as its github line does"  'token \.+: \(none\)$' \
+		bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q -NoFetch --config '${ac}/bare.shcl' account list"
 	## gh answers about one account at a time, so the listing spent a process on every account that
 	## named a login - and 'account set' prints the listing before its own edit, paying it twice.
 	## Two accounts on one login is the case that says whether the answer is remembered at all.
@@ -3086,6 +3090,10 @@ GHEOF
 	fAssertFail "a transport that isn't one is refused"  bash -c "cd '${ru}' && '${gitsby}' -q -NoFetch repo url ftp"
 	## Each build names itself in its own syntax lines, so the pattern has to allow both spellings.
 	fAssertOut  "and names the two that are"  'Syntax: gitsby(\.ps1)? repo url'  bash -c "cd '${ru}' && '${gitsby}' -q -NoFetch repo url ftp 2>&1"
+	## Whoever reads a Syntax: line just typed the command wrong, so each placeholder is defined under it.
+	fAssertOut  "and says what leaving it off does"  '^  \[https\|ssh\]  +Switches origin .* Without it'  bash -c "cd '${ru}' && '${gitsby}' -q -NoFetch repo url ftp 2>&1"
+	fAssertOut  "repo clone with no URL defines both of its placeholders"  '^  \[directory\]  +The folder'  bash -c "cd '${ru}' && '${gitsby}' -q -NoFetch repo clone 2>&1"
+	fAssertOut  "br hotfix with no name says what the name becomes"  '^ +created as hotfix/<name>'  bash -c "cd '${ru}' && '${gitsby}' -q -NoFetch br hotfix 2>&1"
 	## A remote with no second spelling must say so rather than invent one, and a repo with no
 	## remote at all must say that instead of showing an empty one.
 	git init --quiet --bare -b main "${ru}-local.git"
@@ -3133,6 +3141,7 @@ GHEOF
 	fAssertOut  "raw gh reaches gh"  'gho_faketoken'       bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q raw gh auth token --user workacct"
 	fAssertFail "raw with no tool is refused"              bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q raw"
 	fAssertOut  "and says what it wanted"  'Syntax: gitsby(\.ps1)? raw'  bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q raw 2>&1"
+	fAssertOut  "and what its arguments are"  '^  <arguments \.\.\.>  +Handed to that tool unchanged'  bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q raw 2>&1"
 	fAssertFail "raw with a tool we don't front is refused" bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q raw rm -rf /"
 	fAssertOut  "and names the two it does"  'One of: git, gh'  bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q raw curl x 2>&1"
 	## Only the passthrough's own scan runs before 'raw', so an option it didn't take left the main
@@ -4417,3 +4426,4 @@ echo "passed: ${pass}, failed: ${fail}"
 ##		- 20260915 JC: account set refuses before its plan, so a refused one shows no plan and asks nothing. A protocol other than https or ssh is refused and never written, and account list names one in a file as ignored, in an account and at the top. An edit that respaces the file says so in the plan. Seven of the eight fail against the tree before them; a plan for a file already spaced that way is a regression guard. The prompt check needs script. 969 -> 977.
 ##		- 20260915 JC: Installer checks for Code Review 20260909 items 12-14. install.ps1 runs whole installs against stubbed web cmdlets that answer the way Windows PowerShell 5.1 and PowerShell 7 each do. Both help texts are checked against the options their parsers take, and the refusals, the prompt and the notices against the blank lines around them. 977 -> 1007.
 ##		- 20260915 JC: Pipeline housekeeping. The banner's copyright has a line of its own, and release.bash no longer cuts the build line at a comma. The lint report passes an archive listing that names errors.go and still reports one line in each tool's format. The Windows resource takes its copyright years from the program. All five fail against the tree before them; the two build-number checks match the two-line banner. 1007 -> 1012.
+##		- 20260916 JC: A Syntax: refusal defines each placeholder under it, checked on repo url, repo clone, br hotfix and raw. account list prints a missing token source as (none). 1016 -> 1021.
