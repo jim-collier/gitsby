@@ -79,12 +79,14 @@ To make using these icons easier if desired, add them to a clipboard or key macr
 	- 🔘 Code Review 20260909 enhancement 4: two of the six README badges are shields the repo grants itself and assert nothing outside the README. The language badge names no version.
 		- Origin: new.
 
-	- 🔘 Code Review 20260909 enhancement 5: three things the README leaves out.
+	- ✅ Code Review 20260909 enhancement 5: three things the README leaves out.
 		- The build number, which every command prints and which comes from the commit rather than the clock.
 		- How to ask for a pre-release, which is what the first Go publication will be.
 		- The real check counts. "Several hundred" rounds down from eight hundred and ten, plus the fuzz and comparison suites.
 		- Origin: new.
-		- Note: release.bash publishes full releases, as design.md's release policy says. Nothing decides that the first Go publication is a pre-release, so the second bullet waits on that.
+		- Closed: 20260916-132641
+		- Decided 20260916: the first Go publication is v3.0.0-beta.1, published as a pre-release. release.bash reads that off the tag's semver suffix, so there is no flag to pass. design.md's release policy is rewritten rather than amended, since it argued the other way.
+		- Counts measured on gover, not carried over: 1013 regression, 301 fuzz, 27 comparison.
 
 	- 🔘 Code Review 20260909 enhancement 6: record that goreleaser is not being adopted, and why, so the question stops coming back. The hand-rolled build is already byte-identical from one flag set, goreleaser would have to be talked out of its own stamps, and packaging is the only thing it would add.
 		- Origin: the 2026-09-07 directives ask for the decision to be recorded.
@@ -104,7 +106,7 @@ To make using these icons easier if desired, add them to a clipboard or key macr
 		- The two scripts leave the installed file in different modes, and the PowerShell one takes the umask.
 		- The PowerShell plan does not mention creating the destination folder, or clearing its own leftovers.
 		- The README does not say how to pass a flag to the bash one-liner, though the script knows the answer in a comment nobody sees.
-		- The two release sorters have no tie-break between two pre-releases of one version. Unreachable today, since the full-release pass runs first; wants a comment, not code.
+		- The two release sorters have no tie-break between two pre-releases of one version. It was unreachable while every publication was a full release. From 20260916 a suffixed tag publishes as a pre-release, so a v3.0.0-beta.2 following beta.1 reaches it; re-check whether a comment is still enough.
 		- Origin: the writability and sudo bullets were in the 20260819a notes as seen and not filed; the tie-break was the 20260909 round's own deferral. Plausible: read.
 		- Note: since item 13, install.ps1 checks write access for a system install before the plan. The user scope can reuse that check.
 
@@ -2212,6 +2214,7 @@ Go port, round one. Rationale and route: `design_docs/20260813_golang-port.md`. 
 	- GitHub's `releases/latest` returns the newest full release, so a pre-release-only repo resolves to the last full one - for this repo, the 2022 release.
 	- Decided: publish releases as full releases rather than adding a `--pre` flag. The semver suffix still marks a candidate for anyone reading the tag, and the one-liner installs keep working with no extra arguments.
 	- `--ref`/`-Ref` remains the way to install a specific tag or branch, and is already documented.
+	- Reversed 20260916: a tag with a semver suffix publishes as a pre-release. Both installers read the release list now instead of the `releases/latest` redirect, so the reason this decision existed is gone. See enhancement 5 and design.md's release policy.
 
 - ✅ CICD process (full spec in private notes):
 	- Opened: 20260724-142509
