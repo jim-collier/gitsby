@@ -236,7 +236,7 @@ Updating, improving and correcting the documentation
 
 Go code follows `gofmt`, which the lint stage enforces. The [style guide](style-guide.md) covers the Bash and PowerShell in `legacy/` and the pipeline's own scripts.
 
-What the program prints, and how it asks and refuses, follows the [CLI style guide](project/style-guide_cli.md). A new message or option starts there.
+What the program prints, and how it asks and refuses, follows the [UI and UX style guide](project/style-guide_ui-ux.md). A new message or option starts there.
 
 ### Commit Messages
 

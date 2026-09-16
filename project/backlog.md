@@ -28,15 +28,9 @@ This is the product backlog, until bugs, features, and enhancements move to GitH
 
 In each section, items are listed approximately from newest to oldest.
 
-The sections are Bugs, Features and enhancements, Done, Future and/or deferred, and Canceled. No others. "Done" splits into "Done - Bugs" and "Done - Features and enhancements", and nothing else.
+Every item should have an `Opened:` and, once finished, a `Closed:` date, as `YYYYmmDD-HHMMSS`. `Opened: n/a` means the open date can't be determined.
 
-A round of work stays together as one bullet with its items nested under it, rather than becoming a heading. Code review rounds work the same way, one bullet per round under "Done - Bugs" - a round finds mostly defects, and splitting one across two sections loses the thread. A round still open splits once any of it closes: its closed items go under Done in a bullet with the same round name, and the open ones stay where they are.
-
-Every item carries an `Opened:` and, once finished, a `Closed:` date, as `YYYYmmDD-HHMMSS`. `Opened: n/a` means it was raised and settled in the same sitting. Older dates were recovered from git history and working notes, so treat them as close rather than exact.
-
-Code-review items carry more than dates, and the pipeline checks the first of these. `Origin:` names the commit or round that introduced the defect, whether an earlier round saw it, and `Confirmed` (reproduced) or `Plausible` (read only). A Plausible item is not fixed until it has a repro or a check that fails on the current tree. A review leaves no list of things seen and not filed: each observation is an item, a ✋ item with the trigger that reopens it, or a `Decided against:` line with the reason. A fix to one site of a class names the sibling sites it checked before the item closes. A suite check deleted on a branch is named here, with the decision it encoded and why that changed, or stage 1 stops (`cicd/utility/backlog-check.bash`).
-
-To make using these icons easier, add them to a clipboard or key macro manager. (These are temporary anyway until we switch over to nano-git-db for the minor stuff, and GitHub Issues for the bigger stuff.)
+Automated code review items carry more than dates, and the pipeline checks the first of these. `Origin:` names the commit or round that introduced the defect, whether an earlier round saw it, and `Confirmed` (reproduced) or `Plausible` (read only). A Plausible item is not fixed until it has a repro or a check that fails on the current tree. A review leaves no list of things seen and not filed: each observation is an item, a ✋ item with the trigger that reopens it, or a `Decided against:` line with the reason. A fix to one site of a class names the sibling sites it checked before the item closes. A suite check deleted on a branch is named here, with the decision it encoded and why that changed, or stage 1 stops (`cicd/utility/backlog-check.bash`).
 
 | Icon | Status
 | :--: | :--
@@ -45,6 +39,8 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 | ✋   | Defer
 | ✅   | Complete
 | 🚫   | Canceled
+
+To make using these icons easier if desired, add them to a clipboard or key macro manager. (This format is "temporary" anyway [albeit for a while now], until we switch over to nano-git-db for the minor stuff, and GitHub Issues for the bigger stuff.)
 
 ## Backlog
 
@@ -124,6 +120,16 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 ### Done
 
 #### Done - Bugs
+
+- ✅ The backlog gate says nothing is listed, whatever the backlog holds.
+	- Closed: 20260916-075518
+	- Opened: 20260916-075518
+	- Reproduced: stage 1 prints "Origin: present on every open review item (0 listed)" with twelve open items sitting in the file.
+	- Cause: the count's pattern starts `^\t`, and `-E` leaves that escape alone, so it matched nothing. It counted closed items too, had it matched any.
+	- Note: found while relabeling two suite checks. The rule itself is enforced by the awk above the count, which reads tabs correctly and was never affected.
+	- Origin: 00bf888, the commit that added the gate. Confirmed.
+	- Fixed: the pattern carries a real tab, and closed items are left out of the count.
+	- Verified: 0 before and 12 after, against the same backlog. shellcheck clean.
 
 - ✅ A `core.sshCommand` holding a quote is dropped from every fetch gitsby runs.
 	- Closed: 20260915-124019
@@ -313,7 +319,7 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 		- Fixed: the recipe carries the build number. The code of conduct has `main`'s contact line and spellings, and neither it nor contributing.md names a generator. design.md says how the installers pick a release, and its config-location heading matches what follows. README names the Windows PATH entry. `account list` with no accounts names `account set`. config.bash numbers its stages as the run prints them. The backlog no longer opens on v2.0.0. The style guide says "All languages", and the private pointer names all three. trademark.md is unwrapped and uses an at sign.
 		- Fixed: "forge" is out of design.md's prose and every comment, and design.md now claims only the output and the docs.
 		- Decided against: changing the accounts link in a created file. It names `main`, which gets the current `accounts.md` at the first Go release, and nothing released writes that file before then.
-		- Kept: code identifiers, the two `GITSBY_FORGE_*` variables, and two suite check labels still say forge. A renamed label reads as a deleted check.
+		- Kept at the time: code identifiers, the two `GITSBY_FORGE_*` variables, and two suite check labels. All renamed the next day, under "The last forge names".
 		- Sweep: every first-party `.md` at the root and under `project/`, the Go sources and tests, and test.bash's comments.
 		- Verified: gofmt and vet clean, markdown checks clean, and the new `account list` line prints as written. No suite asserted the old line, and the comparison suite does not run `account list`.
 
@@ -1809,10 +1815,20 @@ To make using these icons easier, add them to a clipboard or key macro manager. 
 
 #### Done - Features and enhancements
 
+- ✅ The last forge names, in the code and the suite.
+	- Opened: 20260916-074956
+	- Closed: 20260916-074956
+	- Item 18 left the code names, the two credential variables and two check labels saying forge. They say host now.
+	- The Go names are `hostName`, `hostURL`, `hostTool`, `hostToolFor`, `hostCLIHint`, `hostCLIWho`, `hostAnswer`, `hostLogin`, `hostState` and `showHostLine`. `forge.go` and `forge_test.go` are `githost.go` and `githost_test.go`, and `parseForgeTable` is `parseTeaTable`, which is whose output it reads.
+	- The credential variables are `GITSBY_HOST_TOKEN` and `GITSBY_HOST_USER`. Nothing outside gitsby sets or reads either.
+	- Relabeled: "a Gitea remote with no forge CLI refuses" is now "a Gitea remote with no host CLI refuses", and "but a config with one forge in it is never shown the key" is now "but a config with one git host in it is never shown the key".
+	- The style guide file is `project/style-guide_ui-ux.md`, titled to match, with every link to it followed.
+	- Verified: suite 1012/0, Go tests green, gofmt, vet and markdownlint clean. Both relabeled checks pass, and so does the one that watches for the word in the identity block. Linux only.
+
 - ✅ No UI and UX style guide exists, and README points at none.
 	- Opened: 20260914-122353
 	- Closed: 20260915-154529
-	- Done: `project/style-guide_cli.md` holds the output, prompt and error rules from design.md, the diagnostics decisions, and what the program does today. README, contributing.md and design.md's UI section link to it.
+	- Done: `project/style-guide_ui-ux.md` holds the output, prompt and error rules from design.md, the diagnostics decisions, and what the program does today. README, contributing.md and design.md's UI section link to it.
 
 - ✅ Code review 20260909 - the closed enhancements from the same pass. The rest are still open under Features and enhancements.
 	- Opened: 20260909-184419

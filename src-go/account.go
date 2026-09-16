@@ -212,13 +212,13 @@ func tokenEnvVar(host string) string {
 	if isGitHubHost(host) {
 		return "GH_TOKEN"
 	}
-	return "GITSBY_FORGE_TOKEN"
+	return "GITSBY_HOST_TOKEN"
 }
 
 // userEnvVar is where the credential helper reads the username from. Ours alone -
 // nothing else reads it, and no caller sets it - so unlike the token variable it
 // needs no per-host spelling.
-const userEnvVar = "GITSBY_FORGE_USER"
+const userEnvVar = "GITSBY_HOST_USER"
 
 // readTokenFile pulls a token out of a file. Unset, missing, unreadable and empty
 // are all simply "no token": a machine never set up this way has to fall back to

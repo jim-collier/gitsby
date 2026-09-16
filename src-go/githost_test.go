@@ -71,7 +71,7 @@ func TestIsGitHubHost(t *testing.T) {
 	}
 }
 
-func TestForgeURL(t *testing.T) {
+func TestHostURL(t *testing.T) {
 	tests := []struct{ host, target, proto, want string }{
 		{"github.com", "octocat/hello", "https", "https://github.com/octocat/hello.git"},
 		{"github.com", "octocat/hello", "ssh", "git@github.com:octocat/hello.git"},
@@ -81,8 +81,8 @@ func TestForgeURL(t *testing.T) {
 		{"github.com", "", "https", ""},
 	}
 	for _, tc := range tests {
-		if got := forgeURL(tc.host, tc.target, tc.proto); got != tc.want {
-			t.Errorf("forgeURL(%q, %q, %q) = %q, want %q", tc.host, tc.target, tc.proto, got, tc.want)
+		if got := hostURL(tc.host, tc.target, tc.proto); got != tc.want {
+			t.Errorf("hostURL(%q, %q, %q) = %q, want %q", tc.host, tc.target, tc.proto, got, tc.want)
 		}
 	}
 }
@@ -90,11 +90,11 @@ func TestForgeURL(t *testing.T) {
 // tea's tsv writer quotes every cell, header names included. Left quoted, every
 // lookup misses and every value carries the quotes into whatever it is compared
 // against - which reads as "no such pull request" rather than as a parse problem.
-func TestParseForgeTable(t *testing.T) {
+func TestParseTeaTable(t *testing.T) {
 	out := "\"index\"\t\"head\"\t\"state\"\n\"7\"\t\"feature-x\"\t\"open\"\n\"9\"\t\"acct:forked\"\t\"closed\"\n"
-	records := parseForgeTable(out)
+	records := parseTeaTable(out)
 	if len(records) != 2 {
-		t.Fatalf("parseForgeTable gave %d records, want 2", len(records))
+		t.Fatalf("parseTeaTable gave %d records, want 2", len(records))
 	}
 	if records[0]["index"] != "7" || records[0]["head"] != "feature-x" || records[0]["state"] != "open" {
 		t.Errorf("first record = %v", records[0])
@@ -105,8 +105,8 @@ func TestParseForgeTable(t *testing.T) {
 	// A header with no rows under it is not a record, and neither is nothing at all.
 	// Both have to read as "couldn't tell" rather than as "no such thing".
 	for _, empty := range []string{"", "\"index\"\t\"head\"\n", "\n"} {
-		if got := parseForgeTable(empty); len(got) != 0 {
-			t.Errorf("parseForgeTable(%q) = %v, want none", empty, got)
+		if got := parseTeaTable(empty); len(got) != 0 {
+			t.Errorf("parseTeaTable(%q) = %v, want none", empty, got)
 		}
 	}
 }
@@ -174,7 +174,7 @@ func TestTokenEnvVar(t *testing.T) {
 // command read, so a disagreement here is a plan promising something else.
 func TestPrArgsPerTool(t *testing.T) {
 	for _, tc := range []struct {
-		tool  forgeTool
+		tool  hostTool
 		first string
 	}{
 		{toolGh, "pr"},
@@ -238,54 +238,54 @@ func TestAccountWho(t *testing.T) {
 // The write gate reads whichever CLI this run goes through. Unknown must stay
 // unknown: a tea with no login for the host has said nothing about who you are, and
 // refusing on that would refuse every machine that never configured one.
-func TestForgeCLIWho(t *testing.T) {
+func TestHostCLIWho(t *testing.T) {
 	none := newApp(newPrinter())
 	none.gh.tool = toolNone
-	if got := none.forgeCLIWho(); got != "?" {
-		t.Errorf("forgeCLIWho with no tool = %q, want ?", got)
+	if got := none.hostCLIWho(); got != "?" {
+		t.Errorf("hostCLIWho with no tool = %q, want ?", got)
 	}
 	// A tea that answers nothing is '?', not the empty string - the mismatch test
 	// reads '?' as "couldn't tell" and an empty name would too, but only one of them
 	// survives being concatenated into a message.
 	tea := newApp(newPrinter())
 	tea.gh.tool, tea.gh.cli = toolTea, "tea"
-	tea.forge.login.set(forgeAnswer{})
-	if got := tea.forgeCLIWho(); got != "?" {
-		t.Errorf("forgeCLIWho with no tea login = %q, want ?", got)
+	tea.host.login.set(hostAnswer{})
+	if got := tea.hostCLIWho(); got != "?" {
+		t.Errorf("hostCLIWho with no tea login = %q, want ?", got)
 	}
-	tea.forge.login.set(forgeAnswer{failure: "tea config is unreadable"})
-	if got := tea.forgeCLIWho(); got != "?" {
-		t.Errorf("forgeCLIWho when tea failed = %q, want ?", got)
+	tea.host.login.set(hostAnswer{failure: "tea config is unreadable"})
+	if got := tea.hostCLIWho(); got != "?" {
+		t.Errorf("hostCLIWho when tea failed = %q, want ?", got)
 	}
-	tea.forge.login.set(forgeAnswer{user: "gitfriend"})
-	if got := tea.forgeCLIWho(); got != "gitfriend" {
-		t.Errorf("forgeCLIWho = %q, want gitfriend", got)
+	tea.host.login.set(hostAnswer{user: "gitfriend"})
+	if got := tea.hostCLIWho(); got != "gitfriend" {
+		t.Errorf("hostCLIWho = %q, want gitfriend", got)
 	}
 }
 
 // A tea that failed is not a tea with no login, and only a login tea named is
 // compared with the ssh key's account. "No login" is not a login called that.
-func TestShowForgeLine(t *testing.T) {
+func TestShowHostLine(t *testing.T) {
 	tests := []struct {
 		name   string
-		answer forgeAnswer
+		answer hostAnswer
 		has    string
 		lacks  []string
 	}{
-		{"a login", forgeAnswer{user: "gitfriend"}, "(tea): gitfriend  <-- NOT the ssh key's account ('alice')", nil},
-		{"no login", forgeAnswer{}, "(tea): unknown - 'tea login add' has no login for this host", []string{"NOT the ssh key"}},
-		{"tea failed", forgeAnswer{failure: "tea config is unreadable"}, "(tea): unknown - couldn't ask tea: tea config is unreadable", []string{"login add", "NOT the ssh key"}},
+		{"a login", hostAnswer{user: "gitfriend"}, "(tea): gitfriend  <-- NOT the ssh key's account ('alice')", nil},
+		{"no login", hostAnswer{}, "(tea): unknown - 'tea login add' has no login for this host", []string{"NOT the ssh key"}},
+		{"tea failed", hostAnswer{failure: "tea config is unreadable"}, "(tea): unknown - couldn't ask tea: tea config is unreadable", []string{"login add", "NOT the ssh key"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			p, out, _ := testPrinter()
 			a := newApp(p)
 			a.git.originRef.set(remoteRef{host: "git.example.test", owner: "acme", name: "proj"})
-			a.forge.tea.set("tea")
-			a.forge.login.set(tc.answer)
+			a.host.tea.set("tea")
+			a.host.login.set(tc.answer)
 			a.gh.isWrite, a.gh.probeURL = true, "git@git.example.test:acme/proj.git"
 			a.gh.sshLogins = map[string]string{a.gh.probeURL: "alice"}
-			a.showForgeLine()
+			a.showHostLine()
 			if !strings.Contains(out.String(), tc.has) {
 				t.Errorf("%q does not say %q", out, tc.has)
 			}

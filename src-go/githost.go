@@ -146,9 +146,9 @@ func (a *app) originHost() string { return a.originRef().host }
 // about a repo it was never looking at.
 func (a *app) onGitHub() bool { return isGitHubHost(a.originHost()) }
 
-// forgeName is how a host is referred to in a message. 'origin' when there is no
+// hostName is how a host is referred to in a message. 'origin' when there is no
 // host to name, so a sentence about it still reads.
-func (a *app) forgeName() string {
+func (a *app) hostName() string {
 	if host := a.originHost(); host != "" {
 		return host
 	}
@@ -164,7 +164,7 @@ var teaNames = []string{"tea", "tea-cli"}
 // installed. Asked once: two LookPath calls per pr command, for an answer that
 // cannot change mid-run.
 func (a *app) teaCommand() string {
-	return a.forge.tea.get(func() string {
+	return a.host.tea.get(func() string {
 		for _, name := range teaNames {
 			if inPath(name) {
 				return name
@@ -174,10 +174,10 @@ func (a *app) teaCommand() string {
 	})
 }
 
-// forgeURL is the canonical URL for 'owner/name' on a host, in one of the two
+// hostURL is the canonical URL for 'owner/name' on a host, in one of the two
 // transports. The github.com-only version of this is what made 'repo url' - which
 // only ever rewrites text - refuse to work on any other host.
-func forgeURL(host, target, proto string) string {
+func hostURL(host, target, proto string) string {
 	if host == "" || target == "" {
 		return ""
 	}
@@ -189,25 +189,25 @@ func forgeURL(host, target, proto string) string {
 
 // githubURL: the canonical github.com URL, for the commands that are about GitHub
 // specifically rather than about whatever host this repo happens to use.
-func githubURL(target, proto string) string { return forgeURL("github.com", target, proto) }
+func githubURL(target, proto string) string { return hostURL("github.com", target, proto) }
 
-// forgeTool is which CLI, if any, speaks the API of the host origin lives on.
+// hostTool is which CLI, if any, speaks the API of the host origin lives on.
 // Having none is not a failure in itself - it only becomes one for a command that
 // needed it, which is where the message explaining it belongs.
-type forgeTool int
+type hostTool int
 
 const (
-	toolNone forgeTool = iota
+	toolNone hostTool = iota
 	toolGh
 	toolTea
 )
 
-// forgeToolFor picks the CLI for a host. gh for GitHub and for nothing else: it is
+// hostToolFor picks the CLI for a host. gh for GitHub and for nothing else: it is
 // a GitHub client, and pointing it at somebody else's git host gets an error in
 // GitHub's vocabulary about a repo it was never looking at. tea for any other host
 // that has it installed - it is Gitea's client, and it says so itself when the host
 // turns out not to be one.
-func (a *app) forgeToolFor(host string) (forgeTool, string) {
+func (a *app) hostToolFor(host string) (hostTool, string) {
 	switch {
 	case isGitHubHost(host):
 		if inPath("gh") {
@@ -223,12 +223,12 @@ func (a *app) forgeToolFor(host string) (forgeTool, string) {
 
 // originTool is the same question about this repo, which is what every caller
 // actually wants to know.
-func (a *app) originTool() (forgeTool, string) { return a.forgeToolFor(a.originHost()) }
+func (a *app) originTool() (hostTool, string) { return a.hostToolFor(a.originHost()) }
 
-// forgeCLIHint names the tool a host needs and how to get it pointed at one, for
+// hostCLIHint names the tool a host needs and how to get it pointed at one, for
 // the refusal that has to explain itself. Kept beside the picker so the two cannot
 // drift into recommending different things.
-func (a *app) forgeCLIHint() string {
+func (a *app) hostCLIHint() string {
 	if isGitHubHost(a.originHost()) {
 		return "Install gh (https://cli.github.com) and run 'gh auth login'."
 	}
@@ -236,24 +236,24 @@ func (a *app) forgeCLIHint() string {
 		" Some distributions install it as 'tea-cli'; either name is found."
 }
 
-// forgeAnswer is what tea said about a host: the login it holds, or why it could
+// hostAnswer is what tea said about a host: the login it holds, or why it could
 // not be asked. Both empty means it was asked and holds none there.
-type forgeAnswer struct {
+type hostAnswer struct {
 	user    string
 	failure string
 }
 
-// forgeLogin names the account tea holds for a host, or nothing, plus tea's reason
+// hostLogin names the account tea holds for a host, or nothing, plus tea's reason
 // when it failed to answer. Read from the login list rather than from 'tea whoami'
 // for two reasons: whoami reports the DEFAULT login, which on a machine with two
 // instances configured is as likely as not to be the other one; and with no login
 // at all it prints "no gitea login configured" to stdout and exits 0, so neither
 // its status nor a naive read of its output says anything. Asked once - it is live
 // enough to be worth not repeating.
-func (a *app) forgeLogin(cli, host string) (user, failure string) {
-	answer := a.forge.login.get(func() forgeAnswer {
+func (a *app) hostLogin(cli, host string) (user, failure string) {
+	answer := a.host.login.get(func() hostAnswer {
 		if cli == "" || host == "" {
-			return forgeAnswer{}
+			return hostAnswer{}
 		}
 		list := exec.Command(cli, "logins", "list", "--output", "tsv")
 		var errText bytes.Buffer
@@ -262,17 +262,17 @@ func (a *app) forgeLogin(cli, host string) (user, failure string) {
 		if err != nil {
 			for _, line := range splitLines(errText.String()) {
 				if line = strings.TrimSpace(line); line != "" {
-					return forgeAnswer{failure: line}
+					return hostAnswer{failure: line}
 				}
 			}
-			return forgeAnswer{failure: err.Error()}
+			return hostAnswer{failure: err.Error()}
 		}
-		for _, record := range parseForgeTable(strings.TrimRight(string(out), "\r\n")) {
+		for _, record := range parseTeaTable(strings.TrimRight(string(out), "\r\n")) {
 			if strings.EqualFold(parseRemote(record["url"]).host, host) {
-				return forgeAnswer{user: record["user"]}
+				return hostAnswer{user: record["user"]}
 			}
 		}
-		return forgeAnswer{}
+		return hostAnswer{}
 	})
 	return answer.user, answer.failure
 }

@@ -3,7 +3,7 @@
 <!-- markdownlint-disable MD055 -- Table pipe style [Expected: leading_and_trailing; Actual: leading_only; Missing trailing pipe] -->
 <!-- markdownlint-disable MD041 -- First line in a file should be a top-level heading -->
 <!-- TOC ignore:true -->
-# CLI style guide
+# UI and UX style guide
 
 How gitsby's output reads, and how its commands ask, refuse and fail. Code style is in [style-guide.md](../style-guide.md). The reasons behind most of these rules are in [design.md](design.md), under "Direction decisions" and "UI".
 

@@ -199,7 +199,7 @@ func (a *app) settleRepoURL() (bool, error) {
 		if remoteTarget(current) == "" || a.originHost() == "" {
 			return false, usagef("origin (%s) has no host and 'owner/name' to re-spell, so there is no other spelling of it to switch to.", maskURL(current))
 		}
-		if forgeURL(a.originHost(), remoteTarget(current), a.cmd.arg) == current {
+		if hostURL(a.originHost(), remoteTarget(current), a.cmd.arg) == current {
 			a.out.status("origin already uses " + a.cmd.arg + "; nothing to do.")
 			a.out.clean("")
 			return true, nil
@@ -399,7 +399,7 @@ func (a *app) cmdConnect() error {
 // authenticates to it.
 func (a *app) cmdRepoURL() error {
 	url := a.originURL()
-	return a.step("git", "remote", "set-url", "origin", forgeURL(a.originHost(), remoteTarget(url), a.cmd.arg))
+	return a.step("git", "remote", "set-url", "origin", hostURL(a.originHost(), remoteTarget(url), a.cmd.arg))
 }
 
 // cmdRepoURLShow is the bare, read-only form: what origin is now, and its other
@@ -414,8 +414,8 @@ func (a *app) cmdRepoURLShow() {
 		a.out.clean("No host and 'owner/name' to re-spell, so there is no other spelling of it.")
 		return
 	}
-	a.out.clean("as https .....: " + forgeURL(host, urlTarget, "https"))
-	a.out.clean("as ssh .......: " + forgeURL(host, urlTarget, "ssh"))
+	a.out.clean("as https .....: " + hostURL(host, urlTarget, "https"))
+	a.out.clean("as ssh .......: " + hostURL(host, urlTarget, "ssh"))
 	a.out.clean("Switch with '" + meName + " repo url <https|ssh>'.")
 }
 

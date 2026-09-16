@@ -402,7 +402,7 @@ fCredentialHelperVectors(){
 	local helper=""
 	helper="$( cd "${ch}/proj" && "${gitsby}" -q -NoFetch --config "${ch}/v.shcl" raw git config --get credential.https://github.com.helper 2>/dev/null )"
 	# shellcheck disable=SC2016  ## matching the literal variable reference, not its value
-	if [[ "${helper}" == *'${GITSBY_FORGE_USER}'* && "${helper}" != *touch* ]]; then
+	if [[ "${helper}" == *'${GITSBY_HOST_USER}'* && "${helper}" != *touch* ]]; then
 		fOk "the credential helper reads its username from the environment"
 	else
 		fFail "the credential helper carries interpolated text: ${helper}"

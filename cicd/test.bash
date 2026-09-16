@@ -2635,7 +2635,7 @@ GHEOF
 	EOF
 	fAssertOut "an account with no token says it was not applied"  'no access token used' \
 		bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q -NoFetch --config '${ac}/notoken.shcl' status"
-	## These fixtures push to a local bare repo, so there is no host to name - and forgeName() stands
+	## These fixtures push to a local bare repo, so there is no host to name - and hostName() stands
 	## in the word "origin" for one, which on this line reads as a host actually called origin.
 	fAssertNotOut "and does not invent a host to blame"  'used for origin' \
 		bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q -NoFetch --config '${ac}/notoken.shcl' status"
@@ -3898,7 +3898,7 @@ EOF
 	## host is known to be one it serves, and everything that never needed a git host CLI keeps working
 	## without one. A '.test' host is reserved and resolves nowhere, so -NoFetch keeps it all local.
 	##••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
-	local fg="${work}/$1-forge"
+	local fg="${work}/$1-githost"
 	mkdir -p "${fg}/bin" "${fg}/debbin"
 	## A deterministic tea. Logs every call the way the gh stub does, so a check can see not just
 	## that a pull request was asked for but which vocabulary it was asked in.
@@ -3966,7 +3966,7 @@ GHEOF
 
 	## No CLI for the host: the refusal has to name the host that decided it and the tool that would
 	## serve it. Telling a Gitea user to install a GitHub client is the failure this replaced.
-	fAssertFail "a Gitea remote with no forge CLI refuses"  bash -c "cd '${fgRepo}' && PATH='${fgBare}' '${gitsby}' -q -NoFetch pr"
+	fAssertFail "a Gitea remote with no host CLI refuses"  bash -c "cd '${fgRepo}' && PATH='${fgBare}' '${gitsby}' -q -NoFetch pr"
 	fAssertOut  "and names the host that decided it"  'git\.example\.test' \
 		bash -c "cd '${fgRepo}' && PATH='${fgBare}' '${gitsby}' -q -NoFetch pr 2>&1"
 	fAssertOut  "and points at tea rather than gh"  'tea' \
@@ -4174,9 +4174,8 @@ GHEOF
 	## The identity block's own vocabulary. "Forge" is a word for people who already knew the answer.
 	fAssertOut "the identity block says 'Git host', not 'Forge'"  '^Git host \.+: git\.example\.test' \
 		bash -c "cd '${fgRepo}' && PATH='${fgPath}' '${gitsby}' -q -NoFetch --config '${fg}/tea-acct.shcl' identity 2>&1"
-	## Narrowed to the labeled notes, not narrowed out of meaning: this fixture's own directory is
-	## called '<x>-forge', so every path on screen carries the word and a bare grep for it passes
-	## whatever the prose says. The check above proves these lines print at all.
+	## Narrowed to the labeled notes, which are the lines the word used to turn up in. The check
+	## above proves they print at all.
 	fAssertNotOut "and the word is gone from the block above it"  'forge' \
 		bash -c "cd '${fgRepo}' && PATH='${fgPath}' '${gitsby}' -q -NoFetch --config '${fg}/nohost.shcl' identity 2>&1 | sed 's/^ *: *//' | grep -E '^(From|Why|Kept|Fix):'"
 
@@ -4195,7 +4194,7 @@ GHEOF
 	EOF
 	fAssertOut "and marks an unstated one as the assumption it is"  'host \.+: github\.com  .default.' \
 		bash -c "cd '${fgRepo}' && PATH='${fgPath}' '${gitsby}' -q -NoFetch --config '${fg}/mixed.shcl' account list 2>&1"
-	fAssertNotOut "but a config with one forge in it is never shown the key"  'host \.+:' \
+	fAssertNotOut "but a config with one git host in it is never shown the key"  'host \.+:' \
 		bash -c "cd '${fgRepo}' && PATH='${fgPath}' '${gitsby}' -q -NoFetch --config '${fg}/gh-acct.shcl' account list 2>&1"
 	fAssertOut "and prints the host-neutral login beside the GitHub one"  'login \.+: giteauser' \
 		bash -c "cd '${fgRepo}' && PATH='${fgPath}' '${gitsby}' -q -NoFetch --config '${fg}/tea-acct.shcl' account list 2>&1"

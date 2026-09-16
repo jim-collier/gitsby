@@ -896,7 +896,7 @@ func (a *app) accountSetPlan() (accountSetTarget, error) {
 	if t.field == "sshkey" && strings.ContainsAny(t.value, sshKeyShellChars) {
 		return t, usagef("git hands a key path to a shell, so one carrying whitespace or a shell character is re-parsed rather than used. Move the key somewhere plainer.")
 	}
-	if (t.field == "host" || t.field == "user") && !forgeWordOK.MatchString(t.value) {
+	if (t.field == "host" || t.field == "user") && !hostWordOK.MatchString(t.value) {
 		return t, usagef("'%s' isn't a plain %s name; letters, digits, '.', '_' and '-' only.", t.value, t.field)
 	}
 	if t.field == "protocol" {

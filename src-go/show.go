@@ -118,14 +118,14 @@ func (a *app) showIdentity(remoteURL string) {
 	a.showSSHLine(remoteURL)
 	a.out.clean("Author .......: " + commitIdentity())
 	a.showGhLine()
-	a.showForgeLine()
+	a.showHostLine()
 }
 
-// showForgeLine is the gh line's counterpart for every host gh does not serve.
+// showHostLine is the gh line's counterpart for every host gh does not serve.
 // Without it a Gitea repo had no answer at all to the question this whole block
 // exists for - the identity display quietly stopped covering the case rather than
 // saying it couldn't, which is the one thing it is not allowed to do.
-func (a *app) showForgeLine() {
+func (a *app) showHostLine() {
 	host := a.originHost()
 	if host == "" || isGitHubHost(host) {
 		return
@@ -138,7 +138,7 @@ func (a *app) showForgeLine() {
 	case a.isOffline():
 		line += " (" + cli + ") - offline, so who it acts as is unknown"
 	default:
-		who, failure := a.forgeLogin(cli, host)
+		who, failure := a.hostLogin(cli, host)
 		switch {
 		case failure != "":
 			line += " (" + cli + "): unknown - couldn't ask " + cli + ": " + failure
@@ -355,7 +355,7 @@ func (a *app) showAccountUnapplied() bool {
 
 // noTokenText says what did not happen, in terms that answer WHICH token and
 // applied to WHAT. Naming the host is most of that answer - but a remote whose host
-// cannot be named still reaches here, and forgeName() stands in "origin" for it,
+// cannot be named still reaches here, and hostName() stands in "origin" for it,
 // which reads as a host called origin. Say less rather than something untrue.
 func (a *app) noTokenText() string {
 	if host := a.originHost(); host != "" {
@@ -369,7 +369,7 @@ func (a *app) noTokenText() string {
 // three different fixes, so they get three different notes - said in one wording,
 // they sent people hunting through the config for a line that was never there.
 func (a *app) showAccountOtherHost() {
-	host := a.forgeName()
+	host := a.hostName()
 	switch {
 	case a.acct.name == "":
 		a.showAccountNote("Why", "Nothing says which git host the login '"+a.acct.ghWho+
@@ -450,7 +450,7 @@ func (a *app) showAccountLine() {
 // only where there is one to name - asserting gh on a Gitea host is the same
 // mistake as assuming every account is a GitHub one.
 func (a *app) accountFallbackNote() string {
-	if _, tool := a.forgeToolFor(a.accountHost()); tool != "" {
+	if _, tool := a.hostToolFor(a.accountHost()); tool != "" {
 		return ", so " + tool + " keeps its own account"
 	}
 	return ""

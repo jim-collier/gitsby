@@ -206,7 +206,7 @@ account.hub.ghAccount = hublogin
 // compare. A machine that only ever talks to github.com reads exactly as it did
 // before the key existed - the same rule the Account status line follows, which
 // stays quiet unless an account was explicitly selected.
-func TestAccountListHidesTheHostOnOneForge(t *testing.T) {
+func TestAccountListHidesTheHostWithOneGitHost(t *testing.T) {
 	a := newApp(newPrinter())
 	var buf strings.Builder
 	a.out.out = &buf

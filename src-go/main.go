@@ -489,7 +489,7 @@ func (a *app) settleGh() error {
 	// identity block names gh's account, and a write compares against it. A bare
 	// 'pr' or 'pr <n>' prints neither.
 	if a.gh.isCommand && (a.gh.isWrite || a.identityWillPrint()) {
-		_ = a.forgeCLIWho()
+		_ = a.hostCLIWho()
 	}
 	if a.gh.isWrite {
 		_ = a.sshLogin(a.gh.probeURL)
@@ -504,16 +504,16 @@ type identityMismatch struct {
 	viaGh bool
 }
 
-// forgeCLIWho names the account the CLI this run goes through acts as, or '?' when
+// hostCLIWho names the account the CLI this run goes through acts as, or '?' when
 // it cannot be told. Unknown is deliberately not a mismatch: a tea with no login for
 // this host, or a gh that is offline, has said nothing about who you are, and
 // refusing on that would refuse every unconfigured machine.
-func (a *app) forgeCLIWho() string {
+func (a *app) hostCLIWho() string {
 	switch a.gh.tool {
 	case toolGh:
 		return a.ghLogin()
 	case toolTea:
-		if who, _ := a.forgeLogin(a.gh.cli, a.originHost()); who != "" {
+		if who, _ := a.hostLogin(a.gh.cli, a.originHost()); who != "" {
 			return who
 		}
 	}
@@ -527,7 +527,7 @@ func (a *app) forgeCLIWho() string {
 func (a *app) identityGate() (identityMismatch, error) {
 	var found identityMismatch
 	if a.gh.isWrite && !a.opt.anyIdentity {
-		found.text = identityMismatchText(a.gh.cli, a.forgeCLIWho(), a.sshLogin(a.gh.probeURL))
+		found.text = identityMismatchText(a.gh.cli, a.hostCLIWho(), a.sshLogin(a.gh.probeURL))
 		found.viaGh = found.text != ""
 		// Up front, like every other refusal: don't show a plan we won't run.
 		if found.text != "" && a.opt.quiet {

@@ -90,24 +90,24 @@ func (r *repoState) forget() {
 	r.contextDir.forget()
 }
 
-// forgeState is what this run knows about the host side of things, as opposed to
+// hostState is what this run knows about the host side of things, as opposed to
 // the account side: which CLI is installed for the git host origin lives on. Looking
 // it up is two LookPath calls for a name that cannot change mid-run.
-type forgeState struct {
-	tea   cached[string]      // Gitea's CLI as this machine spells it, "" when absent
-	login cached[forgeAnswer] // who that CLI holds a login for on origin's host
+type hostState struct {
+	tea   cached[string]     // Gitea's CLI as this machine spells it, "" when absent
+	login cached[hostAnswer] // who that CLI holds a login for on origin's host
 }
 
 // ghState is what this run knows about the two accounts a remote command can act
 // as: gh's own, and whoever a remote's ssh key authenticates as. Both cost a live
 // round trip, so both are asked at most once.
 type ghState struct {
-	isCommand bool      // goes through a git host CLI at all -> show whose account that is
-	isWrite   bool      // WRITES through one -> also compare against the ssh key
-	tool      forgeTool // which CLI that is
-	cli       string    // and how this machine spells it
-	probeURL  string    // the url the ssh identity is read from
-	reachable bool      // cleared when the pre-command fetch can't reach origin
+	isCommand bool     // goes through a git host CLI at all -> show whose account that is
+	isWrite   bool     // WRITES through one -> also compare against the ssh key
+	tool      hostTool // which CLI that is
+	cli       string   // and how this machine spells it
+	probeURL  string   // the url the ssh identity is read from
+	reachable bool     // cleared when the pre-command fetch can't reach origin
 	login     cached[string]
 	protocol  cached[string]
 	// Keyed by remote: one slot answered for whichever url asked first, and three
@@ -151,14 +151,14 @@ type account struct {
 // state, so any of them can be called twice - or from a test - without the second
 // call inheriting the first one's answers.
 type app struct {
-	opt   options
-	cmd   command
-	out   *printer
-	cfg   *config
-	acct  account
-	git   repoState
-	gh    ghState
-	forge forgeState
+	opt  options
+	cmd  command
+	out  *printer
+	cfg  *config
+	acct account
+	git  repoState
+	gh   ghState
+	host hostState
 
 	inRepo bool
 
