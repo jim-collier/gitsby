@@ -12,6 +12,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // errDone stops a run early with nothing left to do. Nothing to do is a success
@@ -72,6 +73,35 @@ func usageWrapf(cause error, format string, a ...any) error {
 // substitution, which land with one trailing blank instead of two.
 func usageSubf(format string, a ...any) error {
 	return &usageError{msg: fmt.Sprintf(format, a...), sub: true}
+}
+
+// placeholder is one word on a Syntax: line, and what it stands for.
+type placeholder struct{ name, means string }
+
+// syntaxUsage refuses with a Syntax: line and a definition under it for each
+// placeholder. The only person who reads one just typed the command wrong, so the
+// bare names tell them nothing they hadn't already seen. lead may be empty.
+func syntaxUsage(lead, syntax string, defs ...placeholder) error {
+	var lines []string
+	if lead != "" {
+		lines = append(lines, lead)
+	}
+	lines = append(lines, "Syntax: "+meName+" "+syntax)
+	width := 0
+	for _, def := range defs {
+		width = max(width, len(def.name))
+	}
+	for _, def := range defs {
+		cont := strings.Repeat(" ", 2+width+2)
+		for i, text := range wrapWords(def.means, 56) {
+			if i == 0 {
+				lines = append(lines, "  "+def.name+strings.Repeat(" ", width-len(def.name)+2)+text)
+			} else {
+				lines = append(lines, cont+text)
+			}
+		}
+	}
+	return &usageError{msg: strings.Join(lines, "\n")}
 }
 
 // stepError reports an announced step that ran and failed. Its own output is

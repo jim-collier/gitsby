@@ -48,11 +48,6 @@ To make using these icons easier if desired, add them to a clipboard or key macr
 
 ### Features and enhancements
 
-- 🔘 Bring the output into line with the UI and UX style guide.
-	- Opened: 20260915-154529
-	- Seen while writing the guide: `WARNING:` lines are bracketed in some places and bare in others. `account list` prints `token ...: none` beside `github ..: (none)`. Most `Syntax:` lines name their placeholders without saying what they mean; only `account set` does.
-	- Note: the home-folder spelling that used to sit here is its own item now, decided and split out.
-
 - 🔘 Paths are spelled more than one way between the config file and the screen.
 	- Opened: 20260916-110027
 	- Decided 20260916: a path is never re-spelled for display. One gitsby worked out itself prints in full, one the config file holds prints as the file holds it. The accounts file line stops folding to `~`, which reverses the display half of 82b924f.
@@ -1828,6 +1823,15 @@ To make using these icons easier if desired, add them to a clipboard or key macr
 		- Added next to the bash badge in the header block, linking to the PowerShell docs.
 
 #### Done - Features and enhancements
+
+- ✅ Bring the output into line with the UI and UX style guide.
+	- Opened: 20260915-154529
+	- Closed: 20260916-142242
+	- Seen while writing the guide: `WARNING:` lines are bracketed in some places and bare in others. `account list` prints `token ...: none` beside `github ..: (none)`. Most `Syntax:` lines name their placeholders without saying what they mean; only `account set` does.
+	- Syntax lines: every `Syntax:` refusal now defines its placeholders under the line, the way `account set` does. Ten sites, one shared helper.
+	- `(none)`: the token line says `(none)` like the github line.
+	- Warnings: no code change. Every warning a step prints as it runs is already bracketed, and every one inside a plan or a listing already is not. The guide says so now.
+	- Verified: suite 1016 -> 1021, all green, and the five new checks fail on the tree before. Gate clean. Linux only.
 
 - ✅ The last forge names, in the code and the suite.
 	- Opened: 20260916-074956

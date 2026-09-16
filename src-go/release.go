@@ -58,7 +58,8 @@ func nextVersion(latest string) (version string, bumped bool) {
 func (a *app) resolveRelease() error {
 	if ver := strings.TrimPrefix(a.cmd.arg, "v"); ver != "" {
 		if !releaseVerRE.MatchString(ver) {
-			return usagef("'%s' is not a version (want X.Y.Z, optional -suffix). Syntax: %s release [version]", ver, meName)
+			return syntaxUsage("'"+ver+"' is not a version.", "release [version]",
+				placeholder{"[version]", "X.Y.Z, with an optional -suffix such as 1.4.0-beta.1, and an optional leading v. Without it, the next patch version after the latest tag."})
 		}
 		a.rel.tag = a.cmd.arg
 		return nil
