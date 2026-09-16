@@ -83,7 +83,7 @@ Non-goals, each one deliberate:
 
 - `cicd/` - the local pipeline, its config, and the test, fuzz and comparison suites. Everything the demo gif is built from lives together under `cicd/utility/demo/`.
 
-- `project/` - this file, the backlog, and the CLI style guide.
+- `project/` - this file, the backlog, and the UI and UX style guide.
 
 - `assets/` - the logo and the demo shown at the top of the README.
 

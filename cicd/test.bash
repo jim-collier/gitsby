@@ -2347,6 +2347,7 @@ GHEOF
 	mkdir -p "${ac}/home/.config/gitsby" "${ac}/bin" "${ac}/trees/work" "${ac}/trees/home"
 	fStub "${ac}/bin/gh" <<-'EOF'
 		#!/usr/bin/env bash
+		[[ -n "${FAKE_GH_LOG:-}" ]] && echo "$*" >> "${FAKE_GH_LOG}"
 		case "$1 $2" in
 			"auth token") [[ "${3:-}" == "--user" && "${4:-}" == "workacct" ]] && { echo "gho_faketoken"; exit 0; }; exit 1 ;;
 			"api user")   echo "${FAKE_GH_ACTIVE:-otheracct}"; exit 0 ;;
@@ -2879,6 +2880,18 @@ GHEOF
 	fAssertOut "and marks the one this folder uses"   '^-> work$'                bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q account"
 	fAssertOut "and says where a token would come from, not what it is"  "token \.+: gh's own store"  bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q account"
 	fAssertNotOut "never printing the token itself"   'gho_faketoken'            bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q account"
+	## gh answers about one account at a time, so the listing spent a process on every account that
+	## named a login - and 'account set' prints the listing before its own edit, paying it twice.
+	## Two accounts on one login is the case that says whether the answer is remembered at all.
+	cat > "${ac}/twin.shcl" <<-EOF
+		account.a.path      = ${acCanon}/trees/work
+		account.a.ghAccount = workacct
+		account.b.path      = ${acCanon}/trees/home
+		account.b.ghAccount = workacct
+	EOF
+	: > "${ac}/twin-gh.log"
+	fAssert "account list asks gh once per login, not once per account" \
+		bash -c "cd '${acWork}' && env ${acEnv} FAKE_GH_LOG='${ac}/twin-gh.log' '${gitsby}' -q -NoFetch --config '${ac}/twin.shcl' account list >/dev/null && [[ \"\$(grep -c '^auth token' '${ac}/twin-gh.log')\" == 1 ]]"
 	fAssert "account list works outside any repo"     bash -c "cd '${ac}' && env ${acEnv} '${gitsby}' -q account >/dev/null"
 	## The header used to say "Here" for the directory status calls "Directory", and "Resolves to"
 	## for the answer status labels "Account" - two words each for one thing, on the one screen

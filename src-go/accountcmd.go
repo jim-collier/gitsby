@@ -348,7 +348,7 @@ func (a *app) showAccount(name string, isHere bool) {
 	}
 	// Say where a token would come from, never what it is.
 	tokenFrom := "none"
-	if ghWho != "" && ghTokenFor(ghWho) != "" {
+	if ghWho != "" && a.ghTokenFor(ghWho) != "" {
 		tokenFrom = "gh's own store"
 	} else if readTokenFile(a.cfg.value(name, "tokenFile")) != "" {
 		tokenFrom = nativePath(a.cfg.value(name, "tokenFile"))
