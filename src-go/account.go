@@ -243,7 +243,7 @@ func readTokenFile(file string) string {
 	if file == "" || folderRuleProblem(file) != "" {
 		return ""
 	}
-	file = expandTilde(file)
+	file = expandHome(file)
 	data, err := os.ReadFile(file)
 	if err != nil {
 		return ""
@@ -309,7 +309,7 @@ func worldReadable(file string) string {
 	if file == "" || isWindows() {
 		return ""
 	}
-	file = expandTilde(file)
+	file = expandHome(file)
 	fi, err := os.Stat(file)
 	if err != nil || fi.Mode().Perm()&0o077 == 0 {
 		return ""
@@ -486,7 +486,7 @@ func (a *app) selectAccount(skipGhProbe bool) error {
 		os.Getenv("GIT_SSH_COMMAND") == "" && a.coreSSHCommand() == "" {
 		// IdentitiesOnly, or ssh offers every key the agent holds and the server
 		// picks the first that authenticates - on a two-account machine a coin toss.
-		if err := setEnv("GIT_SSH_COMMAND", "ssh -i "+sshKey+" -o IdentitiesOnly=yes"); err != nil {
+		if err := setEnv("GIT_SSH_COMMAND", "ssh -i "+sshKeyArg(sshKey)+" -o IdentitiesOnly=yes"); err != nil {
 			return err
 		}
 		a.acct.usedSSHKey = sshKey

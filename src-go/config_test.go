@@ -242,19 +242,47 @@ func TestAbsDirResolvesDotDot(t *testing.T) {
 // '~' resolved through HOME alone, which nothing sets on native Windows - so every
 // tilde path there expanded to nothing and quietly matched no folder and read no
 // token. One helper answers it now, and leaves anything it cannot resolve as typed.
-func TestExpandTilde(t *testing.T) {
+// '~', '${HOME}' and '%USERPROFILE%' are one thing on every platform, so a file
+// synced between Windows and Linux applies on both. Nothing else is a variable.
+func TestExpandHome(t *testing.T) {
 	t.Setenv("HOME", "/home/ada")
 	tests := []struct{ in, want string }{
 		{"~", "/home/ada"},
 		{"~/dev/work", "/home/ada/dev/work"},
 		{`~\dev\work`, `/home/ada\dev\work`},
+		{"${HOME}", "/home/ada"},
+		{"${HOME}/dev", "/home/ada/dev"},
+		{`%USERPROFILE%\dev`, `/home/ada\dev`},
+		{"%userprofile%/dev", "/home/ada/dev"},
 		{"~work/dev", "~work/dev"}, // not a home reference; a shell wouldn't expand it either
+		{"${HOME}x/dev", "${HOME}x/dev"},
+		{"${home}/dev", "${home}/dev"},
+		{"$HOME/dev", "$HOME/dev"},
+		{"%APPDATA%/dev", "%APPDATA%/dev"},
 		{"/dev/~/work", "/dev/~/work"},
+		{"/dev/${HOME}", "/dev/${HOME}"},
 		{"", ""},
 	}
 	for _, tc := range tests {
-		if got := expandTilde(tc.in); got != tc.want {
-			t.Errorf("expandTilde(%q) = %q, want %q", tc.in, got, tc.want)
+		if got := expandHome(tc.in); got != tc.want {
+			t.Errorf("expandHome(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// The key goes to a shell, so a home spelling goes in as the one the shell expands,
+// and a backslash as the slash the shell would otherwise eat.
+func TestSSHKeyArg(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"~/.ssh/id", "~/.ssh/id"},
+		{"${HOME}/.ssh/id", "~/.ssh/id"},
+		{`%USERPROFILE%\.ssh\id`, "~/.ssh/id"},
+		{`C:\Users\ada\.ssh\id`, "C:/Users/ada/.ssh/id"},
+		{"/keys/${HOME}", "/keys/${HOME}"},
+	}
+	for _, tc := range tests {
+		if got := sshKeyArg(tc.in); got != tc.want {
+			t.Errorf("sshKeyArg(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }
@@ -342,34 +370,6 @@ func TestKnowsAccountWithoutGhAccount(t *testing.T) {
 	for _, name := range []string{"", "nobody"} {
 		if cfg.knowsAccount(name) {
 			t.Errorf("knowsAccount(%q) = true, want false", name)
-		}
-	}
-}
-
-// The accounts file is named wherever the display tells somebody to go and edit
-// it, and it almost always lives under home - where its absolute spelling is long
-// enough to be the whole line and to push everything else into a wrap.
-func TestDisplayPath(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	cases := map[string]string{
-		home:                            "~",
-		home + "/.config/gitsby/x.shcl": "~/.config/gitsby/x.shcl",
-		"/etc/gitsby/x.shcl":            "/etc/gitsby/x.shcl",
-		home + "-not-really/x.shcl":     home + "-not-really/x.shcl",
-		"":                              "",
-	}
-	// A backslash is part of a file name off Windows. On it, the profile and APPDATA
-	// are spelled with them, and case doesn't matter.
-	if isWindows() {
-		cases[home+`\AppData\Roaming/gitsby/x.shcl`] = "~/AppData/Roaming/gitsby/x.shcl"
-		cases[strings.ToUpper(home)+`\x.shcl`] = "~/x.shcl"
-	} else {
-		cases[home+`\x.shcl`] = home + `\x.shcl`
-	}
-	for in, want := range cases {
-		if got := displayPath(in); got != nativePath(want) {
-			t.Errorf("displayPath(%q) = %q, want %q", in, got, want)
 		}
 	}
 }
@@ -779,6 +779,11 @@ func TestFolderRuleProblem(t *testing.T) {
 		"..":                          "not an absolute folder",
 		"dev/work":                    "not an absolute folder",
 		"~nobody/x":                   "only a bare '~' is expanded",
+		"${HOME}/dev":                 "",
+		`%USERPROFILE%\dev`:           "",
+		"$HOME/dev":                   "only '~', '${HOME}' and '%USERPROFILE%' are expanded",
+		"${NOPE}/dev":                 "only '~', '${HOME}' and '%USERPROFILE%' are expanded",
+		"%APPDATA%/dev":               "only '~', '${HOME}' and '%USERPROFILE%' are expanded",
 	}
 	for in, want := range cases {
 		if got := folderRuleProblem(in); got != want {
@@ -790,8 +795,10 @@ func TestFolderRuleProblem(t *testing.T) {
 		return
 	}
 	t.Setenv("HOME", "")
-	if got, want := folderRuleProblem("~/dev"), "no home folder to put '~' on"; got != want {
-		t.Errorf("folderRuleProblem(~/dev) with no home = %q, want %q", got, want)
+	for _, in := range []string{"~/dev", "${HOME}/dev", "%USERPROFILE%/dev"} {
+		if got, want := folderRuleProblem(in), "no home folder on this machine"; got != want {
+			t.Errorf("folderRuleProblem(%s) with no home = %q, want %q", in, got, want)
+		}
 	}
 }
 

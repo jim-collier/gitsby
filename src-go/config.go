@@ -25,8 +25,9 @@ import (
 )
 
 type acctRule struct {
-	match string // canonical folder, or a canonical run of folder names
-	acct  string
+	match   string // canonical folder, or a canonical run of folder names
+	acct    string
+	written string // the value as the file has it, for display
 }
 
 // config is one parsed accounts file. Zero accounts and no file are the ordinary
@@ -61,18 +62,55 @@ func homeDir() string {
 	return home
 }
 
-// expandTilde resolves a leading '~' in a path from the config file. Unresolvable
-// is left as typed: a path starting with a literal '~' matches nothing and reads
-// as the typo it is, where one starting with '/' would name somewhere real.
-func expandTilde(p string) string {
-	if p != "~" && !strings.HasPrefix(p, "~/") && !strings.HasPrefix(p, `~\`) {
+// The ways a config value can start at the home folder. All three mean the same
+// folder on every platform, so one file synced between Windows and Linux applies
+// on both. A closed set, expanded here and never by a shell: these values end up
+// in commands git hands to one.
+var homePrefixes = []string{"~", "${HOME}", "%USERPROFILE%"}
+
+// homeRest splits a home prefix off p, giving what follows it. Only a whole prefix
+// counts: '~work' is another user's home to git, and '${HOME}x' is a typo.
+func homeRest(p string) (string, bool) {
+	for _, prefix := range homePrefixes {
+		if len(p) < len(prefix) {
+			continue
+		}
+		// Windows reads variable names in any case, and that is where this one is typed.
+		head := p[:len(prefix)]
+		if head != prefix && (prefix[0] != '%' || !strings.EqualFold(head, prefix)) {
+			continue
+		}
+		if rest := p[len(prefix):]; rest == "" || rest[0] == '/' || rest[0] == '\\' {
+			return rest, true
+		}
+	}
+	return "", false
+}
+
+// expandHome resolves a leading home prefix in a path from the config file.
+// Unresolvable is left as typed: a path starting with a literal '~' matches nothing
+// and reads as the typo it is, where an empty expansion would name somewhere real -
+// '${HOME}/dev' as '/dev'.
+func expandHome(p string) string {
+	rest, ok := homeRest(p)
+	if !ok {
 		return p
 	}
 	home := homeDir()
 	if home == "" {
 		return p
 	}
-	return home + p[1:]
+	return home + rest
+}
+
+// sshKeyArg is a config 'sshkey' as it goes into the ssh command git runs. A home
+// prefix goes in as '~', which the shell expands without splitting a home that has
+// a space in it, and a backslash as '/', which the shell would otherwise eat.
+func sshKeyArg(value string) string {
+	if rest, ok := homeRest(value); ok {
+		value = "~" + rest
+	}
+	return strings.ReplaceAll(value, `\`, "/")
 }
 
 var (
@@ -88,7 +126,7 @@ var (
 // the test and the matcher cannot disagree about how a path is spelled.
 func pathSpelling(p string) string {
 	p = strings.ReplaceAll(p, "\\", "/")
-	p = expandTilde(p)
+	p = expandHome(p)
 	if isWindows() {
 		// Fold the drive letter BEFORE asking the filesystem: '/c/x' means nothing
 		// to a native build, and asking first is the bug the PowerShell port had.
@@ -125,13 +163,17 @@ func folderRuleProblem(value string) string {
 	if value == "" || isAbsFolderFor(runtime.GOOS, strings.ReplaceAll(pathSpelling(value), `\`, "/")) {
 		return ""
 	}
-	switch {
-	case value == "~" || strings.HasPrefix(value, "~/") || strings.HasPrefix(value, `~\`):
+	if _, ok := homeRest(value); ok {
 		return ruleNoHome
+	}
+	switch {
 	case strings.HasPrefix(value, "~"):
 		// git expands '~name' to that user's home, and gitsby does not, so the two
 		// would read the rule differently.
 		return ruleOtherHome
+	case strings.HasPrefix(value, "$") || strings.HasPrefix(value, "%"):
+		// Said by name: "not an absolute folder" about '$HOME/dev' reads as a bug.
+		return ruleOtherVar
 	}
 	return ruleNotAbsolute
 }
@@ -141,8 +183,9 @@ func folderRuleProblem(value string) string {
 const (
 	ruleNotAbsolute = "not an absolute folder"
 	fileNotAbsolute = "not an absolute path"
-	ruleNoHome      = "no home folder to put '~' on"
+	ruleNoHome      = "no home folder on this machine"
 	ruleOtherHome   = "only a bare '~' is expanded"
+	ruleOtherVar    = "only '~', '${HOME}' and '%USERPROFILE%' are expanded"
 )
 
 // canonPath gives a directory one spelling, so a config written on one machine
@@ -336,41 +379,11 @@ func defaultConfigFile() string {
 	return ""
 }
 
-// displayPath writes a path the way somebody would type it, folding a leading home
-// directory back to '~'. Only for display: the accounts file is usually under home,
-// and its absolute spelling is long enough to be the whole line.
-func displayPath(p string) string {
-	home := homeDir()
-	if home == "" || p == "" {
-		return nativePath(p)
-	}
-	head, rest := p, ""
-	if len(p) > len(home) {
-		head, rest = p[:len(home)], p[len(home):]
-	}
-	same := head == home
-	if isWindows() {
-		// Either slash and any case. The profile and APPDATA come back with
-		// backslashes and a file name goes on with '/', so a test for home+"/"
-		// never folded the accounts file there.
-		same = strings.EqualFold(strings.ReplaceAll(head, `\`, "/"), strings.ReplaceAll(home, `\`, "/"))
-	}
-	if !same {
-		return nativePath(p)
-	}
-	if rest == "" {
-		return "~"
-	}
-	if rest[0] == '/' || isWindows() && rest[0] == '\\' {
-		return nativePath("~" + rest)
-	}
-	return nativePath(p)
-}
-
-// nativePath spells a path the way the platform does. Display only, and a no-op
-// off Windows. Folder rules are held in one canonical form - lower case, forward
-// slashes - so a listing printed them beside a 'Here' line that came straight
-// from Windows, and one machine read as two.
+// nativePath spells a path gitsby worked out itself the way the platform does.
+// Display only, and a no-op off Windows. A path from the config file is printed as
+// the file writes it instead, and the canonical form used for matching never is.
+// There was once a fold of home back to '~' here too, dropped 2026-09-16: it
+// shortened one line while the folder rules under it printed in full.
 func nativePath(p string) string {
 	if !isWindows() {
 		return p
@@ -588,10 +601,10 @@ func (c *config) absorb(acct, field, value, key string) {
 			}
 			break
 		}
-		c.paths = append(c.paths, acctRule{canonPath(value), acct})
+		c.paths = append(c.paths, acctRule{canonPath(value), acct, value})
 	case "pathcontains":
 		if value != "" {
-			c.segments = append(c.segments, acctRule{canonSegment(value), acct})
+			c.segments = append(c.segments, acctRule{canonSegment(value), acct, value})
 		}
 	case "ghaccount", "tokenfile", "sshkey", "name", "email", "protocol", "host", "user":
 		// git hands GIT_SSH_COMMAND and core.sshCommand to a shell, so a key
@@ -599,7 +612,7 @@ func (c *config) absorb(acct, field, value, key string) {
 		// rather than used - and this file is redirectable by flag and by
 		// environment variable. Drop it and say so: quietly falling back to
 		// whatever key ssh picks is how you push as the wrong person.
-		if field == "sshkey" && strings.ContainsAny(value, sshKeyShellChars) {
+		if field == "sshkey" && strings.ContainsAny(sshKeyArg(value), sshKeyShellChars) {
 			c.unknown = append(c.unknown, key+" (shell characters in the path)")
 			value = ""
 		}

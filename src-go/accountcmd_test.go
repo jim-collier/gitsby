@@ -159,7 +159,8 @@ account.zed.pathContains = w/x
 account.solo.path = /srv/mine
 `))
 	got := cfg.contestedRules()
-	want := []string{driveRule("/srv/shared") + ": abe, zed", "w/x: abe, zed"}
+	// Named as the file writes it, not in the lower case it is matched in.
+	want := []string{driveFolder("/srv/shared") + ": abe, zed", "w/x: abe, zed"}
 	if len(got) != len(want) {
 		t.Fatalf("contestedRules = %v, want %v", got, want)
 	}
@@ -217,6 +218,54 @@ account.home.ghAccount = homelogin
 	a.showAccount("work", false)
 	if strings.Contains(buf.String(), "host") {
 		t.Errorf("a single-host config was shown the host key:\n%s", buf.String())
+	}
+}
+
+// A rule prints as the file writes it. The listing used to print the form it was
+// matched in - lower case on Windows, links resolved - so the folder on screen was
+// one nobody had typed, and on Windows a '~' fold spelled home a second way.
+func TestAccountListPrintsRulesAsWritten(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, "Dev"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "Linked")
+	linked := filepath.ToSlash(link)
+	if err := os.Symlink(filepath.Join(home, "Dev"), link); err != nil {
+		linked = "" // no symlinks for this user on Windows
+	}
+	body := "account: work\n\tpath: ~/Dev\n\tpath: ${HOME}\\Dev\n\tpath: %UserProfile%/Dev\n\tpathcontains: /Acme/Code/\n\ttokenfile: ~/tok\n\tsshkey: ${HOME}/.ssh/id\n"
+	if linked != "" {
+		body += "\tpath: " + linked + "\n"
+	}
+	a := newApp(newPrinter())
+	var buf strings.Builder
+	a.out.out = &buf
+	a.cfg = writeConfig(t, body)
+	if err := os.WriteFile(filepath.Join(home, "tok"), []byte("t0k"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a.showAccount("work", false)
+	got := buf.String()
+	wants := []string{
+		"folder ..: ~/Dev\n",
+		`folder ..: ${HOME}\Dev` + "\n",
+		"folder ..: %UserProfile%/Dev\n",
+		"anywhere : .../Acme/Code/...",
+		"token ...: ~/tok",
+		"ssh key .: ${HOME}/.ssh/id",
+	}
+	if linked != "" {
+		wants = append(wants, "folder ..: "+linked+"\n")
+	}
+	for _, want := range wants {
+		if !strings.Contains(got, want) {
+			t.Errorf("account list is missing %q:\n%s", want, got)
+		}
+	}
+	if len(a.cfg.unknown) != 0 {
+		t.Errorf("every home spelling should be a rule, got ignored: %v", a.cfg.unknown)
 	}
 }
 
@@ -443,7 +492,7 @@ func TestAccountSetRefusesAnotherUsersHome(t *testing.T) {
 	}
 	t.Setenv("HOME", "")
 	a, file = setApp(t, body, "work", "path", "~/x")
-	if err := a.cmdAccountSet(); err == nil || !strings.Contains(err.Error(), "names no home folder") {
+	if err := a.cmdAccountSet(); err == nil || !strings.Contains(err.Error(), "this machine names none") {
 		t.Errorf("err = %v, want a refusal naming no home folder", err)
 	}
 	if got := readBack(t, file); got != body {
@@ -613,7 +662,7 @@ func TestAccountSetRefusesAnUnreadableFile(t *testing.T) {
 	if err == nil {
 		t.Fatal("set: no refusal")
 	}
-	for _, want := range []string{"File: " + displayPath(file), "permission denied", "Kept: Nothing was written.", "chmod u+r '" + file + "'"} {
+	for _, want := range []string{"File: " + nativePath(file), "permission denied", "Kept: Nothing was written.", "chmod u+r '" + file + "'"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("refusal is missing %q:\n%s", want, err)
 		}
@@ -657,7 +706,7 @@ func TestAccountSetRefusesAPlaceItCantLookIn(t *testing.T) {
 	if err == nil {
 		t.Fatal("set: no refusal")
 	}
-	for _, want := range []string{"File: " + displayPath(hidden), "permission denied", "Kept: Nothing was written.", "chmod u+x '" + dir + "'"} {
+	for _, want := range []string{"File: " + nativePath(hidden), "permission denied", "Kept: Nothing was written.", "chmod u+x '" + dir + "'"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("refusal is missing %q:\n%s", want, err)
 		}
@@ -906,7 +955,7 @@ func TestAccountSetRefusesAFileThatChanged(t *testing.T) {
 	if err == nil {
 		t.Fatal("set: no refusal")
 	}
-	for _, want := range []string{"The accounts file changed while this ran.", "File: " + displayPath(file), "Kept: Nothing was written."} {
+	for _, want := range []string{"The accounts file changed while this ran.", "File: " + nativePath(file), "Kept: Nothing was written."} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("refusal is missing %q:\n%s", want, err)
 		}
@@ -928,7 +977,7 @@ func TestLockAccountsFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lock: %v", err)
 	}
-	if _, err := lockAccountsFile(file, 60*time.Millisecond); err == nil || !strings.Contains(err.Error(), "Lock: "+displayPath(lock)) {
+	if _, err := lockAccountsFile(file, 60*time.Millisecond); err == nil || !strings.Contains(err.Error(), "Lock: "+nativePath(lock)) {
 		t.Errorf("second lock: err = %v, want the refusal naming the lock", err)
 	}
 	unlock()
