@@ -289,7 +289,7 @@ cd gitsby/src-go && go build -o gitsby .
 `cicd/cicd.bash` is the local pipeline and the one command to know. Run it before opening a PR. Seven stages, numbered as the run prints them, behind a stage 0 that fast-forwards from origin so everything after it tests the tree that is actually going out:
 
 1. Lints (gofmt, vet, staticcheck, golangci-lint, shellcheck).
-2. Builds, runs the unit tests, and runs the 1016-check regression suite against the binary it just built.
+2. Builds, runs the unit tests, and runs the regression suite of over 1000 checks against the binary it just built.
 3. Runs the 301 fuzz vectors and the native Go fuzz targets, checks the standard library for known problems, and counts the processes each command spawns.
 4. Compares the build against the frozen v2.1.0 one across 27 checks, for backwards compatibility.
 5. Cross-builds every target and installs each to its own tool directory.
