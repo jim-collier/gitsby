@@ -5,11 +5,11 @@
 ##		- --install writes a small hook into the repo's hooks directory that runs this
 ##		  script on every push. It never sets core.hooksPath, and never replaces a hook
 ##		  it did not write.
-##		- As the hook, each distinct commit pushed to a branch gets cicd/cicd.bash --gate,
-##		  run in a detached worktree at <git common dir>/gitsby-gate. The commit is checked
-##		  as committed, never the working tree. One failure refuses the whole push.
-##		- Deletes and tags are not gated. A commit whose cicd.bash has no --gate, and a box
-##		  other than Linux, push with a note.
+##		- As the hook, a commit pushed to main gets cicd/cicd.bash --gate, run in a detached
+##		  worktree at <git common dir>/gitsby-gate. The commit is checked as committed, never
+##		  the working tree. A failure refuses the whole push.
+##		- Other branches, deletes and tags are not gated. A commit whose cicd.bash has no
+##		  --gate, and a box other than Linux, push with a note.
 ##	Syntax:
 ##		pre-push.bash --install
 ##		pre-push.bash <remote-name> <remote-url>   (as the hook: git's ref lines on stdin)
@@ -101,7 +101,7 @@ fInstall(){
 	chmod 0755 -- "${tmp}"
 	mv -f -- "${tmp}" "${target}"
 	fEcho_Clean "pre-push: ${verb} ${target}"
-	fEcho_Clean "Every push now runs cicd/cicd.bash --gate on the pushed commit first. git push --no-verify skips it once."
+	fEcho_Clean "Every push to main now runs cicd/cicd.bash --gate on the pushed commit first. git push --no-verify skips it once."
 	exit 0
 }
 
@@ -166,9 +166,10 @@ fHook(){
 			exit 1
 		fi
 		if [[ "${lsha}" =~ ^0+$ ]]; then continue; fi
-		## A tag points at a commit that was gated when its branch went out.
-		if [[ "${rref}" != refs/heads/* ]]; then
-			fEcho_Clean "pre-push: not gated: ${rref} (only branches are gated)"
+		## Only main. Other branches are work in progress, and a tag points at a commit that
+		## was gated when main went out.
+		if [[ "${rref}" != refs/heads/main ]]; then
+			fEcho_Clean "pre-push: not gated: ${rref} (only main is gated)"
 			continue
 		fi
 		commit="$(git -C "${root}" rev-parse --verify -q "${lsha}^{commit}" || true)"
@@ -241,3 +242,4 @@ esac
 ##		  than the working tree: uncommitted edits are routine here, and a push names a commit.
 ##		- 20260914 JC: The hook finds its checkout from where git started it when the push came from
 ##		  a subdirectory. A relative --work-tree had sent it to the directory above, ungated.
+##		- 20260924 JC: Only a push to main is gated. Every other branch goes out without it.

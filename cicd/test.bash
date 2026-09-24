@@ -3671,10 +3671,13 @@ EOF
 		git -C "${hookRepo}" commit --quiet -m side -- marker.txt
 		git -C "${hookRepo}" checkout --quiet main
 		hookRc=0; fHookPush "${hookRepo}" origin side || hookRc=$?
-		fAssert "a branch pushed from elsewhere is gated at its own commit" \
+		fAssert "a branch other than main is not gated" \
+			bash -c "[[ '${hookRc}' == 0 && ! -s '${hookLog}' ]] && grep -qF 'not gated: refs/heads/side' '${hookOut}' && [[ -n \"\$(git -C '${hookRepo}' ls-remote origin refs/heads/side)\" ]]"
+		hookRc=0; fHookPush "${hookRepo}" origin +side:refs/heads/main || hookRc=$?
+		fAssert "main pushed from another branch is gated at that commit" \
 			bash -c "[[ '${hookRc}' == 0 ]] && grep -qF '|--gate|side|' '${hookLog}'"
 		## A delete on its own leaves nothing to see, so one goes out beside a branch that is gated.
-		hookRc=0; fHookPush "${hookRepo}" origin :side main~1:refs/heads/beside || hookRc=$?
+		hookRc=0; fHookPush "${hookRepo}" origin :side +main~1:refs/heads/main || hookRc=$?
 		fAssert "a branch delete runs no gate" \
 			bash -c "[[ '${hookRc}' == 0 && \"\$(wc -l < '${hookLog}')\" == 1 ]] && grep -qF '|--gate|good2|' '${hookLog}'"
 		git -C "${hookRepo}" tag t1 main
@@ -3683,15 +3686,15 @@ EOF
 			bash -c "[[ '${hookRc}' == 0 && ! -s '${hookLog}' ]] && grep -qF 'not gated: refs/tags/t1' '${hookOut}'"
 		git -C "${hookRepo}" branch b1 side
 		git -C "${hookRepo}" branch b2 side
-		hookRc=0; fHookPush "${hookRepo}" origin b1 b2 || hookRc=$?
-		fAssert "one commit under two branch names is gated once" \
+		hookRc=0; fHookPush "${hookRepo}" origin +b1:refs/heads/main b2 || hookRc=$?
+		fAssert "main pushed beside another branch is gated once" \
 			bash -c "[[ '${hookRc}' == 0 && \"\$(grep -c -- '|--gate|' '${hookLog}')\" == 1 ]]"
 		## Its cicd.bash has no --gate) arm, and would fail if it were run.
 		git -C "${hookRepo}" checkout --quiet -b old main~1
 		printf '#!/usr/bin/env bash\nexit 1\n' > "${hookRepo}/cicd/cicd.bash"
 		git -C "${hookRepo}" commit --quiet -m old -- cicd/cicd.bash
 		git -C "${hookRepo}" checkout --quiet main
-		hookRc=0; fHookPush "${hookRepo}" origin old || hookRc=$?
+		hookRc=0; fHookPush "${hookRepo}" origin +old:refs/heads/main || hookRc=$?
 		fAssert "a commit from before the gate is pushed with a note" \
 			bash -c "[[ '${hookRc}' == 0 && ! -s '${hookLog}' ]] && grep -qF 'predates the gate' '${hookOut}'"
 		git -C "${hookRepo}" checkout --quiet -b noscript main~1
@@ -3701,20 +3704,21 @@ EOF
 		git -C "${hookRepo}" checkout --quiet main
 		fAssert "a checkout without the hook script pushes with a note" \
 			bash -c "[[ '${hookRc}' == 0 ]] && grep -qF 'not gated' '${hookOut}'"
-		hookRc=0; fHookPush "${hookRepo}/sub" origin side:refs/heads/fromsub || hookRc=$?
+		hookRc=0; fHookPush "${hookRepo}/sub" origin +side:refs/heads/main || hookRc=$?
 		fAssert "the gate does not inherit GIT_PREFIX from a push run in a subdirectory" \
 			bash -c "[[ '${hookRc}' == 0 ]] && grep -qF '|side|GIT_PREFIX=unset|' '${hookLog}'"
 		## From a subdirectory git starts the hook at the top, but passes a relative --work-tree on as
 		## typed. Read from the top, ".." is the directory above the checkout.
 		hookRc=0; : > "${hookLog}"
-		(cd "${hookRepo}/sub" && git --git-dir=../.git --work-tree=.. push origin main:refs/heads/relwt) >"${hookOut}" 2>&1 || hookRc=$?
+		hookRemote="$(git -C "${hookRepo}" ls-remote origin refs/heads/main)"
+		(cd "${hookRepo}/sub" && git --git-dir=../.git --work-tree=.. push origin +main:refs/heads/main) >"${hookOut}" 2>&1 || hookRc=$?
 		fAssert "a push from a subdirectory with a relative --work-tree is gated all the same" \
-			bash -c "[[ '${hookRc}' != 0 ]] && grep -qF '${hookSnap}|--gate|fail|' '${hookLog}' && [[ -z \"\$(git -C '${hookRepo}' ls-remote origin refs/heads/relwt)\" ]]"
+			bash -c "[[ '${hookRc}' != 0 ]] && grep -qF '${hookSnap}|--gate|fail|' '${hookLog}' && [[ \"\$(git -C '${hookRepo}' ls-remote origin refs/heads/main)\" == '${hookRemote}' ]]"
 		## git hands a hook GIT_DIR from a linked worktree. Passed on, the gate worktree's checkout
 		## would land on this worktree instead, and detach it.
 		local hookLinked="${hookDir}/linked"
 		git -C "${hookRepo}" worktree add --quiet -b linkedb "${hookLinked}" main~1
-		hookRc=0; fHookPush "${hookLinked}" origin linkedb || hookRc=$?
+		hookRc=0; fHookPush "${hookLinked}" origin +linkedb:refs/heads/main || hookRc=$?
 		fAssert "a push from a linked worktree hands the gate no GIT_DIR and leaves that worktree on its branch" \
 			bash -c "[[ '${hookRc}' == 0 ]] && grep -qF '|good2|GIT_PREFIX=unset|GIT_DIR=unset' '${hookLog}' && [[ \"\$(git -C '${hookLinked}' symbolic-ref --short HEAD)\" == linkedb && -z \"\$(git -C '${hookLinked}' status --porcelain)\" ]]"
 		## Moved aside rather than removed. Either way it is a registered worktree whose directory is gone.
@@ -3723,7 +3727,7 @@ EOF
 		echo b16 > "${hookRepo}/marker.txt"
 		git -C "${hookRepo}" commit --quiet -m b16 -- marker.txt
 		git -C "${hookRepo}" checkout --quiet main
-		hookRc=0; fHookPush "${hookRepo}" origin b16 || hookRc=$?
+		hookRc=0; fHookPush "${hookRepo}" origin +b16:refs/heads/main || hookRc=$?
 		fAssert "a gate worktree that went missing is recreated" \
 			bash -c "[[ '${hookRc}' == 0 ]] && grep -qF '${hookSnap}|--gate|b16|' '${hookLog}'"
 		local hookLock="${hookDir}/repo/.git/gitsby-gate.lock" hookLockPid="" hookT0=0 hookT1=0 hookWait=0
@@ -3733,7 +3737,7 @@ EOF
 		hookLockPid=$!
 		## Until the background flock holds the lock, the push could take it first.
 		while flock -n "${hookLock}" true && ((hookWait < 100)); do sleep 0.02; hookWait=$((hookWait + 1)); done
-		hookRc=0; fHookPush "${hookRepo}" origin b17 || hookRc=$?
+		hookRc=0; fHookPush "${hookRepo}" origin +b17:refs/heads/main || hookRc=$?
 		hookT1="$(date +%s%N)"
 		kill "${hookLockPid}" 2>/dev/null || true
 		wait "${hookLockPid}" 2>/dev/null || true
@@ -3742,18 +3746,18 @@ EOF
 		## Leftovers from an earlier gate, one tracked and one untracked. checkout --force alone
 		## would keep the untracked one.
 		if [[ -d "${hookSnap}" ]]; then echo fail > "${hookSnap}/marker.txt"; echo left > "${hookSnap}/leftover.txt"; fi
-		hookRc=0; fHookPush "${hookRepo}" origin main~1:refs/heads/dirty || hookRc=$?
+		hookRc=0; fHookPush "${hookRepo}" origin +b16:refs/heads/main || hookRc=$?
 		fAssert "a gate worktree left dirty is rebuilt before the gate runs" \
-			bash -c "[[ '${hookRc}' == 0 ]] && grep -qF '${hookSnap}|--gate|good2|GIT_PREFIX=unset|GIT_DIR=unset|status=0' '${hookLog}'"
-		hookRc=0; PATH="${hookUname}:${PATH}" fHookPush "${hookRepo}" origin main~1:refs/heads/darwin || hookRc=$?
+			bash -c "[[ '${hookRc}' == 0 ]] && grep -qF '${hookSnap}|--gate|b16|GIT_PREFIX=unset|GIT_DIR=unset|status=0' '${hookLog}'"
+		hookRc=0; PATH="${hookUname}:${PATH}" fHookPush "${hookRepo}" origin +main~1:refs/heads/main || hookRc=$?
 		fAssert "a push off Linux goes out ungated with a note" \
-			bash -c "[[ '${hookRc}' == 0 && ! -s '${hookLog}' ]] && grep -qF 'Linux only' '${hookOut}' && [[ -n \"\$(git -C '${hookRepo}' ls-remote origin refs/heads/darwin)\" ]]"
+			bash -c "[[ '${hookRc}' == 0 && ! -s '${hookLog}' ]] && grep -qF 'Linux only' '${hookOut}' && [[ \"\$(git -C '${hookRepo}' ls-remote origin refs/heads/main | cut -f1)\" == \"\$(git -C '${hookRepo}' rev-parse main~1)\" ]]"
 		## Without its .git file the directory is still registered, but git inside it answers for the
 		## main repo. Nothing there may be forced or removed.
 		local hookSnapSum="" hookSnapAfter=""
 		if [[ -f "${hookSnap}/.git" ]]; then mv "${hookSnap}/.git" "${hookDir}/gate-dotgit-aside"; fi
 		hookSnapSum="$(fTreeDigest "${hookSnap}" || true)"
-		hookRc=0; fHookPush "${hookRepo}" origin main~1:refs/heads/nodotgit || hookRc=$?
+		hookRc=0; fHookPush "${hookRepo}" origin +b16:refs/heads/main || hookRc=$?
 		hookSnapAfter="$(fTreeDigest "${hookSnap}" || true)"
 		fAssert "a gate worktree without its .git file is refused and left as it was" \
 			bash -c "[[ '${hookRc}' != 0 && -n '${hookSnapSum}' && '${hookSnapSum}' == '${hookSnapAfter}' && ! -s '${hookLog}' ]] && grep -qE 'is not this repo.s gate worktree' '${hookOut}'"
@@ -4454,3 +4458,4 @@ echo "passed: ${pass}, failed: ${fail}"
 ##		- 20260915 JC: Installer checks for Code Review 20260909 items 12-14. install.ps1 runs whole installs against stubbed web cmdlets that answer the way Windows PowerShell 5.1 and PowerShell 7 each do. Both help texts are checked against the options their parsers take, and the refusals, the prompt and the notices against the blank lines around them. 977 -> 1007.
 ##		- 20260915 JC: Pipeline housekeeping. The banner's copyright has a line of its own, and release.bash no longer cuts the build line at a comma. The lint report passes an archive listing that names errors.go and still reports one line in each tool's format. The Windows resource takes its copyright years from the program. All five fail against the tree before them; the two build-number checks match the two-line banner. 1007 -> 1012.
 ##		- 20260916 JC: A Syntax: refusal defines each placeholder under it, checked on repo url, repo clone, br hotfix and raw. account list prints a missing token source as (none). 1016 -> 1021.
+##		- 20260924 JC: The pre-push gate runs on pushes to main only. Its checks push to main, and a push of another branch is checked to go out ungated. 1027 -> 1028.

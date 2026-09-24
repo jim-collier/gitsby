@@ -192,7 +192,7 @@ That binary is the whole product. The rest of the tooling below is for running t
 
 - `cicd/cicd.bash --gate` - every lint check and the unit tests, and nothing else: no sync, no build, no suites, no prompt and no run log. This is what the pre-push hook runs.
 
-- `cicd/cicd.bash --install-hook` - install a git pre-push hook that runs `--gate` before every push, once for each commit pushed to a branch. It checks the commit as committed, in a separate worktree at `.git/gitsby-gate`, and never your working tree, so an uncommitted edit neither fails a push nor passes one. That worktree shows in `git worktree list`. Deletes and tags are not gated, and `git push --no-verify` skips the gate for one push. The install refuses to replace a pre-push hook it did not write, and writes nothing while `core.hooksPath` is set.
+- `cicd/cicd.bash --install-hook` - install a git pre-push hook that runs `--gate` before every push to `main`, on the commit being pushed. It checks the commit as committed, in a separate worktree at `.git/gitsby-gate`, and never your working tree, so an uncommitted edit neither fails a push nor passes one. That worktree shows in `git worktree list`. Other branches, deletes and tags are not gated, and `git push --no-verify` skips the gate for one push. The install refuses to replace a pre-push hook it did not write, and writes nothing while `core.hooksPath` is set.
 
 - To remove the hook, run `rm .git/hooks/pre-push` and then `git worktree remove --force .git/gitsby-gate`.
 
