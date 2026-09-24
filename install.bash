@@ -3,7 +3,7 @@
 ##	Purpose:
 ##		- Downloads and installs the gitsby binary for this platform, after showing the
 ##		  plan and asking first. Meant for one-liner use:
-##		      curl -fsSL https://raw.githubusercontent.com/jim-collier/gitsby/main/install.bash | bash
+##		      curl -fsSL https://raw.githubusercontent.com/yottacore/gitsby/main/install.bash | bash
 ##		  Flags go after 'bash -s --', e.g.:
 ##		      ... | bash -s -- --system -y
 ##		- Runs on bash 3.2+ (stock macOS bash), so no bash-4/5 features in here. What it
@@ -18,7 +18,7 @@
 
 set -eu; set -o pipefail
 
-repo="jim-collier/gitsby"
+repo="yottacore/gitsby"
 doSystem=0; doYes=0; tag=""
 releaseChannel=""; targetScope=""; arch=""
 
