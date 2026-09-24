@@ -22,9 +22,9 @@
     The options are listed here rather than as parameter help. They belong to the function
     inside, since a script-level param() block breaks the iex one-liner.
 .EXAMPLE
-    irm https://raw.githubusercontent.com/jim-collier/gitsby/main/install.ps1 | iex
+    irm https://raw.githubusercontent.com/yottacore/gitsby/main/install.ps1 | iex
 .EXAMPLE
-    & ([scriptblock]::Create((irm https://raw.githubusercontent.com/jim-collier/gitsby/main/install.ps1))) -System -Yes
+    & ([scriptblock]::Create((irm https://raw.githubusercontent.com/yottacore/gitsby/main/install.ps1))) -System -Yes
 .NOTES
     Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
     Licensed under The MIT License (MIT). Full text at: https://mit-license.org/
@@ -90,7 +90,7 @@ function Install-Gitsby {
         return
     }
 
-    $repo = 'jim-collier/gitsby'
+    $repo = 'yottacore/gitsby'
 
     # '-Release dev' installed the tip of a branch, which meant downloading a script. There is
     # no script to download now, and a branch has no build behind it.

@@ -28,7 +28,7 @@ var version = "0.0.0-dev"
 const (
 	copyrightYear = "2014-2026"
 	author        = "Jim Collier"
-	homeURL       = "https://github.com/jim-collier/gitsby"
+	homeURL       = "https://github.com/yottacore/gitsby"
 	donateURL     = "https://github.com/sponsors/jim-collier"
 )
 

@@ -320,7 +320,7 @@ fRunSuite(){
 		bash -c "[[ \"\$(cd '${cloneA}' && '${gitsby}' --help | grep -cE '^gitsby v[0-9]')\" == 1 ]]"
 	## --about and --donate are the two informational flags. Both answer outside a repo, and each
 	## exists to hand over one link, so the link is what gets asserted.
-	fAssertOut  "--about names the project page"   'github\.com/jim-collier/gitsby' \
+	fAssertOut  "--about names the project page"   'github\.com/yottacore/gitsby' \
 		bash -c "cd '${work}' && '${gitsby}' --about"
 	fAssertOut  "--donate names the sponsor page"  'github\.com/sponsors/jim-collier' \
 		bash -c "cd '${work}' && '${gitsby}' --donate"
@@ -2005,7 +2005,7 @@ GHEOF
 		if [[ -n "${farmPath}" ]]; then ln -sf "${farmPath}" "${farm}/${farmTool}"; fi
 	done
 	# shellcheck disable=SC2016  ## the stub's own text; the inner shell does the expanding.
-	printf '#!/usr/bin/env bash\nfor a in "$@"; do case "$a" in */releases/latest) echo "  Location: https://github.com/jim-collier/gitsby/releases/tag/v9.9.9" >&2; exit 8 ;; esac; done\nexit 1\n' > "${farm}/wget"
+	printf '#!/usr/bin/env bash\nfor a in "$@"; do case "$a" in */releases/latest) echo "  Location: https://github.com/yottacore/gitsby/releases/tag/v9.9.9" >&2; exit 8 ;; esac; done\nexit 1\n' > "${farm}/wget"
 	chmod +x "${farm}/wget"
 	fAssertOut  "go installer reads a tag out of wget's exit 8" 'v9\.9\.9' \
 		bash -c "PATH='${farm}' '${farm}/bash' '${goInst}' -y"
@@ -2070,7 +2070,7 @@ GHEOF
 		url=""
 		for a in "$@"; do case "$a" in https://*) url="$a" ;; esac; done
 		case "${url}" in
-			*/releases/latest)            printf 'https://github.com/jim-collier/gitsby/releases/tag/v1.2.3'; exit 0 ;;
+			*/releases/latest)            printf 'https://github.com/yottacore/gitsby/releases/tag/v1.2.3'; exit 0 ;;
 			*/download/v1.2.3/SHA256SUMS) cat "${FAKE_SUMS}"; exit 0 ;;
 			*/download/v1.2.3/gitsby-*)   cat "${FAKE_ASSET}"; exit 0 ;;
 		esac
@@ -2202,7 +2202,7 @@ GHEOF
 					param($Uri, $MaximumRedirection, [switch]$UseBasicParsing, $ErrorAction, $OutFile)
 					Add-Content -LiteralPath "$env:FAKE_DIR/calls" -Value $Uri
 					if ($Uri -like '*/releases/latest') {
-						$to = 'https://github.com/jim-collier/gitsby/releases/tag/v1.2.3'
+						$to = 'https://github.com/yottacore/gitsby/releases/tag/v1.2.3'
 						$carryOn = "$ErrorAction" -eq 'SilentlyContinue'
 						if ($env:FAKE_SHAPE -eq '7') {
 							$failure = [Exception]::new('Response status code does not indicate success: 302 (Found).')

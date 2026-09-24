@@ -296,7 +296,7 @@ fi
 ## platform back off the published release, check it against the published SHA256SUMS, and run it.
 ## That is the whole contract - a download whose checksum matches and whose --version is right.
 if ! fWould "verify releases/latest, then download and run this platform's published binary"; then
-	latest="$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/jim-collier/gitsby/releases/latest" 2>/dev/null | sed -n 's|.*/releases/tag/||p')"
+	latest="$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/yottacore/gitsby/releases/latest" 2>/dev/null | sed -n 's|.*/releases/tag/||p')"
 	## 'releases/latest' is the newest release NOT flagged as a pre-release, so a candidate must
 	## not resolve there and a full release must. Asking it the same question both ways round
 	## would warn on every good beta, which is the failure the 20260814 entry below is about.
@@ -314,7 +314,7 @@ if ! fWould "verify releases/latest, then download and run this platform's publi
 	## Whichever asset belongs to the machine running this.
 	proveOs="$(go env GOOS)"; proveArch="$(go env GOARCH)"
 	proveAsset="${EXE_NAME}-${proveOs}-${proveArch}"; [[ "${proveOs}" == windows ]] && proveAsset="${proveAsset}.exe"
-	base="https://github.com/jim-collier/gitsby/releases/download/${version}"
+	base="https://github.com/yottacore/gitsby/releases/download/${version}"
 	proved=0
 	for attempt in 1 2 3; do
 		((attempt > 1)) && { fEcho_Clean "not downloadable yet; giving GitHub a moment to serve the assets (attempt ${attempt}) ..."; sleep 20; }

@@ -7,7 +7,7 @@
 
 [![Go](https://img.shields.io/badge/Go-00ADD8.svg?logo=go&logoColor=white)](https://go.dev/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Latest release](https://img.shields.io/github/v/release/jim-collier/gitsby?include_prereleases&label=release)](https://github.com/jim-collier/gitsby/releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/yottacore/gitsby?include_prereleases&label=release)](https://github.com/yottacore/gitsby/releases/latest)
 ![Lifecycle: Stable](https://img.shields.io/badge/Lifecycle-Stable-brightgreen)
 ![Support](https://img.shields.io/badge/Support-Maintained-brightgreen)
 [![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-ff69b4)](https://github.com/sponsors/jim-collier)
@@ -218,11 +218,11 @@ Not yet - nothing on apt, dnf, Homebrew or winget. The two one-liners below are 
 ### The one-liners
 
 ~~~bash
-curl -fsSL https://raw.githubusercontent.com/jim-collier/gitsby/main/install.bash | bash
+curl -fsSL https://raw.githubusercontent.com/yottacore/gitsby/main/install.bash | bash
 ~~~
 
 ~~~pwsh
-irm https://raw.githubusercontent.com/jim-collier/gitsby/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/yottacore/gitsby/main/install.ps1 | iex
 ~~~
 
 The first on Linux, macOS or FreeBSD; the second on Windows. PowerShell is what runs the second one, not what runs Gitsby - Windows PowerShell 5.1, which every Windows box already has, is enough. (It runs fine under `pwsh` on any platform too, if PowerShell is what you have handy.)
@@ -230,7 +230,7 @@ The first on Linux, macOS or FreeBSD; the second on Windows. PowerShell is what 
 `iex` can't pass options along. To hand the installer a flag - `-Target system`, `-Tag`, `-Help` - give the same download to a script block instead:
 
 ~~~pwsh
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/jim-collier/gitsby/main/install.ps1))) -Help
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/yottacore/gitsby/main/install.ps1))) -Help
 ~~~
 
 Either one works out which binary this machine needs, takes it from the latest release, and checks it against that release's published `SHA256SUMS` before installing it. There is no unverified route: where the checksum can't be fetched or can't be computed, the install stops instead of carrying on. And either one shows you its plan and asks before touching anything.
@@ -251,7 +251,7 @@ For anything else - installing for everyone, taking an older release, or naming 
 A pre-release is flagged as one, so neither installer takes it by default: both go for the newest full release. Name its tag to install one.
 
 ~~~bash
-curl -fsSL https://raw.githubusercontent.com/jim-collier/gitsby/main/install.bash | bash -s -- --tag v3.0.0-beta.1
+curl -fsSL https://raw.githubusercontent.com/yottacore/gitsby/main/install.bash | bash -s -- --tag v3.0.0-beta.1
 ~~~
 
 ### Without the installer
@@ -263,7 +263,7 @@ Every release publishes one binary per platform alongside a `SHA256SUMS`. Downlo
 The published binaries are reproducible. Build a release tag with the Go toolchain that cut it - named as `GO_RELEASE_TOOLCHAIN` in `cicd/config.bash` - and you get the same bytes, and so the same checksum, on any machine:
 
 ~~~bash
-git clone --branch v2.2.0 https://github.com/jim-collier/gitsby
+git clone --branch v2.2.0 https://github.com/yottacore/gitsby
 cd gitsby/src-go
 CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags "-s -w -buildid= -X main.version=2.2.0 -X main.buildEpoch=$(git log -1 --format=%ct)" -o gitsby .
 sha256sum gitsby
@@ -282,7 +282,7 @@ Back then Gitsby was a Bash script and a PowerShell one: install over the top an
 Clone it and build it. Go is the only requirement, and the binary it produces is the whole product.
 
 ~~~bash
-git clone https://github.com/jim-collier/gitsby.git
+git clone https://github.com/yottacore/gitsby.git
 cd gitsby/src-go && go build -o gitsby .
 ~~~
 

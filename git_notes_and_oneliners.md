@@ -297,5 +297,5 @@ Unlike the Bash version's `trash`, `Remove-Item` deletes outright - there is no 
 
 ## References
 
-- [gitsby project](https://github.com/jim-collier/gitsby/tree/main)
-- [gitsby reference](https://github.com/jim-collier/gitsby/blob/main/reference/git.txt)
+- [gitsby project](https://github.com/yottacore/gitsby/tree/main)
+- [gitsby reference](https://github.com/yottacore/gitsby/blob/main/reference/git.txt)

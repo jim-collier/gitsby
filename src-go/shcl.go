@@ -24,8 +24,8 @@ import (
 const shclBanner = "#\n" +
 	"# This config file format is SHCL.\n" +
 	"# \"Simple Hierarchical Config Language\"\n" +
-	"#    Home     https://github.com/jim-collier/shcl\n" +
-	"#    Syntax   https://github.com/jim-collier/shcl/blob/main/project/spec.md\n" +
+	"#    Home     https://github.com/yottacore/shcl\n" +
+	"#    Syntax   https://github.com/yottacore/shcl/blob/main/project/spec.md\n" +
 	"#    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n" +
 	"#\n"
 

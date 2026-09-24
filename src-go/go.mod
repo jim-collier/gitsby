@@ -1,4 +1,4 @@
-module github.com/jim-collier/gitsby
+module github.com/yottacore/gitsby
 
 go 1.26.2
 
