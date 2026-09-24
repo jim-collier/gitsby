@@ -19,7 +19,7 @@ import (
 	"strings"
 	"testing"
 
-	shcl "github.com/jim-collier/shcl/source/go/v2"
+	shcl "github.com/yottacore/shcl/source/go/v2"
 )
 
 func TestParseConfigValue(t *testing.T) {
@@ -665,8 +665,13 @@ func TestConfigLoadNestedKeysAtTheDepthCap(t *testing.T) {
 		}
 		disp, parent = disp+"."+key, key
 	}
+	// The first line past the cap says so; each one under it was skipped with it.
 	for n := kept + 1; n <= chain; n++ {
-		if want := fmt.Sprintf("line %d (nesting deeper than %d levels; line skipped)", n+2, shcl.MaxDepth); !slices.Contains(cfg.unknown, want) {
+		why := "parent line was skipped; line skipped"
+		if n == kept+1 {
+			why = fmt.Sprintf("nesting deeper than %d levels; line skipped", shcl.MaxDepth)
+		}
+		if want := fmt.Sprintf("line %d (%s)", n+2, why); !slices.Contains(cfg.unknown, want) {
 			t.Errorf("line %d is not listed as skipped", n+2)
 		}
 	}
@@ -701,7 +706,7 @@ func TestIsFlatConfig(t *testing.T) {
 // end - or above a top-level key - is not pulled into the block before it.
 func TestFlatToSHCL(t *testing.T) {
 	in := "# header\n\n# about work\naccount.work.path = /srv/work   # tree\n# between\naccount.work.ghAccount = \"a#b\"\n\n# above protocol\nprotocol = https\naccount.home.email = h@x.y\njust-a-key\n"
-	want := "# header\n\n# about work\n\naccount: work\n\tpath: /srv/work  # tree\n\t# between\n\tghaccount: \"a#b\"\n\n# above protocol\nprotocol: https\n\naccount: home\n\temail: h@x.y\njust-a-key\n\n" + shclBanner
+	want := "# header\n\n# about work\n\naccount: work\n\tpath: /srv/work  # tree\n\t# between\n\tghaccount: \"a#b\"\n\n# above protocol\nprotocol: https\n\naccount: home\n\temail: h@x.y\njust-a-key\n\n" + shcl.GenBanner
 	if got := flatToSHCL(in); got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
@@ -718,7 +723,7 @@ func TestShclValue(t *testing.T) {
 		"plain":    "plain",
 		"Ada #1":   `"Ada #1"`,
 		"":         `""`,
-		`C:\x`:     `"C:\\x"`,
+		`C:\x`:     `'C:\x'`,
 		"a, b":     `"a, b"`,
 		"C:/work":  `"C:/work"`,
 		"~/dev/w":  "~/dev/w",
@@ -728,6 +733,19 @@ func TestShclValue(t *testing.T) {
 		if got := shclValue(in); got != want {
 			t.Errorf("shclValue(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// A backslash outside double quotes is itself, so a Windows path typed by hand
+// keeps its '\t' and '\n'. SHCL 2.x read those as escapes. A path rule written
+// doubled under 2.x still names its folder, since a rule reads either slash.
+func TestConfigLoadBackslashes(t *testing.T) {
+	cfg := writeConfig(t, "account: w\n\tname: ~\\dev\\tools\n\temail: \"C:\\\\new\"\n")
+	wantValue(t, cfg, "w", "name", `~\dev\tools`)
+	wantValue(t, cfg, "w", "email", `C:\new`)
+	cfg = writeConfig(t, "account: w\n\tpath: /srv\\\\work\n\n#\n# This config file format is SHCL.\n#\n")
+	if got := cfg.accountForDir(driveFolder("/srv/work/x")); got != "w" {
+		t.Errorf("a doubled path rule names %q, want w: %+v", got, cfg)
 	}
 }
 
