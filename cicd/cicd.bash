@@ -45,7 +45,7 @@
 ##	   --no-publish        skip the git backup + publish stage
 ##	   --quick             skip the slow stages (fuzz, demo gif)
 ##	   --gate              fast pre-push gate: every lint check and go test; no sync, build, suites, prompt or log
-##	   --install-hook      install the git pre-push hook that runs --gate on each pushed commit
+##	   --install-hook      install the git pre-push hook that runs --gate on each commit pushed to main
 ##	   -h, --help          show this help
 ##	- If neither -q/-y nor -m is given, the run prompts once for a commit message
 ##	  (blank = git editor; Ctrl+C aborts the whole run), then finishes unattended.

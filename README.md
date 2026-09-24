@@ -303,7 +303,7 @@ cicd/cicd.bash --quick          # skips fuzz and the demo gif; what you want whi
 cicd/cicd.bash                  # everything, and it prompts once for a commit message
 cicd/cicd.bash -y -m "message"  # unattended
 cicd/cicd.bash --gate           # every lint check and the unit tests; what the pre-push hook runs
-cicd/cicd.bash --install-hook   # run --gate on each pushed commit before every push
+cicd/cicd.bash --install-hook   # run --gate on the pushed commit before every push to main
 ~~~
 
 With the hook installed, `git push --no-verify` skips the gate for one push.

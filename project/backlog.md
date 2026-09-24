@@ -1826,6 +1826,13 @@ To make using these icons easier if desired, add them to a clipboard or key macr
 
 #### Done - Features and enhancements
 
+- ✅ The pre-push gate runs on every branch push, not just `main`.
+	- Opened: 20260924-092200
+	- Closed: 20260924-093000
+	- Fixed: only a push to `main` is gated. Other branches, deletes and tags go out without it.
+	- Verified: test.bash 1027 -> 1028. The new check fails against the old hook.
+	- Removed: "a branch pushed from elsewhere is gated at its own commit" and "one commit under two branch names is gated once". Both assumed any branch was gated. They are now "main pushed from another branch is gated at that commit" and "main pushed beside another branch is gated once".
+
 - ✅ Paths are spelled more than one way between the config file and the screen.
 	- Opened: 20260916-110027
 	- Closed: 20260916-164500
