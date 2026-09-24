@@ -2761,6 +2761,14 @@ GHEOF
 		bash -c "cd '${acHome}' && env ${acEnv} '${gitsby}' -q -NoFetch -Config '${ac}/hier.shcl' status"
 	fAssertOut "a key nothing reads is named by the path that reaches it"  'Ignored keys \.+:.*account\[hw\]\.nonsense' \
 		bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q -NoFetch -Config '${ac}/hier.shcl' account"
+	## A bare backslash is itself, so '\trees' is not a tab and 'rees'. A rule reads either slash.
+	cat > "${ac}/backslash.shcl" <<-EOF
+		account: hb
+		    path: ${acCanon}\trees\work
+		    ghaccount: slashacct
+	EOF
+	fAssertOut "a folder rule typed with backslashes keeps them"  "Account \.+: slashacct" \
+		bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q -NoFetch -Config '${ac}/backslash.shcl' status"
 	## A key indented under another key is that key's child, and nothing reads a key from there. It
 	## is listed by the path that reaches it, and the key above it still applies. A stacked list
 	## holds its items as the key's value, so it lists nothing.
@@ -4459,3 +4467,4 @@ echo "passed: ${pass}, failed: ${fail}"
 ##		- 20260915 JC: Pipeline housekeeping. The banner's copyright has a line of its own, and release.bash no longer cuts the build line at a comma. The lint report passes an archive listing that names errors.go and still reports one line in each tool's format. The Windows resource takes its copyright years from the program. All five fail against the tree before them; the two build-number checks match the two-line banner. 1007 -> 1012.
 ##		- 20260916 JC: A Syntax: refusal defines each placeholder under it, checked on repo url, repo clone, br hotfix and raw. account list prints a missing token source as (none). 1016 -> 1021.
 ##		- 20260924 JC: The pre-push gate runs on pushes to main only. Its checks push to main, and a push of another branch is checked to go out ungated. 1027 -> 1028.
+##		- 20260924 JC: A folder rule typed with backslashes reads as typed under shcl 3.0, where 2.x read `\t` as a tab. 1028 -> 1029.

@@ -19,6 +19,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	shcl "github.com/yottacore/shcl/source/go/v2"
 )
 
 func planFor(t *testing.T, body string) *config {
@@ -322,7 +324,7 @@ func TestAccountSetCreatesTheFile(t *testing.T) {
 			t.Errorf("created file is missing %q:\n%s", want, got)
 		}
 	}
-	if !strings.HasSuffix(got, "\n\n"+shclBanner) {
+	if !strings.HasSuffix(got, "\n\n"+shcl.GenBanner) {
 		t.Errorf("created file does not end with the format footer:\n%s", got)
 	}
 	if !strings.HasPrefix(got, "#") {
@@ -341,7 +343,7 @@ func TestAccountSetCreatesTheFile(t *testing.T) {
 // were. The spacing is the format's own, which is the one thing a rewrite through
 // the module changes.
 func TestAccountSetReplacesOneKey(t *testing.T) {
-	body := "# mine\n\naccount: work\n\tpath: /srv/work   # the tree\n\thost: github.com\n\temail: a@b.c\n\n" + shclBanner
+	body := "# mine\n\naccount: work\n\tpath: /srv/work   # the tree\n\thost: github.com\n\temail: a@b.c\n\n" + shcl.GenBanner
 	a, file := setApp(t, body, "work", "host", "gitea.com")
 	plan, err := a.accountSetPlan()
 	if err != nil {
@@ -353,7 +355,7 @@ func TestAccountSetReplacesOneKey(t *testing.T) {
 	if err := a.cmdAccountSet(); err != nil {
 		t.Fatalf("set: %v", err)
 	}
-	want := "# mine\n\naccount: work\n\tpath: /srv/work  # the tree\n\thost: gitea.com\n\temail: a@b.c\n\n" + shclBanner
+	want := "# mine\n\naccount: work\n\tpath: /srv/work  # the tree\n\thost: gitea.com\n\temail: a@b.c\n\n" + shcl.GenBanner
 	if got := readBack(t, file); got != want {
 		t.Errorf("got:\n%q\nwant:\n%q", got, want)
 	}
@@ -411,7 +413,7 @@ func TestAccountSetConvertsAFlatFile(t *testing.T) {
 	if strings.Contains(got, utf8BOM) || strings.Contains(got, "\r") || strings.Contains(got, " = ") {
 		t.Errorf("the old layout is still in there: %q", got)
 	}
-	for _, want := range []string{"# mine\n\naccount: work\n", "  # tree\n", "\thost: gitea.com\n", "\nprotocol: https\n", shclBanner} {
+	for _, want := range []string{"# mine\n\naccount: work\n", "  # tree\n", "\thost: gitea.com\n", "\nprotocol: https\n", shcl.GenBanner} {
 		if !strings.Contains(got, want) {
 			t.Errorf("converted file is missing %q:\n%s", want, got)
 		}

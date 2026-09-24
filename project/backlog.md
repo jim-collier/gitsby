@@ -46,17 +46,17 @@ To make using these icons easier if desired, add them to a clipboard or key macr
 
 ### Bugs
 
-- ✋ A Windows path with backslashes can read as a different folder. In the block layout, shcl v2 reads `\t` and `\n` as a tab and a newline, quoted or not, so `path: ~\dev\tools` names `~\dev` + tab + `ools` and the rule never matches. `\\` reads as one backslash. The old flat layout is not affected.
-	- Opened: 20260916-163000
-	- Origin: 20260826, the move to the shcl module. Found on b29w while checking the path-spelling feature. Confirmed on Linux and Windows.
-	- shcl 3.0, not yet released, reads a backslash outside double quotes as a plain character. Moving to it fixes this, or gitsby reads the key's raw text by the same rule until then.
-	- Decided 20260916: wait for shcl 3.0, with no workaround in gitsby. Reopen when shcl's Go module publishes v3.
-
 - 🔘 `status` says an account came from "gitsby.ghAccount in this repo's git config" when the key reached git through an `account apply` fragment included from the global config. The line also starts with a capital `G`, which no key is spelled with.
 	- Opened: 20260916-163000
 	- Origin: seen on b29w 2026-09-16, not traced to a commit. Confirmed.
 
 ### Features and enhancements
+
+- 🔘 Move the shcl module from its pinned `dev` commit to the tagged 3.0 release.
+	- Opened: 20260924-132324
+	- The pin is `v2.0.0-20260924194910-1f880093e4d2`, which Go sorts below v2.0.0. Nothing asks for v2.0.0 on the new import path, so nothing picks it over the pin.
+	- Go refuses a v3 tag on a module named `.../v2`, so the tag should bring a `/v3` import path. Move the imports in the same commit.
+	- `release.bash` should refuse a pseudo-version for shcl, so a release cannot go out on a commit pin.
 
 - 🛠️ Code review 20260909 - enhancements from the same pass. Twelve items, none of them urgent.
 	- Opened: 20260909-184419
@@ -110,6 +110,16 @@ To make using these icons easier if desired, add them to a clipboard or key macr
 ### Done
 
 #### Done - Bugs
+
+- ✅ A Windows path with backslashes can read as a different folder. In the block layout, shcl v2 reads `\t` and `\n` as a tab and a newline, quoted or not, so `path: ~\dev\tools` names `~\dev` + tab + `ools` and the rule never matches. `\\` reads as one backslash. The old flat layout is not affected.
+	- Closed: 20260924-132324
+	- Opened: 20260916-163000
+	- Origin: 20260826, the move to the shcl module. Found on b29w while checking the path-spelling feature. Confirmed on Linux and Windows.
+	- shcl 3.0, not yet released, reads a backslash outside double quotes as a plain character. Moving to it fixes this, or gitsby reads the key's raw text by the same rule until then.
+	- Decided 20260916: wait for shcl 3.0, with no workaround in gitsby. Reopen when shcl's Go module publishes v3.
+	- Fixed: moved to the shcl 3.0 beta from its `dev` branch (1f88009), pinned by commit until it is tagged. A backslash outside double quotes is itself. The import moved to `yottacore` with it.
+	- Every file reads by the 3.0 rules, including one written under 2.x. A path rule the old module wrote doubled (`~\\dev`) still names its folder, since a rule reads either slash. Only a pre-release build ever wrote this layout, so there is no migration step.
+	- Verified: 1 new check in test.bash, 1028 -> 1029, and `TestConfigLoadBackslashes`. Both fail on `gover`. Go tests pass on vm925w, 143/0.
 
 - ✅ The demo gif runs about two minutes, against a budget of twenty to thirty seconds.
 	- Closed: 20260916-140754

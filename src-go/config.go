@@ -21,7 +21,7 @@ import (
 	"strings"
 	"syscall"
 
-	shcl "github.com/jim-collier/shcl/source/go/v2"
+	shcl "github.com/yottacore/shcl/source/go/v2"
 )
 
 type acctRule struct {

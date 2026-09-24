@@ -14,20 +14,8 @@ import (
 	"fmt"
 	"strings"
 
-	shcl "github.com/jim-collier/shcl/source/go/v2"
+	shcl "github.com/yottacore/shcl/source/go/v2"
 )
-
-// shclBanner is the footer 'shcl init' writes, so whoever opens the file later
-// knows what it is and where the syntax is written down. The module keeps it
-// private to its generator, and a file put together here is not generated, so
-// the six lines are repeated as they are.
-const shclBanner = "#\n" +
-	"# This config file format is SHCL.\n" +
-	"# \"Simple Hierarchical Config Language\"\n" +
-	"#    Home     https://github.com/yottacore/shcl\n" +
-	"#    Syntax   https://github.com/yottacore/shcl/blob/main/project/spec.md\n" +
-	"#    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n" +
-	"#\n"
 
 // configHeader opens a file 'account set' creates. The keys are listed here
 // because the one person who reads a generated config is the one about to edit
@@ -260,7 +248,7 @@ func flatToSHCL(text string) string {
 	if !strings.HasSuffix(text, "\n") {
 		text += "\n"
 	}
-	return text + "\n" + shclBanner
+	return text + "\n" + shcl.GenBanner
 }
 
 // flatAccountAfter names the account the next setting past line i belongs to, or

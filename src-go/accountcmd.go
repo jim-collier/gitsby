@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	shcl "github.com/jim-collier/shcl/source/go/v2"
+	shcl "github.com/yottacore/shcl/source/go/v2"
 )
 
 // accountNames: every account the config file defines, in the order it defines
@@ -936,7 +936,7 @@ func (a *app) accountSetPlan() (accountSetTarget, error) {
 		// The block goes in as text, ahead of the key: a header comment attaches to
 		// the first setting after it, and with nothing there yet it would trail the
 		// file as a footer instead.
-		t.doc = shcl.Parse(configHeader + "\naccount: " + name + "\n\n" + shclBanner)
+		t.doc = shcl.Parse(configHeader + "\naccount: " + name + "\n\n" + shcl.GenBanner)
 	case a.cfg.flat:
 		// Converted whole, comments and all, rather than refused: the file was
 		// written for the scripted builds, and this is the command that moves it on.
