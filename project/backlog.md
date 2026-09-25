@@ -54,9 +54,10 @@ To make using these icons easier if desired, add them to a clipboard or key macr
 
 - 🔘 Move the shcl module from its pinned `dev` commit to the tagged 3.0 release.
 	- Opened: 20260924-132324
-	- The pin is `v2.0.0-20260924194910-1f880093e4d2`, which Go sorts below v2.0.0. Nothing asks for v2.0.0 on the new import path, so nothing picks it over the pin.
+	- The pin is `v2.0.0-20260925145050-0c9b75b16dbb` since 2026-09-25, which Go sorts below v2.0.0. Nothing asks for v2.0.0 on the new import path, so nothing picks it over the pin.
 	- Go refuses a v3 tag on a module named `.../v2`, so the tag should bring a `/v3` import path. Move the imports in the same commit.
 	- `release.bash` should refuse a pseudo-version for shcl, so a release cannot go out on a commit pin.
+	- shcl plans the `/v3` path for its 3.0.0 cut, so nothing to report there.
 
 - 🛠️ Code review 20260909 - enhancements from the same pass. Twelve items, none of them urgent.
 	- Opened: 20260909-184419
