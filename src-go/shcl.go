@@ -104,16 +104,11 @@ func (c *config) loadDoc(doc *shcl.Document) {
 		switch name {
 		case "protocol":
 			c.values[name] = c.protocolValue(name, lastString(doc, name))
-			for j := range doc.Count(name) {
-				c.listNested(doc, fmt.Sprintf("%s[#%d]", name, j), name, name)
-			}
+			c.listNested(doc, name, name, name)
 		case "account":
 		default:
 			c.unknown = append(c.unknown, name)
-			path := shcl.QuoteSegment(name)
-			for j := range doc.Count(path) {
-				c.listNested(doc, fmt.Sprintf("%s[#%d]", path, j), name, name)
-			}
+			c.listNested(doc, shcl.QuoteSegment(name), name, name)
 		}
 	}
 	blocks, stray := acctBlocks(doc)
@@ -137,28 +132,23 @@ func (c *config) loadDoc(doc *shcl.Document) {
 			default:
 				c.absorb(b.name, field, lastString(doc, path), b.disp+"."+field)
 			}
-			for j := range doc.Count(path) {
-				c.listNested(doc, fmt.Sprintf("%s[#%d]", path, j), b.disp+"."+field, field)
-			}
+			c.listNested(doc, path, b.disp+"."+field, field)
 		}
 	}
 }
 
-// listNested puts every key below one instance on the ignored list: nothing
-// reads a key from under another key, and a key indented one level too far is
-// otherwise gone without a word. at is the instance's lookup path, disp how the
-// list names it, parent the name of the key it sits under.
+// listNested puts every key below a path on the ignored list: nothing reads a
+// key from under another key, and a key indented one level too far is otherwise
+// gone without a word. A repeated key's children come back for every instance.
+// at is the lookup path, disp how the list names it, parent the name of the key
+// it sits under.
 func (c *config) listNested(doc *shcl.Document, at, disp, parent string) {
 	for _, name := range dedupe(doc.Children(at)) {
 		// Once per path: a repeated key with a child under each is one line to fix.
 		if entry := disp + "." + name + " (indented under " + parent + ")"; !contains(c.unknown, entry) {
 			c.unknown = append(c.unknown, entry)
 		}
-		// Per instance: Children of a path that matches more than one answers nothing.
-		path := at + "." + shcl.QuoteSegment(name)
-		for j := range doc.Count(path) {
-			c.listNested(doc, fmt.Sprintf("%s[#%d]", path, j), disp+"."+name, name)
-		}
+		c.listNested(doc, at+"."+shcl.QuoteSegment(name), disp+"."+name, name)
 	}
 }
 
