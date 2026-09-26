@@ -45,6 +45,12 @@ export GITSBY_CONFIG="${work}/no-accounts.shcl"; : > "${GITSBY_CONFIG}"
 ## blocks quietly read whatever accounts the person running the suite had configured, and went
 ## red the day they configured any.
 acNoDiscovery="GITSBY_CONFIG= XDG_CONFIG_HOME= APPDATA="
+## So every run behaves like one on a machine with accounts configured: a block that drops the
+## pin and forgets the line above finds an account covering every folder, under a login no
+## check expects, instead of passing on a clean box and failing on a real one.
+mkdir -p "${work}/poison-config/gitsby"
+printf 'account: poison\n\tpath: /\n\tghaccount: poisonacct\n' > "${work}/poison-config/gitsby/config.shcl"
+export XDG_CONFIG_HOME="${work}/poison-config" APPDATA="${work}/poison-config"
 
 ## Two more inputs the lines above do NOT cover, both of which reach us from an ordinary
 ## working terminal rather than from a config file:
@@ -277,10 +283,80 @@ fGateDemoSame(){ fGateDemoRun -y && [[ -n "$1" && "$(fGateDemoBuild)" == "$1" ]]
 fGateDemoQuiet(){ local gen=""; fGateDemoRun "$1" && gen="$(fGateDemoGen)" && [[ -n "${gen}" && "$(grep -cE -- ' -q( |$)' <<< "${gen}")" == "$2" ]] ;}
 ## Stage 6 with -y while the build fails: the run warns, and the generator never runs.
 fGateDemoBuildFails(){ fGateDemoRun -y && grep -qF 'WARNING: demo build failed' "${gateOut}" && [[ -z "$(fGateDemoGen)" ]] ;}
+## The gate passes, and says nothing about lint tool versions.
+fGateNoDrift(){ fGateStatus 0 --gate && ! grep -q 'lint tool versions differ' "${gateOut}" ;}
+## One -y run with every stage skipped but those named in $1 (sync lint test fuzz parity dogfood
+## demogif publish), the rest passed on. Its exit status lands in ${gateRc}, output in ${gateOut},
+## and the calls log starts empty.
+fGateOnly(){
+	local keep=" $1 " s
+	local -a skip=()
+	shift
+	for s in sync lint test fuzz parity dogfood demogif publish; do [[ "${keep}" == *" ${s} "* ]] || skip+=("--no-${s}"); done
+	: > "${gateCalls}"; gateRc=0
+	fGateRun -y "${skip[@]}" "$@" </dev/null >"${gateOut}" 2>&1 || gateRc=$?
+}
+## After fGateOnly: the run exited $1, and every extended regex after it matches the calls log.
+fGateRanCalling(){ local want="$1"; shift; [[ "${gateRc}" == "${want}" ]] && fGateCalled "$@" ;}
+## After fGateOnly: the run exited $1, and its output matches the extended regex $2.
+fGateRanSaying(){ [[ "${gateRc}" == "$1" ]] && grep -qE -- "$2" "${gateOut}" ;}
+## A commit pushed to the pipeline fixture's origin from a second clone, adding the line $1 to the
+## file $2, upstream.txt when left out.
+fGateUpstream(){
+	local file="${2:-upstream.txt}"
+	echo "$1" >> "${gateOther}/${file}"
+	git -C "${gateOther}" add "${file}"
+	git -C "${gateOther}" commit --quiet -m "$1"
+	git -C "${gateOther}" push --quiet 2>/dev/null
+}
 ## A push from $1, the rest being its arguments. Output lands in ${hookOut}; the gate log starts empty.
 fHookPush(){ local dir="$1"; shift; : > "${hookLog}"; git -C "${dir}" push "$@" >"${hookOut}" 2>&1 ;}
 ## One digest of every file under $1, names and contents, to show a directory was left as it was.
 fTreeDigest(){ (cd "$1" && find . -type f -exec sha256sum {} + | LC_ALL=C sort | sha256sum) ;}
+## The release fixture's HEAD, tags, what its origin holds and whether its tree is clean, as one string.
+fRelState(){ { git -C "${relRepo}" rev-parse HEAD; git -C "${relRepo}" tag; git -C "${relRepo}" ls-remote origin; git -C "${relRepo}" status --porcelain; } 2>&1 ;}
+## release.bash in that fixture with the stubs first on PATH. Output lands in ${relOut}, its exit
+## status in ${relRc}, and the calls log starts empty.
+fRelRun(){ : > "${relCalls}"; relRc=0; (cd "${relRepo}" && PATH="${rel}/bin:${PATH}" bash cicd/release.bash "$@") </dev/null >"${relOut}" 2>&1 || relRc=$? ;}
+## config.bash's glob array $1 expanded the way the engine does it, from the repo root: the files,
+## sorted, one per line. With $2 set to 'empty', the globs that match no file instead.
+fLintGlobs(){
+	(
+		cd "${root}" || exit 1
+		# shellcheck source=/dev/null
+		source cicd/config.bash
+		local -n lgGlobs="$1"
+		local g f n
+		shopt -s nullglob
+		for g in "${lgGlobs[@]}"; do
+			n=0
+			for f in $g; do
+				if [[ -f "${f}" ]]; then n=$((n + 1)); [[ "${2:-}" == empty ]] || printf '%s\n' "${f}"; fi
+			done
+			if [[ "${2:-}" == empty ]] && ((n == 0)); then printf '%s\n' "${g}"; fi
+		done
+	) | LC_ALL=C sort -u
+}
+## The files named on stdin that the glob array $1 leaves out, or with $2 set to 'both', also the
+## files it names that are not on stdin. Empty stdin answers with a line, so a lookup that found
+## nothing cannot read as full coverage.
+fLintUncovered(){
+	local listed=""
+	listed="$(LC_ALL=C sort -u)"
+	if [[ -z "${listed}" ]]; then echo "(nothing listed)"; return 0; fi
+	if [[ "${2:-}" == both ]]; then LC_ALL=C comm -3 <(printf '%s\n' "${listed}") <(fLintGlobs "$1")
+	else LC_ALL=C comm -23 <(printf '%s\n' "${listed}") <(fLintGlobs "$1"); fi
+}
+## Tracked files outside legacy/ that are bash by name or by shebang, so a script without the
+## extension is not missed.
+fTrackedBash(){
+	local f first
+	(cd "${root}" && git ls-files ':!legacy') | while IFS= read -r f; do
+		first=""
+		if [[ -f "${root}/${f}" ]]; then IFS= read -r first < "${root}/${f}" || true; fi
+		if [[ "${f}" == *.bash || "${first}" =~ ^#!.*[/[:space:]]bash([[:space:]]|$) ]]; then printf '%s\n' "${f}"; fi
+	done
+}
 
 ## The whole suite, against whatever ${gitsby} points at.
 fRunSuite(){
@@ -340,7 +416,7 @@ fRunSuite(){
 	fAssertFail "br list with a trailing argument rejected"  bash -c "cd '${cloneA}' && '${gitsby}' -q br list extra"
 	fAssertOut  "and says what takes no arguments"  'takes no arguments'  bash -c "cd '${cloneA}' && '${gitsby}' -q status extra 2>&1"
 	## An option or positional typo is a usage error, not a crash - no internal stack dump.
-	fAssertNotOut "option typo prints no call stack"  'Reverse call stack'  bash -c "cd '${cloneA}' && '${gitsby}' -q status --bogus 2>&1"
+	fAssertNotOut "option typo prints no call stack"  'panic:|goroutine [0-9]+ \['  bash -c "cd '${cloneA}' && '${gitsby}' -q status --bogus 2>&1"
 
 	## Grouped-noun grammar: spelled-out nouns, hidden verb aliases, and refusals
 	fAssert     "'branch' spells out 'br'"        bash -c "cd '${cloneA}' && '${gitsby}' -q branch list"
@@ -367,6 +443,13 @@ fRunSuite(){
 	fAssertOut "clean worktree says so"          '\(working tree clean\)' bash -c "cd '${cloneA}' && '${gitsby}' -q status"
 	( cd "${cloneA}" && echo probe > probe.txt )
 	fAssertOut "changed file listed"             '\?\? probe\.txt'        bash -c "cd '${cloneA}' && '${gitsby}' -q status"
+	## A long change list is capped rather than scrolling the rest of the display away.
+	local many="${work}/$1-manyfiles" manyN
+	git init --quiet -b main "${many}"
+	for ((manyN = 1; manyN <= 30; manyN++)); do echo "${manyN}" > "${many}/f${manyN}.txt"; done
+	fAssertOut "a long change list ends in a count of the rest"  '^    \.\.\. and 5 more$'  bash -c "cd '${many}' && '${gitsby}' -q status"
+	fAssert    "and shows no more than 25 of them" \
+		bash -c "cd '${many}' && [[ \"\$('${gitsby}' -q status 2>&1 | grep -cE '^    \?\? f[0-9]+\.txt$')\" == 25 ]]"
 	fAssertOut "mutating command previews first" 'Going to do'            bash -c "cd '${cloneA}' && '${gitsby}' -q update 'probe'"
 	( cd "${cloneA}" && git reset --quiet --hard HEAD~1 )
 
@@ -389,6 +472,11 @@ fRunSuite(){
 	( cd "${cloneA}" && echo upd > upd.txt )
 	fAssert "update sweeps in leftover work"  bash -c "cd '${cloneA}' && '${gitsby}' -q update 'add upd'"
 	fAssertFail "dropped v1 alias 'saveup' rejected"  bash -c "cd '${cloneA}' && '${gitsby}' -q saveup"
+	local v1Alias
+	for v1Alias in scompul spull spush mkbranch chbranch mtm newbr gobr listbr; do
+		fAssert "dropped alias '${v1Alias}' rejected as an unknown command" \
+			bash -c "cd '${cloneA}' && out=\"\$('${gitsby}' -q ${v1Alias} 2>&1)\"; [[ \$? != 0 ]] && grep -qF \"Unknown command '${v1Alias}'\" <<< \"\${out}\""
+	done
 
 	## sync: publishes; remote matches local
 	fAssert "sync runs"            bash -c "cd '${cloneA}' && '${gitsby}' -q sync 'push file2'"
@@ -513,6 +601,20 @@ fRunSuite(){
 	fAssertFail "a typed version already tagged with no v is refused"  bash -c "cd '${bt}/c' && '${gitsby}' -q -NoFetch release 1.4.2"
 	fAssertOut  "and names that tag"  "Tag '1\.4\.2' already exists"  bash -c "cd '${bt}/c' && '${gitsby}' -q -NoFetch release 1.4.2 2>&1"
 	fAssert     "a typed version is tagged as typed"  bash -c "cd '${bt}/c' && '${gitsby}' -q -NoFetch release 2.0.0 && git rev-parse -q --verify refs/tags/2.0.0 >/dev/null && ! git rev-parse -q --verify refs/tags/v2.0.0 >/dev/null"
+	## git merge reads a tag ahead of a branch with the same name, so a tag called 'dev' on an
+	## older commit would be released in dev's place.
+	local rtag="${work}/$1-reltag"
+	git init --quiet --bare -b main "${rtag}/origin.git"
+	git clone --quiet "${rtag}/origin.git" "${rtag}/c" 2>/dev/null
+	(
+		cd "${rtag}/c" || exit 1
+		echo a > a.txt && git add --all && git commit --quiet -m init && git push --quiet -u origin main
+		git checkout --quiet -b dev
+		echo rel > rel.txt && git add --all && git commit --quiet -m rel && git push --quiet -u origin dev
+		git tag dev HEAD~1
+	)
+	fAssert     "release merges the dev branch, not a tag with its name" \
+		bash -c "cd '${rtag}/c' && '${gitsby}' -q release v1.0.0 >/dev/null 2>&1; git -C '${rtag}/origin.git' ls-tree --name-only main | grep -qx rel.txt"
 
 	## release started from a feature branch returns there; slash branch names work
 	fAssert "br create relfeat"  bash -c "cd '${cloneA}' && '${gitsby}' -q br create relfeat"
@@ -755,6 +857,36 @@ fRunSuite(){
 	)
 	fAssertPlan "and the remote delete is one call too"  'git push --force-with-lease origin --delete alpha beta'  bash -c "cd '${prWork2}' && '${gitsby}' -q br prune"
 	fAssert     "both went from origin"  bash -c "cd '${prOrigin2}' && ! git show-ref --verify --quiet refs/heads/alpha && ! git show-ref --verify --quiet refs/heads/beta"
+	## Batched all the way through, the survey and the delete-time re-check included: the same
+	## prune over two merged branches and over six starts git the same number of times.
+	local pcBin="${work}/$1-pcbin" pcDir="" pcN=0 pcI=0
+	mkdir -p "${pcBin}"
+	## git starts git for its own helpers, with this directory still first on PATH; count only
+	## what gitsby starts.
+	fStub "${pcBin}/git" <<-EOF
+		#!/usr/bin/env bash
+		[[ -n "\${PC_INNER:-}" ]] || echo "\$*" >> "\${PC_LOG}"
+		PC_INNER=1 exec "$(command -v git)" "\$@"
+	EOF
+	for pcN in 2 6; do
+		pcDir="${work}/$1-pc${pcN}"
+		git init --quiet --bare -b main "${pcDir}/origin.git"
+		git clone --quiet "${pcDir}/origin.git" "${pcDir}/c" 2>/dev/null
+		(
+			cd "${pcDir}/c" || exit 1
+			echo one > f.txt; git add --all; git commit --quiet -m "initial"; git push --quiet -u origin main
+			git checkout --quiet -b dev; git push --quiet -u origin dev
+			for ((pcI = 1; pcI <= pcN; pcI++)); do
+				git checkout --quiet -b "b${pcI}" dev; echo "${pcI}" > "b${pcI}.txt"; git add --all
+				git commit --quiet -m "b${pcI}"; git push --quiet -u origin "b${pcI}"
+				git checkout --quiet dev; git merge --quiet --no-ff "b${pcI}" -m "merge b${pcI}"
+			done
+			git push --quiet
+		)
+		( cd "${pcDir}/c" && PC_LOG="${pcDir}/git.log" PATH="${pcBin}:${PATH}" "${gitsby}" -q br prune ) > "${pcDir}/out" 2>&1 || true
+	done
+	fAssert     "br prune starts git as often for six merged branches as for two" \
+		bash -c "grep -q 'Pruned 6 local, 6 on origin' '${work}/$1-pc6/out' && [[ \"\$(wc -l < '${work}/$1-pc2/git.log')\" == \"\$(wc -l < '${work}/$1-pc6/git.log')\" ]]"
 	fAssert     "br clean aliases br prune"        bash -c "cd '${prWork}' && '${gitsby}' -q br clean"
 	fAssertFail "br prune with an argument rejected"  bash -c "cd '${prWork}' && '${gitsby}' -q br prune wip"
 	fAssertFail "the internal br-prune token rejected"  bash -c "cd '${prWork}' && '${gitsby}' -q br-prune"
@@ -935,6 +1067,43 @@ fRunSuite(){
 	( cd "${pnA}" && "${gitsby}" -q br switch shared && "${gitsby}" -q br merge "merge shared again" ) > "${work}/$1-pn8b.out" 2>&1 || true
 	fAssert    "and that advice, followed, brings it in and clears origin's copy" \
 		bash -c "git -C '${pnOrigin}' merge-base --is-ancestor \"\$(cat '${work}/$1-pn8shared')\" refs/heads/dev && ! git -C '${pnOrigin}' show-ref --verify --quiet refs/heads/shared"
+	## Someone else already deleted the branch on origin, and --no-fetch still has its copy here.
+	## There is nothing left to delete, which is not a failure.
+	local pnRc=0
+	(
+		cd "${pnA}"
+		git checkout --quiet -b vanish dev; echo vanish > vanish.txt; git add --all
+		git commit --quiet -m vanish; git push --quiet -u origin vanish
+	)
+	git -C "${pnB}" push --quiet origin --delete vanish
+	( cd "${pnA}" && "${gitsby}" -q -NoFetch br merge "merge vanish" ) > "${work}/$1-pn10.out" 2>&1 || pnRc=$?
+	fAssert    "br merge carries on when its branch is already gone from origin"  test "${pnRc}" = 0
+	fAssertOut "and says so"  'Already gone from origin: vanish'  cat "${work}/$1-pn10.out"
+	fAssert    "and the merge reached origin"  bash -c "git -C '${pnOrigin}' log -1 --format=%s refs/heads/dev | grep -qx 'merge vanish'"
+	## Moved while the prompt waits, off anything in dev: the delete-time re-check keeps it, and
+	## keeping it has to hold for origin's copy too.
+	if ((hasPty)); then
+		(
+			cd "${pnA}"
+			git checkout --quiet -b stray dev; echo stray > stray.txt; git add --all
+			git commit --quiet -m stray; git push --quiet -u origin stray
+			git checkout --quiet dev; git merge --quiet --no-ff stray -m "merge stray"; git push --quiet
+			git commit-tree -p dev -m "off dev" "dev^{tree}" > "${work}/$1-pn11off"
+		)
+		: > "${work}/$1-pn11.out"
+		# shellcheck disable=SC2094  ## the poll reads the file script is writing, on purpose.
+		{
+			for ((pnWait = 0; pnWait < 100; pnWait++)); do
+				grep -qF 'Continue?' "${work}/$1-pn11.out" && break
+				sleep 0.1
+			done
+			git -C "${pnA}" update-ref refs/heads/stray "$(cat "${work}/$1-pn11off")" >/dev/null 2>&1
+			echo y
+		} | script -qec "cd '${pnA}' && '${gitsby}' br prune" /dev/null > "${work}/$1-pn11.out" 2>&1 || true
+		fAssertOut "a branch moved off dev during the prompt is kept"  "'stray' is no longer contained"  cat "${work}/$1-pn11.out"
+		fAssert    "and kept here"  bash -c "[[ \"\$(git -C '${pnA}' rev-parse refs/heads/stray)\" == \"\$(cat '${work}/$1-pn11off')\" ]]"
+		fAssert    "and on origin"  bash -c "git -C '${pnOrigin}' show-ref --verify --quiet refs/heads/stray"
+	fi
 	## With the fetch on, someone pushes while the prompt waits. The second clone's output is kept
 	## off the pipe, since everything on it is typed at the prompt.
 	if ((hasPty)); then
@@ -1082,6 +1251,11 @@ fRunSuite(){
 	## 127.0.0.1 port 1 is refused on this machine, not sent anywhere; the proxies are unset so it stays that way.
 	fAssertNotOut "a credential in an unreachable url is not printed"  'tok_s3cret' \
 		bash -c "cd '${cnOff}/plain' && env -u https_proxy -u HTTPS_PROXY -u ALL_PROXY -u all_proxy '${gitsby}' -q repo connect 'https://me:tok_s3cret@127.0.0.1:1/me/proj.git'"
+	## The same url handed to a step: the echo and the failure line name the command, not the token.
+	mkdir -p "${cnOff}/clone"
+	local cnCred="cd '${cnOff}/clone' && env -u https_proxy -u HTTPS_PROXY -u ALL_PROXY -u all_proxy '${gitsby}' -q repo clone 'https://me:tok_s3cret@127.0.0.1:1/x.git' credc 2>&1"
+	fAssertOut    "a credential in a step's url is masked in its echo"  '^\[ git clone .*https://\*\*\*@127\.0\.0\.1:1/x\.git'  bash -c "${cnCred}"
+	fAssertNotOut "and is printed nowhere in the run"                   'tok_s3cret'                                         bash -c "${cnCred}"
 	fAssertFail "repo connect in an empty dir rejected"     bash -c "mkdir -p '${cn}/empty' && cd '${cn}/empty' && '${gitsby}' -q repo connect '${cn}/remote.git'"
 	## an inited repo with no commit and no files is nothing to connect; a matching explicit url re-connects fine (push mode)
 	git init --quiet -b main "${cn}/bare-repo"
@@ -1126,9 +1300,19 @@ fRunSuite(){
 	fAssertNotOut "ssh line never reports the OS login"                  'osuser'               bash -c "${sidRun} '${gitsby}' -q -NoFetch status"
 	fAssertOut    "the key is still reported"                            "key ${sidKey}"        bash -c "${sidRun} '${gitsby}' -q -NoFetch status"
 	fAssertOut    "a mutating pre-flight names the account too"          "SSH \.+: acmedev \("  bash -c "${sidRun} '${gitsby}' -q -NoFetch update 'ssh id probe' 2>&1"
+	## The target comes from origin, which is anybody's to write: without '--' a host spelled like
+	## an option is read as one.
+	: > "${sid}/dd.log"
+	fAssert "the ssh config lookup ends options before the target" \
+		bash -c "${sidRun} FAKE_SSH_LOG='${sid}/dd.log' '${gitsby}' -q -NoFetch status >/dev/null 2>&1; grep -qx -- '-G -- git@github\.com' '${sid}/dd.log'"
+	fAssert "and so does the identity probe" \
+		bash -c "grep -qE -- '^-T .* -- git@github\.com$' '${sid}/dd.log'"
 	## A host alias is the case the line was added for: ~/.ssh/config hides the real host and key.
 	git -C "${sid}/proj" remote set-url origin git@gh-acme:acme/api.git
 	fAssertOut "an ssh config alias is named alongside the real host"  "via alias 'gh-acme'"  bash -c "${sidRun} '${gitsby}' -q -NoFetch status"
+	: > "${sid}/dd.log"
+	fAssert "and the alias lookup ends options before it too" \
+		bash -c "${sidRun} FAKE_SSH_LOG='${sid}/dd.log' '${gitsby}' -q -NoFetch status >/dev/null 2>&1; grep -qx -- '-G -- gh-acme' '${sid}/dd.log'"
 	git -C "${sid}/proj" remote set-url origin git@github.com:acme/api.git
 	## Offline (the fetch failed): say we don't know rather than guess, and don't spend the
 	## round trip finding out. Asserting the log is what proves the probe was actually skipped.
@@ -1150,6 +1334,22 @@ fRunSuite(){
 	## so it needs no real server, and the suite stays off the network.
 	( cd "${tp}/proj" && echo t > t.txt && git add --all && git commit --quiet -m init && git remote add origin "${tp}/nosuch.git" )
 	fAssert "the pre-command fetch disables credential prompts"  bash -c "cd '${tp}/proj' && TPROMPT_LOG='${tp}/log' PATH='${tp}/bin:${PATH}' '${gitsby}' -q status >/dev/null 2>&1; grep -qx 0 '${tp}/log'"
+
+	## A clone with no origin/HEAD - older git never wrote one - gets it back from the fetch, so
+	## the default branch is origin's. Newer git writes it on fetch by itself, which the config
+	## line turns off to stand in for the old one. Two local branches, neither of them a
+	## conventional name, leave nothing else to go on.
+	local oh="${work}/$1-originhead"
+	git init --quiet --bare -b trunk2 "${oh}/origin.git"
+	git clone --quiet "${oh}/origin.git" "${oh}/seed" 2>/dev/null
+	( cd "${oh}/seed" && echo t > t.txt && git add --all && git commit --quiet -m init && git push --quiet -u origin trunk2 )
+	git clone --quiet "${oh}/origin.git" "${oh}/c" 2>/dev/null
+	( cd "${oh}/c" && git branch other && git config remote.origin.followRemoteHEAD never && git remote set-head origin -d )
+	fAssertOut "the fetch restores a missing origin/HEAD"  '^Default branch: trunk2$'  bash -c "cd '${oh}/c' && '${gitsby}' -q status"
+	fAssert    "and leaves the ref in place"  bash -c "git -C '${oh}/c' symbolic-ref --quiet refs/remotes/origin/HEAD >/dev/null"
+	## Healing asks origin a second time, so a clone that already has the ref is left alone.
+	fAssert    "and a clone that has one isn't asked again" \
+		bash -c "cd '${oh}/c' && GIT_TRACE='${oh}/trace' '${gitsby}' -q status >/dev/null 2>&1; [[ -s '${oh}/trace' ]] && ! grep -qF 'remote set-head' '${oh}/trace'"
 
 	## owner/name targets: the gh path, driven by a deterministic fake gh (no network). Covers
 	## 'repo create' (repo absent), 'repo connect' remote-add (present but empty, https + ssh),
@@ -1186,6 +1386,7 @@ case "$1 $2" in
 	               [[ "${FAKE_GH_PRVIEW:-}" == fail ]] && { echo "GraphQL: Could not resolve to a PullRequest" >&2; exit 1 ;}
 	               echo "${FAKE_GH_HEAD:-$(git branch --show-current)}"     ## the PR's own head branch
 	               echo "${FAKE_GH_STATE:-OPEN}" ;;                          ## ... and whether it is still open
+	"pr diff")     echo "diff --git a/work.txt b/work.txt" ;;
 	"pr merge")    ## Land the branch on the base, then drop it from the remote. Real gh does the delete
 	               ## over the API, so the caller's origin/* copy survives it - restore the ref to match.
 	               ## FAKE_GH_HEAD lets a check merge a PR whose branch isn't the one we're standing on.
@@ -1287,6 +1488,11 @@ GHEOF
 	mkdir -p "${gh}/rc-acct"; echo x > "${gh}/rc-acct/x.txt"
 	fAssert "repo create publishes as the account that owns the target" \
 		bash -c "cd '${gh}/rc-acct' && PATH='${ghp}' FAKE_GH_VIEW=notfound FAKE_GH_PROTO=https FAKE_GH_LOGIN=other FAKE_GH_ACCOUNTS='other acme' FAKE_GH_LOG='${gh}/rc-acct.log' FAKE_GH_REMOTE='${gh}/rc-acct.git' '${gitsby}' -q repo create acme/proj && grep -q 'repo create.*GH_TOKEN=tok_acme' '${gh}/rc-acct.log'"
+	git init --quiet --bare -b main "${gh}/backing-acme.git"
+	printf '[url "%s"]\n\tinsteadOf = https://github.com/acme/proj.git\n' "${gh}/backing-acme.git" > "${gh}/gc-acme"
+	mkdir -p "${gh}/rn-acct"; ( cd "${gh}/rn-acct" && git init --quiet -b main && echo x > x.txt && git add --all && git commit --quiet -m init )
+	fAssert "repo connect does the same" \
+		bash -c "cd '${gh}/rn-acct' && PATH='${ghp}' FAKE_GH_VIEW=empty FAKE_GH_PROTO=https FAKE_GH_LOGIN=other FAKE_GH_ACCOUNTS='other acme' FAKE_GH_LOG='${gh}/rn-acct.log' GIT_CONFIG_GLOBAL='${gh}/gc-acme' '${gitsby}' -q repo connect acme/proj && grep -q 'repo view.*GH_TOKEN=tok_acme' '${gh}/rn-acct.log'"
 	fAssertFail "repo create refuses when origin is already set"        bash -c "cd '${gh}/add-https' && PATH='${ghp}' GIT_CONFIG_GLOBAL='${gh}/gc-https' '${gitsby}' -q repo create me/proj"
 	fAssertFail "repo create with no target rejected"                   bash -c "cd '${gh}/split' && PATH='${ghp}' '${gitsby}' -q repo create"
 
@@ -1346,6 +1552,8 @@ GHEOF
 	fAssertFail "pr ok refuses a PR that is no longer open"  bash -c "cd '${prx}' && ${prxEnv} FAKE_GH_STATE=MERGED '${gitsby}' -q pr ok 7"
 	fAssertOut  "and says which state it is in"  'is merged, not open' \
 		bash -c "cd '${prx}' && ${prxEnv} FAKE_GH_STATE=MERGED '${gitsby}' -q pr ok 7 2>&1"
+	fAssert     "pr <n> shows the PR and then its diff" \
+		bash -c "cd '${prx}' && ${prxEnv} FAKE_GH_LOG='${gh}/prview.log' '${gitsby}' -q -NoFetch pr 7 >/dev/null 2>&1 && awk '/^pr view 7 \[/ { v = NR } /^pr diff 7 \[/ { d = NR } END { exit !(v && d > v) }' '${gh}/prview.log'"
 
 	## Standing on the PR's own branch, pushed once WITHOUT -u: '@{u}' answers nothing at all, so
 	## the ahead check passed and gh's '--delete-branch' took the unpushed commits with it. That is
@@ -1392,6 +1600,10 @@ GHEOF
 		git checkout --quiet -b pnfeat2 && echo more > more.txt && git add --all && git commit --quiet -m "Commit subject"
 	)
 	fAssert "pr create takes an explicit title"  bash -c "cd '${pnc}' && PATH='${ghp}' FAKE_GH_LOG='${gh}/prnew2.log' '${gitsby}' -q pr create 'Explicit title' && grep -q -- '--title Explicit title' '${gh}/prnew2.log'"
+	## A hotfix lands on the default branch, so its PR is based there, not on dev.
+	( cd "${pnc}" && git checkout --quiet -b hotfix/prfix main && echo fix > fix.txt && git add --all && git commit --quiet -m "Fix it" )
+	fAssert "pr create from a hotfix bases the PR on the default branch" \
+		bash -c "cd '${pnc}' && PATH='${ghp}' FAKE_GH_LOG='${gh}/prhf.log' '${gitsby}' -q pr create && grep -q -- '--base main ' '${gh}/prhf.log'"
 
 	## A branch whose name starts with a dash can't be typed here - the parser reads a leading dash
 	## as an option of ours - but a clone brings whatever the remote has, and then git reads it as
@@ -1543,6 +1755,19 @@ GHEOF
 	fAssert    "it reached the default branch" bash -c "cd '${hfc}' && [[ \"\$(git show origin/main:README.md)\" == 'readme v2' ]]"
 	fAssert    "and was carried back to dev"   bash -c "cd '${hfc}' && [[ \"\$(git show origin/dev:README.md)\" == 'readme v2' ]]"
 	fAssert    "the branch is gone both sides" bash -c "cd '${hfc}' && [[ -z \"\$(git branch --list 'hotfix/*')\" ]] && [[ -z \"\$(git ls-remote --heads origin 'hotfix/*')\" ]]"
+	## The back-merge takes origin's copy of the default branch by name, and a tag spelled the
+	## same, on an older commit, is what git merge would read first.
+	local hft="${work}/$1-hotfix-tag"
+	git init --quiet --bare -b main "${hft}/origin.git"
+	git clone --quiet "${hft}/origin.git" "${hft}/c" 2>/dev/null
+	(
+		cd "${hft}/c" || exit 1
+		echo "readme v1" > README.md && git add --all && git commit --quiet -m init && git push --quiet -u origin main
+		git tag origin/main
+		git checkout --quiet -b dev && git push --quiet -u origin dev
+	)
+	fAssert    "the back-merge carries the hotfix, not a tag named like origin's branch" \
+		bash -c "cd '${hft}/c' && '${gitsby}' -q -NoFetch br hotfix tagged >/dev/null 2>&1 && echo 'readme v2' > README.md && '${gitsby}' -q -NoFetch br land 'Tagged' >/dev/null 2>&1; [[ \"\$(git -C '${hft}/origin.git' show refs/heads/main:README.md)\" == 'readme v2' ]] && git -C '${hft}/origin.git' merge-base --is-ancestor refs/heads/main refs/heads/dev"
 	## A hotfix that changes shipped code leaves main ahead of every tag - say so.
 	fAssertOut "a hotfix touching the shipped source warns about the release"  'changes more than documentation' \
 		bash -c "cd '${hfc}' && '${gitsby}' -q -NoFetch br hotfix code >/dev/null 2>&1; echo v2 > '${hfc}/src-go/main.go'; '${gitsby}' -q -NoFetch update wip >/dev/null 2>&1; '${gitsby}' -q -NoFetch br land 'Fix' 2>&1"
@@ -1609,6 +1834,8 @@ GHEOF
 		bash -c "cd '${hfc}' && echo feat > feat.txt && '${gitsby}' -q -NoFetch update wip >/dev/null 2>&1; '${gitsby}' -q -NoFetch br land 'Feat' 2>&1"
 	fAssertFail "br hotfix with no name rejected"  bash -c "cd '${hfc}' && '${gitsby}' -q -NoFetch br hotfix"
 	fAssertFail "the internal token stays untypeable"  bash -c "cd '${hfc}' && '${gitsby}' -q -NoFetch br-hotfix x"
+	fAssert    "a name typed with the prefix doesn't get it twice" \
+		bash -c "cd '${hfc}' && '${gitsby}' -q -NoFetch br hotfix hotfix/typed && [[ \"\$(git branch --show-current)\" == hotfix/typed ]]"
 
 	## The current-branch line says where you ARE, and nothing used to connect that to where the new
 	## branch comes off: it read 'dev' while the plan below it checked out main.
@@ -1642,6 +1869,15 @@ GHEOF
 	## br list never said what the default was, which is half of what a listing is for.
 	fAssertOut "br list says what the default branch is"  '^Default branch: main$' \
 		bash -c "cd '${hfc}' && '${gitsby}' -q br list 2>&1"
+	## No origin and no conventional name: a lone branch is the default, and so is the branch
+	## an empty repo will be born on.
+	local lone="${work}/$1-lonebranch"
+	git init --quiet -b mainline "${lone}/one"
+	( cd "${lone}/one" && echo l > l.txt && git add --all && git commit --quiet -m init )
+	git init --quiet -b trunkish "${lone}/unborn"
+	fAssertOut "a lone local branch is the default branch"  '^Default branch: mainline$'  bash -c "cd '${lone}/one' && '${gitsby}' -q status 2>&1"
+	fAssert    "and br create works off it"  bash -c "cd '${lone}/one' && '${gitsby}' -q br create lonefeat && [[ \"\$(git branch --show-current)\" == lonefeat ]]"
+	fAssertOut "an unborn branch is the default branch"  '^Default branch: trunkish$'  bash -c "cd '${lone}/unborn' && '${gitsby}' -q status 2>&1"
 
 	## gh writes act as gh's own account, not the ssh key git pushes with. A difference BOTH sides
 	## know about is refused unattended; unknown (no agent, https remote, deploy key) never blocks,
@@ -1731,6 +1967,13 @@ GHEOF
 	mkdir -p "${id}/rc-https"; echo x > "${id}/rc-https/x.txt"
 	fAssert     "an https protocol leaves nothing to compare, so it proceeds" \
 		bash -c "cd '${id}/rc-https' && ${rcEnv} FAKE_GH_PROTO=https FAKE_GH_LOGIN=alice FAKE_SSH_LOGIN=bob FAKE_GH_REMOTE='${id}/rc-https.git' '${gitsby}' -q repo create me/proj"
+	## connect sets the same kind of origin, onto a repo that already exists.
+	mkdir -p "${id}/rn-bad"; ( cd "${id}/rn-bad" && git init --quiet -b main && echo x > x.txt && git add --all && git commit --quiet -m init )
+	local rnEnv="PATH='${idp}' FAKE_GH_VIEW=empty FAKE_GH_PROTO=ssh FAKE_GH_LOGIN=alice FAKE_SSH_LOGIN=bob"
+	fAssertOut  "repo connect owner/name refuses a mismatched identity"  "acts as 'alice'.*authenticates as 'bob'" \
+		bash -c "cd '${id}/rn-bad' && ${rnEnv} '${gitsby}' -q repo connect me/proj 2>&1"
+	fAssert     "and adds no origin" \
+		bash -c "! git -C '${id}/rn-bad' remote get-url origin >/dev/null 2>&1"
 
 	## 'sync' pushes with git rather than writing through gh, so the comparison above never covered
 	## it: the command that sends your work to a remote compared nothing at all. This asks the other
@@ -1767,6 +2010,16 @@ GHEOF
 		bash -c "${idSync} '${gitsby}' -q -NoFetch --config /dev/null sync 'W' 2>&1 || true"
 	fAssertNotOut "and a matching account does not fire"  'authenticates as' \
 		bash -c "${idSync} '${gitsby}' -q -NoFetch --config '${id}/theirs.shcl' sync 'W' 2>&1 || true"
+	## The interactive warning says gh acts only where gh is the one acting. sync pushes with git
+	## alone, so naming gh's account there points at the wrong tool.
+	if ((hasPty)); then
+		fAssertOut    "an interactive sync warns about the account"  'WRONG ACCOUNT' \
+			fAnswerPrompt n "${idSync} '${gitsby}' -NoFetch --config '${id}/mine.shcl' sync 'W'"
+		fAssertNotOut "and does not say gh does the GitHub side"  'gh does the GitHub side' \
+			fAnswerPrompt n "${idSync} '${gitsby}' -NoFetch --config '${id}/mine.shcl' sync 'W'"
+		fAssertOut    "an interactive pr create does say it"  'gh does the GitHub side of this, so it happens as .alice.' \
+			fAnswerPrompt n "cd '${idc}' && ${idEnv} FAKE_GH_LOGIN=alice FAKE_SSH_LOGIN=bob '${gitsby}' -NoFetch pr create 'T'"
+	fi
 	## Keyed on pushing, not on mutating: 'pullcom' commits locally and sends nothing, so the key
 	## origin would push with is nothing to refuse over - and the refusal paid a live ssh probe for
 	## a command that never reaches the network.
@@ -1964,6 +2217,11 @@ GHEOF
 	## --arch names the asset now rather than being accepted and ignored, so the two spellings
 	## the release publishes are the two it takes.
 	fAssertOut  "go installer refuses a bad --arch"           "\-\-arch takes"            bash -c "bash '${goInst}' --arch sparc"
+	## The joined spellings are case arms of their own, so the checks above say nothing about them.
+	fAssertOut  "go installer refuses a bad --target=VALUE"   "\-\-target takes 'user' or 'system' \(got 'bogus'\)"  bash -c "bash '${goInst}' --target=bogus"
+	fAssertOut  "and names the dropped --release=dev"         'no .--release dev. any more'  bash -c "bash '${goInst}' --release=dev"
+	fAssertOut  "and refuses a bad --arch=VALUE"              "\-\-arch takes 'amd64' or 'arm64' \(got 'sparc'\)"  bash -c "bash '${goInst}' --arch=sparc"
+	fAssertOut  "and a path-shaped --tag=VALUE"               'not a path'                   bash -c "bash '${goInst}' -y --tag=../x"
 	## '--release dev' installed the tip of a branch while the product was a script. A branch has
 	## no build behind it now, so the flag is answered by name rather than left to fail as an
 	## unknown option - the same treatment --offline got.
@@ -2053,25 +2311,45 @@ GHEOF
 	CURLEOF
 	fAssertOut "go installer takes the highest version from the fallback, not the newest-listed" 'v3\.0\.0' \
 		bash -c "PATH='${vsort}/bin:${PATH}' bash '${goInst}' -y 2>&1"
-
-	## A whole install, with the network stood in for: resolve, verify, place, run. What this
-	## proves is that the staged-and-renamed path works end to end; the pin below it is what
-	## discriminates, since writing in place would pass this too.
-	local ei="${work}/instend"; mkdir -p "${ei}/bin" "${ei}/home"
-	printf '#!/usr/bin/env bash\necho "gitsby v1.2.3 (stand-in)"\n' > "${ei}/asset"
-	local eiHash=""; eiHash="$( sha256sum "${ei}/asset" | cut -d' ' -f1 )"
-	: > "${ei}/SHA256SUMS"
-	local eiOs="" eiArch=""
-	for eiOs in linux darwin freebsd; do
-		for eiArch in amd64 arm64; do echo "${eiHash}  gitsby-${eiOs}-${eiArch}" >> "${ei}/SHA256SUMS"; done
-	done
-	fStub "${ei}/bin/curl" <<-'CURLEOF'
+	## The pre-release pick is a second pass over the same list.
+	local vpre="${work}/vsortpre"; mkdir -p "${vpre}/bin"
+	fStub "${vpre}/bin/curl" <<-'CURLEOF'
 		#!/usr/bin/env bash
 		url=""
 		for a in "$@"; do case "$a" in https://*) url="$a" ;; esac; done
 		case "${url}" in
-			*/releases/latest)            printf 'https://github.com/yottacore/gitsby/releases/tag/v1.2.3'; exit 0 ;;
-			*/download/v1.2.3/SHA256SUMS) cat "${FAKE_SUMS}"; exit 0 ;;
+			*/repos/*/releases) printf '[{"tag_name":"v2.9.0-rc1","prerelease":true},{"tag_name":"v3.0.0-rc1","prerelease":true}]'; exit 0 ;;
+		esac
+		exit 22
+	CURLEOF
+	fAssertOut "and from the pre-releases when there is no full release" 'newest pre-release, v3\.0\.0-rc1' \
+		bash -c "PATH='${vpre}/bin:${PATH}' bash '${goInst}' -y 2>&1"
+
+	## A whole install, with the network stood in for: resolve, verify, place, run. What this
+	## proves is that the staged-and-renamed path works end to end; the pin below it is what
+	## discriminates, since writing in place would pass this too.
+	local ei="${work}/instend"; mkdir -p "${ei}/bin" "${ei}/home" "${ei}/assets"
+	printf '#!/usr/bin/env bash\necho "gitsby v1.2.3 (stand-in)"\n' > "${ei}/asset"
+	## SHA256SUMS comes from the generator the release uses, run where a SHA256SUMS already sits,
+	## so the names the installers look up are the ones it writes.
+	local eiOs="" eiArch=""
+	for eiOs in linux darwin freebsd; do
+		for eiArch in amd64 arm64; do cp "${ei}/asset" "${ei}/assets/gitsby-${eiOs}-${eiArch}"; done
+	done
+	cp "${ei}/asset" "${ei}/assets/gitsby-windows-amd64.exe"
+	echo stale > "${ei}/assets/SHA256SUMS"
+	( cd "${ei}/assets" && bash "${root}/cicd/utility/gen-checksums.bash" SHA256SUMS >/dev/null ) || true
+	cp "${ei}/assets/SHA256SUMS" "${ei}/SHA256SUMS"
+	fAssert    "gen-checksums writes sums that sha256sum -c accepts"  bash -c "cd '${ei}/assets' && sha256sum -c --quiet SHA256SUMS"
+	fAssert    "and leaves SHA256SUMS out of its own listing"  bash -c "grep -q ' gitsby-windows-amd64\.exe\$' '${ei}/SHA256SUMS' && ! grep -q 'SHA256SUMS' '${ei}/SHA256SUMS'"
+	fStub "${ei}/bin/curl" <<-'CURLEOF'
+		#!/usr/bin/env bash
+		url=""
+		for a in "$@"; do case "$a" in https://*) url="$a" ;; esac; done
+		[[ -z "${FAKE_CALLS:-}" ]] || echo "${url}" >> "${FAKE_CALLS}"
+		case "${url}" in
+			*/releases/latest)            printf '%s' "${FAKE_LATEST:-https://github.com/yottacore/gitsby/releases/tag/v1.2.3}"; exit 0 ;;
+			*/download/v1.2.3/SHA256SUMS) [[ -e "${FAKE_SUMS}" ]] || exit 22; cat "${FAKE_SUMS}"; exit 0 ;;
 			*/download/v1.2.3/gitsby-*)   cat "${FAKE_ASSET}"; exit 0 ;;
 		esac
 		exit 22
@@ -2108,11 +2386,68 @@ GHEOF
 	## Every exit starts and ends on a blank line, the way fErr's do.
 	fAssert    "go installer frames the no-binary refusal with blank lines" \
 		fFramed env HOME="${eu}/h3" PATH="${ei}/bin:${PATH}" FAKE_SUMS="${eu}/other" FAKE_ASSET="${ei}/asset" bash "${goInst}" -y
+	fAssert    "and a successful install" \
+		fFramed env HOME="${eu}/h5" PATH="${ei}/bin:${PATH}" FAKE_SUMS="${ei}/SHA256SUMS" FAKE_ASSET="${ei}/asset" bash "${goInst}" -y
 	## A piped answer's Enter is never echoed, so the line above is the prompt. Aborted. on a line
 	## of its own is then the blank line a terminal shows.
 	if command -v script >/dev/null 2>&1; then
 		fAssert    "and a declined prompt"  fBlankAfter '^Aborted\.$' \
 			fAnswerPrompt n "env HOME='${eu}/h4' PATH='${ei}/bin:${PATH}' FAKE_SUMS='${ei}/SHA256SUMS' FAKE_ASSET='${ei}/asset' bash '${goInst}'"
+	fi
+	## Ctrl-D at the prompt is a no, the same as a closed stdin.
+	if ((hasPty)); then
+		script -qec "env HOME='${eu}/h6' PATH='${ei}/bin:${PATH}' FAKE_CALLS='${eu}/calls6' FAKE_SUMS='${ei}/SHA256SUMS' FAKE_ASSET='${ei}/asset' bash '${goInst}'" /dev/null </dev/null >/dev/null 2>&1 || true
+		fAssert    "go installer takes end of input at the prompt as a no" \
+			bash -c "grep -q '/SHA256SUMS\$' '${eu}/calls6' && ! grep -q '/gitsby-' '${eu}/calls6' && [[ ! -e '${eu}/h6/.local/bin/gitsby' ]]"
+	fi
+	## Each of these refusals has to leave nothing behind. Turned into a warning, any one of them
+	## puts an unverified binary on PATH and the run still looks like a success.
+	local ev="${work}/instverify"; mkdir -p "${ev}"
+	printf '#!/usr/bin/env bash\necho "gitsby v6.6.6 (tampered)"\n' > "${ev}/tampered"
+	fAssertOut  "go installer refuses a download that fails its checksum"  'Checksum mismatch for gitsby-' \
+		bash -c "env HOME='${ev}/h1' PATH='${ei}/bin:${PATH}' FAKE_SUMS='${ei}/SHA256SUMS' FAKE_ASSET='${ev}/tampered' bash '${goInst}' -y 2>&1"
+	fAssertFail "and exits nonzero" \
+		env HOME="${ev}/h1" PATH="${ei}/bin:${PATH}" FAKE_SUMS="${ei}/SHA256SUMS" FAKE_ASSET="${ev}/tampered" bash "${goInst}" -y
+	fAssert     "and installs nothing"  bash -c "[[ ! -e '${ev}/h1/.local/bin/gitsby' ]]"
+	fAssertOut  "go installer refuses a release with no SHA256SUMS"  'publishes no SHA256SUMS' \
+		bash -c "env HOME='${ev}/h2' PATH='${ei}/bin:${PATH}' FAKE_SUMS='${ev}/none' FAKE_ASSET='${ei}/asset' FAKE_CALLS='${ev}/calls2' bash '${goInst}' -y 2>&1"
+	fAssert     "and never fetches the binary"  bash -c "grep -q '/SHA256SUMS\$' '${ev}/calls2' && ! grep -q '/gitsby-' '${ev}/calls2'"
+	fAssert     "and installs nothing"  bash -c "[[ ! -e '${ev}/h2/.local/bin/gitsby' ]]"
+	## Everything the installer needs to finish except a hash tool, so a fallback to installing
+	## unverified would get all the way through.
+	local nsf="${work}/nosha"; mkdir -p "${nsf}"
+	for farmTool in bash uname tr sed head cut cat mktemp rm paste mkdir install mv; do
+		farmPath="$( command -v "${farmTool}" 2>/dev/null || true )"
+		if [[ -n "${farmPath}" ]]; then ln -sf "${farmPath}" "${nsf}/${farmTool}"; fi
+	done
+	cp "${ei}/bin/curl" "${nsf}/curl"
+	fAssertOut  "go installer refuses to install with no sha256 tool"  'No sha256 tool here' \
+		bash -c "HOME='${ev}/h3' PATH='${nsf}' FAKE_SUMS='${ei}/SHA256SUMS' FAKE_ASSET='${ei}/asset' '${nsf}/bash' '${goInst}' -y 2>&1"
+	fAssert     "and installs nothing"  bash -c "[[ ! -e '${ev}/h3/.local/bin/gitsby' ]]"
+	## A portal page listed in SHA256SUMS, so the first-byte check is the only thing that can refuse it.
+	printf '<html>portal</html>\n' > "${ev}/portal"
+	local evHash=""; evHash="$( sha256sum "${ev}/portal" | cut -d' ' -f1 )"
+	for eiOs in linux darwin freebsd; do
+		for eiArch in amd64 arm64; do echo "${evHash}  gitsby-${eiOs}-${eiArch}"; done
+	done > "${ev}/portalsums"
+	fAssertOut  "go installer refuses a web page served as the binary"  'came back as a web page' \
+		bash -c "env HOME='${ev}/h4' PATH='${ei}/bin:${PATH}' FAKE_SUMS='${ev}/portalsums' FAKE_ASSET='${ev}/portal' bash '${goInst}' -y 2>&1"
+	fAssert     "and installs nothing"  bash -c "[[ ! -e '${ev}/h4/.local/bin/gitsby' ]]"
+	## The redirect's tag reaches the download URLs the same way a typed one does.
+	fAssertOut  "go installer refuses a redirect to a tag that isn't one"  "isn't a plain git tag" \
+		bash -c "env HOME='${ev}/h5' PATH='${ei}/bin:${PATH}' FAKE_LATEST='https://github.com/yottacore/gitsby/releases/tag/v1;id' FAKE_SUMS='${ei}/SHA256SUMS' FAKE_ASSET='${ei}/asset' FAKE_CALLS='${ev}/calls5' bash '${goInst}' -y 2>&1"
+	fAssert     "and fetches nothing with it"  bash -c "grep -q '/releases/latest\$' '${ev}/calls5' && ! grep -q 'SHA256SUMS' '${ev}/calls5'"
+	## 'install' into a directory that isn't there fails, and a fresh macOS has no /usr/local/bin.
+	## The sudo stub only logs, so nothing reaches the real directory.
+	if [[ ! -w /usr/local/bin ]]; then
+		local es="${work}/instsys"; mkdir -p "${es}/bin"
+		fStub "${es}/bin/sudo" <<-'SUDOEOF'
+			#!/usr/bin/env bash
+			echo "$*" >> "${FAKE_SUDO_LOG}"
+		SUDOEOF
+		fAssert    "go installer creates the system dir before installing into it" \
+			bash -c "env HOME='${es}/home' PATH='${es}/bin:${ei}/bin:${PATH}' FAKE_SUDO_LOG='${es}/log' FAKE_SUMS='${ei}/SHA256SUMS' FAKE_ASSET='${ei}/asset' bash '${goInst}' --target system -y >/dev/null 2>&1; \
+				[[ \"\$(head -n 1 '${es}/log')\" == 'mkdir -p /usr/local/bin' ]] && [[ \"\$(sed -n 2p '${es}/log')\" == 'install -m 755 '* ]]"
 	fi
 	## A binary that ran and failed ended the run on its own exit code, with nothing said.
 	local eb="${work}/instbad"; mkdir -p "${eb}"
@@ -2239,6 +2574,10 @@ GHEOF
 			fAssert    "and needs no list lookup for it"  bash -c "! grep -q '/repos/' '${psi}/calls'"
 			fAssertOut "go ps installer takes the list on 5.1 when there's no full release"  'gitsby v1\.2\.3 \(stand-in\)' \
 				fPsInstall "${psi}" "${psi}/hnofull" nofull "${goInstPs}" -Yes
+			## The stub lists v1.2.2 ahead of v1.2.3, the order a backported fix publishes in, and
+			## serves the stand-in for either tag.
+			fAssert    "and takes the highest version, not the first listed" \
+				bash -c "grep -q '/download/v1\.2\.3/' '${psi}/calls' && ! grep -q '/download/v1\.2\.2/' '${psi}/calls'"
 			fAssertOut "go ps installer still reads 7's redirect"  'gitsby v1\.2\.3 \(stand-in\)' \
 				fPsInstall "${psi}" "${psi}/h7" 7 "${goInstPs}" -Yes
 			## A system install promised write access, checked nothing, and failed at the copy
@@ -2275,6 +2614,51 @@ GHEOF
 				fPsInstall "${psi}" "${psi}/h7" 7 "${goInstPs}" -Yes
 			fAssert    "go ps installer sets the pre-release notice off with blank lines"  fBlankAround 'No full release yet' \
 				fPsInstall "${psi}" "${psi}/hpre" pre "${goInstPs}" -Yes
+			fAssertOut "and names the highest version in it"  'newest pre-release, v1\.2\.3' \
+				fPsInstall "${psi}" "${psi}/hpre" pre "${goInstPs}" -Yes
+			fAssert    "go ps installer frames a successful install with blank lines" \
+				fFramed fPsInstall "${psi}" "${psi}/h7" 7 "${goInstPs}" -Yes
+			## Each refusal has to leave nothing installed; a warning in its place would not.
+			local psv="${work}/psverify" psvDir=""
+			for psvDir in sum nosums page exit3 badtag eof; do mkdir -p "${psv}/${psvDir}"; cp "${psi}/stubs.ps1" "${psv}/${psvDir}/"; done
+			cp "${ev}/tampered" "${psv}/sum/asset"; cp "${ei}/SHA256SUMS" "${psv}/sum/"
+			cp "${ei}/asset" "${psv}/nosums/"
+			cp "${ev}/portal" "${psv}/page/asset"; cp "${ev}/portalsums" "${psv}/page/SHA256SUMS"
+			cp "${eb}/asset" "${eb}/SHA256SUMS" "${psv}/exit3/"
+			cp "${ei}/asset" "${ei}/SHA256SUMS" "${psv}/badtag/"
+			sed 's|/releases/tag/v1\.2\.3|/releases/tag/v1;id|' "${psi}/stubs.ps1" > "${psv}/badtag/stubs.ps1"
+			cp "${ei}/asset" "${ei}/SHA256SUMS" "${psv}/eof/"
+			fAssertOut "go ps installer refuses a download that fails its checksum"  'Checksum mismatch for gitsby-' \
+				fPsInstall "${psv}/sum" "${psv}/sum/home" 7 "${goInstPs}" -Yes
+			fAssertFail "and exits nonzero"  fPsInstall "${psv}/sum" "${psv}/sum/home" 7 "${goInstPs}" -Yes
+			fAssert    "and installs nothing"  bash -c "grep -q '/gitsby-' '${psv}/sum/calls' && [[ ! -e '${psv}/sum/home/.local/bin/gitsby' ]]"
+			fAssertOut "go ps installer refuses a release with no SHA256SUMS"  'publishes no SHA256SUMS' \
+				fPsInstall "${psv}/nosums" "${psv}/nosums/home" 7 "${goInstPs}" -Yes
+			fAssert    "and never fetches the binary"  bash -c "grep -q '/SHA256SUMS\$' '${psv}/nosums/calls' && ! grep -q '/gitsby-' '${psv}/nosums/calls'"
+			fAssert    "and installs nothing"  bash -c "[[ ! -e '${psv}/nosums/home/.local/bin/gitsby' ]]"
+			## The portal page is listed in SHA256SUMS, so only the first-byte check can refuse it.
+			fAssertOut "go ps installer refuses a web page served as the binary"  'came back as a web page' \
+				fPsInstall "${psv}/page" "${psv}/page/home" 7 "${goInstPs}" -Yes
+			fAssert    "and installs nothing"  bash -c "[[ ! -e '${psv}/page/home/.local/bin/gitsby' ]]"
+			## One byte is all the check needs, and ReadAllBytes loaded the whole binary to get it.
+			fAssert    "go install.ps1 reads only the first byte of the download" \
+				bash -c "grep -q 'TotalCount 1' '${goInstPs}' && ! grep -qF 'ReadAllBytes(\$tmpFile)' '${goInstPs}'"
+			## Started and failed, rather than failed to start: only $LASTEXITCODE says so.
+			fAssertOut "go ps installer says when the installed binary exits nonzero"  'but it would not run \(exit 3\)' \
+				fPsInstall "${psv}/exit3" "${psv}/exit3/home" 7 "${goInstPs}" -Yes
+			fAssertOut "go ps installer refuses a redirect to a tag that isn't one"  "isn't a plain git tag" \
+				fPsInstall "${psv}/badtag" "${psv}/badtag/home" 7 "${goInstPs}" -Yes
+			fAssert    "and fetches nothing with it"  bash -c "grep -q '/releases/latest\$' '${psv}/badtag/calls' && ! grep -q 'SHA256SUMS' '${psv}/badtag/calls'"
+			## Read-Host at end of input is AutomationNull, and -notmatch on that is falsy.
+			fAssertOut "go ps installer takes end of input at the prompt as a no"  'Aborted' \
+				fPsInstall "${psv}/eof" "${psv}/eof/home" 7 "${goInstPs}"
+			fAssert    "and downloads and installs nothing"  bash -c "grep -q '/SHA256SUMS\$' '${psv}/eof/calls' && ! grep -q '/gitsby-' '${psv}/eof/calls' && [[ ! -e '${psv}/eof/home/.local/bin/gitsby' ]]"
+			## The temp dir goes by -LiteralPath, so a bracket in TMPDIR is a character, not a wildcard.
+			local pst="${work}/pstmp[1]"; mkdir -p "${pst}"
+			TMPDIR="${pst}" fAssertOut "go ps installer installs from a temp dir with brackets in its path"  'gitsby v1\.2\.3 \(stand-in\)' \
+				fPsInstall "${psi}" "${psi}/htmp" 7 "${goInstPs}" -Yes
+			fAssert    "and removes its temp dir afterwards"  bash -c "[[ -z \"\$(ls -A '${pst}')\" ]]"
+			fAssert    "go install.ps1 names its temp dir at random"  bash -c "grep -q 'tmpDir = Join-Path.*GetRandomFileName' '${goInstPs}'"
 		fi
 	fi
 
@@ -2350,7 +2734,8 @@ GHEOF
 		[[ -n "${FAKE_GH_LOG:-}" ]] && echo "$*" >> "${FAKE_GH_LOG}"
 		case "$1 $2" in
 			"auth token") [[ "${3:-}" == "--user" && "${4:-}" == "workacct" ]] && { echo "gho_faketoken"; exit 0; }; exit 1 ;;
-			"api user")   echo "${FAKE_GH_ACTIVE:-otheracct}"; exit 0 ;;
+			"api user")   [[ -n "${FAKE_GH_PROMPT_LOG:-}" ]] && echo "${GH_PROMPT_DISABLED-UNSET}" >> "${FAKE_GH_PROMPT_LOG}"
+			              echo "${FAKE_GH_ACTIVE:-otheracct}"; exit 0 ;;
 		esac
 		exit 1
 	EOF
@@ -2420,6 +2805,19 @@ GHEOF
 	## work account has one in the stub, so only it says so.
 	fAssertOut    "the held token is what enables https auth"  'git over https'  bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q -NoFetch status"
 	fAssertNotOut "and an account with no token claims nothing" 'git over https' bash -c "cd '${acHome}' && env ${acEnv} '${gitsby}' -q -NoFetch status"
+	## Asking gh who is logged in is a live API round trip, and only the identity block reads the
+	## answer. The token lookup still has to happen, or the account is not applied at all.
+	: > "${ac}/probe-status.log"; : > "${ac}/probe-br.log"; : > "${ac}/probe-raw.log"
+	fAssert "status asks gh who is logged in, for the identity block" \
+		bash -c "cd '${acWork}' && env ${acEnv} FAKE_GH_LOG='${ac}/probe-status.log' '${gitsby}' -q -NoFetch status >/dev/null && grep -q '^api user' '${ac}/probe-status.log'"
+	fAssert "a command that prints no identity block does not" \
+		bash -c "cd '${acWork}' && env ${acEnv} FAKE_GH_LOG='${ac}/probe-br.log' '${gitsby}' -q -NoFetch br list >/dev/null && grep -q '^auth token' '${ac}/probe-br.log' && ! grep -q '^api user' '${ac}/probe-br.log'"
+	fAssert "and neither does raw" \
+		bash -c "cd '${acWork}' && env ${acEnv} FAKE_GH_LOG='${ac}/probe-raw.log' '${gitsby}' -q raw git status >/dev/null && grep -q '^auth token' '${ac}/probe-raw.log' && ! grep -q '^api user' '${ac}/probe-raw.log'"
+	## gh can stop and ask to log in, and nobody is there to answer a probe.
+	: > "${ac}/prompt.log"
+	fAssert "the gh login probe turns gh's prompts off" \
+		bash -c "cd '${acWork}' && env -u GH_PROMPT_DISABLED ${acEnv} FAKE_GH_PROMPT_LOG='${ac}/prompt.log' '${gitsby}' -q -NoFetch status >/dev/null && grep -q . '${ac}/prompt.log' && ! grep -qvx 1 '${ac}/prompt.log'"
 	## A value typed for one repo specifically outranks a rule about a whole tree. A regression
 	## guard, not a discriminating check: code with no accounts at all reads the same repo-local
 	## value and passes it too. What it is here to catch is a future account that overrides one.
@@ -2507,6 +2905,17 @@ GHEOF
 		bash -c "cd '${acAway}' && env ${acEnvIdent} GITSBY_ACCOUNT=keysonly '${gitsby}' -q -NoFetch --config '${ac}/keysonly.shcl' status"
 	fAssertNotOut "and its own name is not reported as a GitHub login"  'Account \.+: keysonly' \
 		bash -c "cd '${acAway}' && env ${acEnv} GITSBY_ACCOUNT=keysonly '${gitsby}' -q -NoFetch --config '${ac}/keysonly.shcl' status"
+	## The repo's own gitsby.ghAccount says who, not that the rest of the folder's account is off.
+	## An account naming no login disagrees with nothing, so its identity still applies.
+	cat > "${ac}/nologin.shcl" <<-EOF
+		account.nl.path  = ${acCanon}/trees/work
+		account.nl.name  = No Login
+		account.nl.email = nologin@example.com
+	EOF
+	( cd "${acWork}" && git config gitsby.ghAccount somelogin )
+	fAssertOut "a repo-local login keeps the identity of a folder account that names none"  'No Login <nologin@example\.com>' \
+		bash -c "cd '${acWork}' && env ${acEnvIdent} '${gitsby}' -q -NoFetch --config '${ac}/nologin.shcl' status"
+	( cd "${acWork}" && git config --unset gitsby.ghAccount )
 	## A byte-order mark is what a Windows editor writes by default. It lands on the first key in
 	## the file, which then reads as one nothing understands - and the line reporting those printed
 	## the mark along with it, so the only diagnostic named a key that looks exactly right.
@@ -2944,10 +3353,23 @@ GHEOF
 		bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q -NoFetch --config '${ac}/none.shcl' account"
 	fAssertNotOut "naming no tool it cannot speak for"  "gh's own account" \
 		bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q -NoFetch --config '${ac}/none.shcl' account"
+	fAssertOut "account list with no accounts names the command that adds one"  "No accounts defined\. 'gitsby account set' adds one" \
+		bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q -NoFetch --config '${ac}/none.shcl' account list"
+	## A rule pointing at nothing matches nothing, which reads exactly like no rule at all.
+	cat > "${ac}/dead.shcl" <<-EOF
+		account.live.path = ${acCanon}/trees/work
+		account.dead.path = ${acCanon}/trees/nosuch
+	EOF
+	fAssertOut    "account list marks a folder that isn't there"  'folder \.+: .*/trees/nosuch +\(no such directory - this rule can never match\)$' \
+		bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q -NoFetch --config '${ac}/dead.shcl' account list"
+	fAssertNotOut "and only that one"  'folder \.+: .*/trees/work .*can never match' \
+		bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q -NoFetch --config '${ac}/dead.shcl' account list"
 	## An entry written by hand has to survive; ours have to refresh rather than accumulate.
 	( cd "${acWork}" && env HOME="${ac}/home" GIT_CONFIG_GLOBAL="${ac}/home/.gitconfig" git config --global includeIf.gitdir:/hand/written/.path /keep/me.gitconfig )
 	fAssert "account apply runs"  bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q account apply >/dev/null"
 	fAssert "and plain git now uses the account's identity"  bash -c "cd '${acWork}' && env ${acEnv} git config user.email | grep -qx work@example.com"
+	## Without a username a credential manager answers with any entry it holds for the host.
+	fAssert "and asks for the account's login over https"  bash -c "cd '${acWork}' && env ${acEnv} git config credential.https://github.com.username | grep -qx workacct"
 	fAssert "and the sibling tree gets the other one"        bash -c "cd '${acHome}' && env ${acEnv} git config gitsby.ghAccount | grep -qx homeacct"
 	fAssert "re-applying does not duplicate the rules"  bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q account apply >/dev/null && [[ \"\$(grep -c 'gitsby/accounts' '${ac}/home/.gitconfig')\" == 2 ]]"
 	fAssert "and leaves a hand-written includeIf alone"  bash -c "grep -q 'hand/written' '${ac}/home/.gitconfig'"
@@ -3071,6 +3493,19 @@ GHEOF
 	fAssertNotOut "and never says it wrote one"  'Wrote ' \
 		bash -c "cd '${acWork}' && env ${acFragEnv} '${gitsby}' -q -NoFetch --config '${ac}/frag/config.shcl' account apply 2>&1"
 	fAssert       "and wrote no includeIf rule either"  bash -c "! grep -q 'b\.gitconfig' '${ac}/fraghome/.gitconfig'"
+	## The same for the global config itself: a path under a plain file can't be locked for writing.
+	mkdir -p "${ac}/addfail"; : > "${ac}/notadir"
+	cat > "${ac}/addfail/config.shcl" <<-EOF
+		account.b.path      = ${acCanon}/trees/work
+		account.b.ghAccount = bacct
+	EOF
+	local acAddEnv="${acNoDiscovery} HOME='${ac}/fraghome' GIT_CONFIG_GLOBAL='${ac}/notadir/.gitconfig' PATH='${ac}/bin:${PATH}'"
+	fAssertFail   "account apply fails when the global config can't take a rule" \
+		bash -c "cd '${acWork}' && env ${acAddEnv} '${gitsby}' -q -NoFetch --config '${ac}/addfail/config.shcl' account apply"
+	fAssertOut    "and says which rule it couldn't add"  "Couldn't add 'includeIf\.gitdir" \
+		bash -c "cd '${acWork}' && env ${acAddEnv} '${gitsby}' -q -NoFetch --config '${ac}/addfail/config.shcl' account apply 2>&1"
+	fAssertNotOut "and never says it is done"  'Done\.' \
+		bash -c "cd '${acWork}' && env ${acAddEnv} '${gitsby}' -q -NoFetch --config '${ac}/addfail/config.shcl' account apply 2>&1"
 
 	## The fragment names the account and points at the token file, so it is written 0600 - but
 	## os.WriteFile only applies a mode when it CREATES the file, so one left readable by an
@@ -3223,6 +3658,75 @@ GHEOF
 		grep -q 'cicd.bash --no-publish' "${relBash}"
 	fAssert "and treats a failing pipeline as fatal" \
 		grep -q 'the pipeline did not pass' "${relBash}"
+	## -y alone is unattended but not quiet, and would print every check line of the phase 1 run.
+	# shellcheck disable=SC2016
+	fAssert "and release.bash -q runs it quiet" \
+		grep -qF '((quiet)) && pipeline=("${here}/cicd.bash" --no-publish -q ' "${relBash}"
+	## The footer check read two harnesses once, and three pipeline files went a month without an
+	## entry. A footer date is written either way.
+	# shellcheck disable=SC2016
+	fAssert "release.bash checks the history footer of every pipeline and installer script" \
+		grep -qF 'git diff --name-only "${lastTag}" HEAD -- cicd install.bash install.ps1)' "${relBash}"
+	local relFootRe=""
+	relFootRe="$(sed -n "s/^[[:space:]]*newest=\"\$(grep -oE '\([^']*\)'.*/\1/p" "${relBash}")"
+	# shellcheck disable=SC2016
+	fAssert "and reads a footer date written 20260819 or 2026-08-19" \
+		bash -c '[[ -n "$1" ]] && grep -qE "$1" <<< "$2" && grep -qE "$1" <<< "$3"' _ "${relFootRe}" $'##\t- 20260819 JC: x' $'##\t- 2026-08-19 JC: x'
+	if [[ "$(uname -s)" != Linux ]]; then
+		echo "  skip: release.bash --dry-run checks (Linux only)"
+	else
+		## --dry-run end to end, in a clone whose pipeline, build, gh and go are stubs that log. A dry
+		## run that took one real step would push, tag or publish, so each step has to be announced in
+		## order and none of them may reach a tool. Dated far ahead, so no real footer is newer.
+		local rel="${work}/rel" relRc=0 relState="" relStub=""
+		local relRepo="${work}/rel/repo" relCalls="${work}/rel/calls.log" relOut="${work}/rel/out.txt"
+		mkdir -p "${rel}/bin"
+		git init --quiet --bare -b main "${rel}/origin.git"
+		git clone --quiet "${rel}/origin.git" "${relRepo}" 2>/dev/null
+		mkdir -p "${relRepo}/cicd/utility" "${relRepo}/src-go"
+		cp "${root}/cicd/release.bash" "${root}/cicd/config.bash" "${relRepo}/cicd/"
+		fStub "${rel}/stub" <<-EOF
+			#!/usr/bin/env bash
+			printf '%s\n' "\$(basename "\$0") \$*" >> '${relCalls}'
+			if [[ "\$(basename "\$0") \${1:-}" == "go env" ]]; then case "\${2:-}" in GOOS) echo linux ;; GOARCH) echo amd64 ;; esac; fi
+			exit 0
+		EOF
+		for relStub in cicd/cicd.bash cicd/utility/gen-winres.bash cicd/utility/gen-checksums.bash src-go/gitsby; do cp "${rel}/stub" "${relRepo}/${relStub}"; done
+		for relStub in gh go curl; do cp "${rel}/stub" "${rel}/bin/${relStub}"; done
+		printf '%s\n' '# Changelog' '' '<!--' '## TEMPLATE_vNEXT - DATE' '' '- template' '-->' '' '## vNEXT' '' '- a change' '' '## v1.2.3 - 2090-01-01' '' '- older' > "${relRepo}/changelog.md"
+		git -C "${relRepo}" add --all
+		GIT_COMMITTER_DATE=2090-01-01T12:00:00Z git -C "${relRepo}" commit --quiet -m init
+		git -C "${relRepo}" tag v1.2.3
+		git -C "${relRepo}" push --quiet -u origin main v1.2.3 2>/dev/null
+		relState="$(fRelState)"
+		fRelRun --dry-run
+		fAssert "release.bash --dry-run passes on a clean, tagged, pushed clone" \
+			bash -c "[[ '${relRc}' == 0 ]] && grep -qF 'Released v1.2.4' '${relOut}'"
+		fAssert "and announces the pipeline, the cross-build at the next version, the tag and the release, in that order" \
+			awk '/would: run cicd\/cicd\.bash --no-publish$/{a=NR} /would: cross-build [0-9]+ targets at v1\.2\.4$/{b=NR} /would: gitsby release v1\.2\.4$/{c=NR} /would: gh release create v1\.2\.4 with /{d=NR} END{exit !(a && a < b && b < c && c < d)}' "${relOut}"
+		fAssert "and none of those steps reached a tool" \
+			bash -c "grep -qx 'gen-winres.bash --check -q' '${relCalls}' && ! grep -vxE 'gen-winres\.bash --check -q|go env GO(OS|ARCH)' '${relCalls}'"
+		fAssert "and HEAD, the tags and origin are as they were"  test "${relState}" = "$(fRelState)"
+		fRelRun --dry-run v1.3.0-beta.1
+		fAssert "a suffixed version says it publishes as a pre-release" \
+			bash -c "[[ '${relRc}' == 0 ]] && grep -qF 'v1.3.0-beta.1 carries a semver suffix, so it publishes as a pre-release.' '${relOut}' && grep -qF 'would: gh release create v1.3.0-beta.1 as a pre-release with ' '${relOut}'"
+		## A pipeline file changed since the tag, first with its footer as it was, then with an entry
+		## newer than the tag, written the dashed way.
+		echo '## fixture' >> "${relRepo}/cicd/config.bash"
+		git -C "${relRepo}" add cicd/config.bash
+		git -C "${relRepo}" commit --quiet -m 'config edit'
+		git -C "${relRepo}" push --quiet 2>/dev/null
+		fRelRun --dry-run
+		fAssert "a pipeline file changed since the last release with no footer entry is warned about" \
+			bash -c "[[ '${relRc}' == 0 ]] && grep -qF 'WARNING: cicd/config.bash has no history entry since v1.2.3 (20900101)' '${relOut}' && ! grep -qF 'WARNING: cicd/release.bash' '${relOut}'"
+		printf '##\t\t- 2090-01-02 JC: Fixture.\n' >> "${relRepo}/cicd/config.bash"
+		git -C "${relRepo}" add cicd/config.bash
+		git -C "${relRepo}" commit --quiet -m 'config footer'
+		git -C "${relRepo}" push --quiet 2>/dev/null
+		fRelRun --dry-run
+		fAssert "and a dashed footer date newer than the tag answers it" \
+			bash -c "[[ '${relRc}' == 0 ]] && grep -qF 'Released v1.2.4' '${relOut}' && ! grep -qF 'has no history entry' '${relOut}'"
+	fi
 
 	## Recursive removal. demo-repo.bash is the only script here that removes a path someone else
 	## named, so it gets real checks; the rest only ever remove what mktemp just handed them, and
@@ -3256,12 +3760,19 @@ GHEOF
 	# shellcheck disable=SC2016
 	fAssert "and its pwsh counterpart tests the path before removing it" \
 		grep -q 'if ($probeDir) { Remove-Item' "${root}/legacy/bin/gitsby.ps1"
+	## By glob, so a script added later is covered without being listed. A glob that stopped
+	## matching is left as written, and fails for not being a file.
 	local rmScript
-	for rmScript in cicd/cicd.bash cicd/test.bash cicd/fuzz.bash cicd/parity.bash \
-	                cicd/release.bash cicd/utility/demo/demo-repo.bash \
-	                legacy/bin/gitsby legacy/install.bash legacy/install-dev.bash; do
-		fAssertFail "${rmScript} never removes an unguarded variable path" \
-			grep -qE 'rm -[rf]+ +(-- )?"\$\{[a-zA-Z_][a-zA-Z_0-9]*\}' "${root}/${rmScript}"
+	local -a rmScripts=()
+	for rmScript in "${root}"/install.bash "${root}"/cicd/*.bash "${root}"/cicd/utility/*.bash \
+	                "${root}"/cicd/utility/include/*.bash "${root}"/cicd/utility/n8git_backup-and-publish "${root}"/cicd/utility/demo/*.bash \
+	                "${root}"/legacy/bin/gitsby "${root}"/legacy/install.bash "${root}"/legacy/install-dev.bash; do
+		rmScripts+=("${rmScript#"${root}/"}")
+	done
+	# shellcheck disable=SC2016  ## the inner shell does the expanding.
+	for rmScript in "${rmScripts[@]}"; do
+		fAssert "${rmScript} never removes an unguarded variable path" \
+			bash -c '[[ -f "$1" ]] && ! grep -qE "$2" "$1"' _ "${root}/${rmScript}" 'rm -[rf]+ +(-- )?"\$\{[a-zA-Z_][a-zA-Z_0-9]*\}'
 	done
 	## ------------------------------------------------------------------------------------
 	## The pipeline itself, after the directive review. Where a check would need a whole run
@@ -3310,6 +3821,14 @@ GHEOF
 	fAssert "no build step takes every core"  bash -c "grep -q 'BUILD_JOBS=' '${root}/cicd/config.bash'"
 	fAssertFail "no go build call is missing -p" \
 		bash -c "grep -hE '^[[:space:]]*(go build|.*&& *go build)' '${root}/cicd/cicd.bash' '${root}/cicd/release.bash' | grep -qv 'BUILD_JOBS'"
+	## Same source, same bytes: the last input-derived stamp dropped, cgo off wherever those flags
+	## link, and the release built by the compiler it names.
+	fAssert "the link flags drop the build id"  grep -qE '^GO_LDFLAGS_COMMON=.*-buildid=' "${root}/cicd/config.bash"
+	fAssert "and every build that links with them turns cgo off" \
+		bash -c "cgo=\$(cat '${root}/cicd/cicd.bash' '${root}/cicd/release.bash' | grep -v '^[[:space:]]*#' | grep -c 'CGO_ENABLED=0'); ld=\$(cat '${root}/cicd/cicd.bash' '${root}/cicd/release.bash' | grep -v '^[[:space:]]*#' | grep -c 'GO_LDFLAGS_COMMON'); [[ \${ld} -gt 0 && \${cgo} == \${ld} ]]"
+	# shellcheck disable=SC2016
+	fAssert "and the release assets are built by the pinned toolchain" \
+		grep -qF 'GOTOOLCHAIN="${GO_RELEASE_TOOLCHAIN}"' "${root}/cicd/release.bash"
 	## Every dogfood dest is a share path or a $HOME expansion. A literal home dir would name
 	## an account, and would resolve to nothing on any other box.
 	fAssertFail "no dogfood dest hardcodes a home directory" \
@@ -3333,6 +3852,26 @@ GHEOF
 		bash -c "[[ -x '${root}/cicd/utility/run-latest.ps1' ]]"
 	fAssert "and a spawn report exists for the startup look, marker-gated like lint's" \
 		bash -c "[[ -x '${root}/cicd/utility/spawn-report.bash' ]] && grep -q 'spawn-seen' '${root}/cicd/utility/spawn-report.bash'"
+	## The step itself, against a build that starts three processes per command and a baseline
+	## that says none, so every command reads as a rise. Needs strace, like the step.
+	if command -v strace >/dev/null 2>&1; then
+		local sc="${work}/sc"
+		mkdir -p "${sc}/cicd/utility/include" "${sc}/src-go" "${sc}/cicd/artifacts/spawn"
+		cp "${root}/cicd/config.bash" "${sc}/cicd/"
+		cp "${root}/cicd/utility/spawn-count.bash" "${sc}/cicd/utility/"
+		cp "${root}/cicd/utility/include/gfs-rotate.bash" "${sc}/cicd/utility/include/"
+		fStub "${sc}/src-go/gitsby" <<-'EOF'
+			#!/usr/bin/env bash
+			/bin/sh -c :; /bin/sh -c :; /bin/sh -c :
+		EOF
+		sed -n 's/^fMeasure "\([^"]*\)".*/\1\t0/p' "${root}/cicd/utility/spawn-count.bash" > "${sc}/cicd/artifacts/spawn/spawn_20260101-000000.tsv"
+		fAssert "spawn-count.bash fails on a command that starts more than its baseline, and records nothing" \
+			bash -c "out=\$('${sc}/cicd/utility/spawn-count.bash' -q 2>&1); [[ \$? == 1 ]] && grep -q 'REGRESSED  status: 0 -> ' <<< \"\$out\" && [[ \$(ls '${sc}/cicd/artifacts/spawn' | grep -c '^spawn_.*\.tsv\$') == 1 ]]"
+		fAssert "and --record accepts the rise as the new baseline" \
+			bash -c "'${sc}/cicd/utility/spawn-count.bash' -q --record && [[ \$(ls '${sc}/cicd/artifacts/spawn' | grep -c '^spawn_.*\.tsv\$') == 2 ]]"
+	else
+		echo "  skip: spawn-count regression checks (no strace)"
+	fi
 	## -q reached the publisher and nothing else, so an unattended run still printed every one
 	## of 900-odd check lines and buried every stage header.
 	local qHarness=""
@@ -3368,9 +3907,49 @@ GHEOF
 	} > "${lrLog}/run_20260819-000003.log"
 	fAssertOut "and each tool's own format is reported"  '\(7 warning line' \
 		bash -c "'${root}/cicd/utility/lint-report.bash' --file '${lrLog}/run_20260819-000003.log'"
+	## The backlog gate, the real script in a repo of its own with no integration branch, so only
+	## the Origin rule runs. Its count read 0 whatever the backlog held: '\t' in a quoted -E
+	## pattern is not a tab.
+	local bl="${work}/bl"
+	mkdir -p "${bl}/cicd/utility" "${bl}/project"
+	cp "${root}/cicd/utility/backlog-check.bash" "${bl}/cicd/utility/"
+	git init --quiet "${bl}"
+	printf '# Backlog\n\n## Open\n\n\t- 🔘 Code Review 20260101 item 1: x\n\t\t- Origin: y\n\t- 🔘 Code Review 20260101 item 2: x\n\t\t- Origin: y\n\t- ✅ Code Review 20260101 item 3: x\n\t\t- Origin: y\n' > "${bl}/project/backlog.md"
+	printf '# Backlog\n\n\t- 🔘 Code Review 20260101 item 1: x\n\t\t- Origin: y\n\t- 🔘 Code Review 20260101 item 4: x\n\t\t- Why: z\n' > "${bl}/project/no-origin.md"
+	fAssertOut "the backlog gate counts the open review items it read" 'Origin: present on every open review item \(2 listed\)' \
+		"${bl}/cicd/utility/backlog-check.bash"
+	fAssertOut "and skips the removed-check rule with no integration branch" 'no integration branch found; removed-check test skipped' \
+		"${bl}/cicd/utility/backlog-check.bash"
+	fAssert "and fails an open review item with no Origin line, by name" \
+		bash -c "out=\$('${bl}/cicd/utility/backlog-check.bash' -q --backlog '${bl}/project/no-origin.md' 2>&1); [[ \$? == 1 ]] && grep -qxF '  Code Review 20260101 item 4' <<< \"\$out\" && ! grep -qF 'item 1' <<< \"\$out\""
+	## A file no glob names is linted by nothing, and a glob that names nothing is a file that moved.
+	fAssert "every tracked markdown file is in a markdown lint glob" \
+		test -z "$(cd "${root}" && git ls-files '*.md' | fLintUncovered MD_LINT_GLOBS)"
+	fAssert "every tracked bash file outside legacy/ is in a shell lint glob" \
+		test -z "$(fTrackedBash | fLintUncovered SHELL_LINT_GLOBS)"
+	fAssert "the PowerShell lint globs name exactly the first-party .ps1 files" \
+		test -z "$(cd "${root}" && git ls-files '*.ps1' ':!legacy' | fLintUncovered PS_LINT_GLOBS both)"
+	fAssert "and every lint glob matches a file" \
+		test -z "$(fLintGlobs MD_LINT_GLOBS empty; fLintGlobs SHELL_LINT_GLOBS empty; fLintGlobs PS_LINT_GLOBS empty)"
+	## A commit message the user typed passes through the engine's output helpers.
+	fAssertFail "cicd.bash prints with printf, never echo -e"  grep -qE '^[^#]*echo -e' "${root}/cicd/cicd.bash"
+	## The linter set is argued for line by line, and 'default: none' means a new golangci-lint
+	## adds nothing on its own. The stub the gate runs cannot tell a linter dropped from the file.
+	local lintYml="${root}/src-go/.golangci.yml" lintName=""
+	fAssert "golangci-lint runs only the linters it names"  grep -qE '^  default: none( |$)' "${lintYml}"
+	for lintName in errcheck errorlint govet ineffassign predeclared revive staticcheck unconvert unused; do
+		fAssert "and ${lintName} is one of them"  grep -qE "^    - ${lintName}( |\$)" "${lintYml}"
+	done
+	for lintName in var-naming redefines-builtin-id indent-error-flow errorf error-return early-return unreachable-code; do
+		fAssert "and revive checks ${lintName}"  grep -qE "^        - name: ${lintName}( |\$)" "${lintYml}"
+	done
+	fAssert "and gofmt is its formatter"  bash -c "grep -A2 '^formatters:' '${lintYml}' | grep -qE '^    - gofmt( |\$)'"
 	## The Properties tab said 2026 while --about said 2014-2026.
 	fAssert "the Windows resource takes its copyright years from the program" \
 		bash -c "grep -q 'copyrightYear' '${root}/cicd/utility/gen-winres.bash' && ! grep -qE 'LegalCopyright.*© [0-9]' '${root}/cicd/utility/gen-winres.bash'"
+	## Explorer shows it on the Properties tab, so the identity marker stays out of it.
+	fAssertFail "and carries no identity marker" \
+		grep -qE 'LegalCopyright.*ID:' "${root}/cicd/utility/gen-winres.bash"
 	## The demo scenario is what the gif is rendered from, so a command renamed in the product
 	## and not there means the next render publishes the old name.
 	fAssertFail "the demo scenario names no renamed command" \
@@ -3491,6 +4070,11 @@ EOF
 	for winArch in amd64 arm64; do
 		fAssert "the ${winArch} resource is a file in the tree" \
 			bash -c "[[ -s '${root}/src-go/resource_windows_${winArch}.syso' ]]"
+		## The committed resource as well as the script that writes it. UTF-16 in there.
+		fAssert "and carries a copyright string" \
+			grep -aqP 'C\x00o\x00p\x00y\x00r\x00i\x00g\x00h\x00t\x00 \x00' "${root}/src-go/resource_windows_${winArch}.syso"
+		fAssertFail "with no identity marker in it" \
+			grep -aqP '\[\x00I\x00D\x00:' "${root}/src-go/resource_windows_${winArch}.syso"
 	done
 	fAssertFail "and the two are not one file copied twice" \
 		cmp -s "${root}/src-go/resource_windows_amd64.syso" "${root}/src-go/resource_windows_arm64.syso"
@@ -3519,6 +4103,8 @@ EOF
 			grep -qE 'unset GIT_CONFIG_COUN[T]' "${root}/${hermScript}"
 		fAssert "${hermScript} drops an inherited gh token" \
 			grep -qE 'unset GH_TOKE[N]' "${root}/${hermScript}"
+		fAssert "${hermScript} pins its own accounts file" \
+			grep -qE '^export GITSBY_CONFI[G]=' "${root}/${hermScript}"
 	done
 	## Runtime companions to the pins above. Regression guards, not discriminating checks: on a
 	## clean machine they pass just as well against a harness that isolates nothing.
@@ -3535,9 +4121,13 @@ EOF
 		local gateDir="${work}/gate" gateCalls="${work}/gate-calls.log" gateFail="${work}/gate-fail" gateOut="${work}/gate-out.txt"
 		fMakeGateFixture
 		fAssert "the gate passes a clean tree without asking anything"  fGateStatus 0 --gate
+		## go vet, golangci-lint and go test on the build's core budget.
 		fAssert "and runs every lint check and the unit tests" \
 			fGateCalled '^shellcheck [^-]' '^markdownlint ' '^python3 -m py_compile' 'Invoke-ScriptAnalyzer -Path' '^gofmt -l' \
-				'^go vet' '^staticcheck ' '^golangci-lint run' '^gen-winres\.bash --check -q' '^backlog-check\.bash -q' '^go test -race'
+				'^go vet -p [0-9]+ ' '^staticcheck ' '^golangci-lint run --concurrency [0-9]+ ' '^gen-winres\.bash --check -q' '^backlog-check\.bash -q' '^go test -race -p [0-9]+ '
+		## This fixture's go answers 'version -m' with nothing, so every tool reads as unknown.
+		fAssert "and warns when a lint tool's version is not the recorded one" \
+			fGateSays 0 'WARNING: lint tool versions differ from the recorded set: .*staticcheck unknown \(recorded v' --gate
 		## Tied to the gate having passed: a run that did nothing at all adds nothing either.
 		fAssert "and nothing the full run adds" \
 			bash -c "grep -q 'gate: passed' '${gateOut}' && ! grep -qE '^go build|^test\.bash|^fuzz\.bash|^parity\.bash|^spawn-count\.bash|^n8git_backup-and-publish|^govulncheck|-fuzz' '${gateCalls}' && ! grep -q 'Remote sync' '${gateOut}' && [[ ! -e '${gateDir}/cicd/artifacts/lint' ]]"
@@ -3598,6 +4188,110 @@ EOF
 		: > "${gateFail}/go-build"
 		fAssert "a failed demo build warns, renders nothing and the run goes on"  fGateDemoBuildFails
 		rm -f -- "${gateFail:?}/go-build"
+		gateDir="${work}/gate"
+
+		## The stages the gate leaves out, on a fixture of their own that becomes a git repo with a
+		## release tag and then an origin. Its go answers 'version -m' with each tool's recorded
+		## version and 'test -list' with one fuzz target, and fails fuzzing on a marker of its own.
+		## Its python3 logs where py_compile was told to put the cache, and whether that existed.
+		gateDir="${work}/gate-pipe"
+		fMakeGateFixture
+		local gateRc=0 gatePipeTools="" gatePyCache="" gateDest=""
+		local gateOrigin="${work}/gate-pipe-origin.git" gateOther="${work}/gate-pipe-other"
+		# shellcheck source=/dev/null
+		gatePipeTools="$(cd "${root}" && source cicd/config.bash && echo "${GO_TOOL_VERSIONS[*]}")"
+		fStub "${gateDir}/bin/go" <<-EOF
+			#!/usr/bin/env bash
+			printf '%s\n' "go \$*" >> '${gateCalls}'
+			case "\${1:-} \${2:-}" in
+				"version -m") for s in ${gatePipeTools}; do [[ "\${s%%=*}" != "\$(basename "\${3:-}")" ]] || printf 'mod\tx\t%s\th1:x\n' "\${s#*=}"; done; exit 0 ;;
+				"test -list") echo FuzzA; exit 0 ;;
+			esac
+			[[ "\$*" != *" -fuzz "* || ! -e '${gateFail}/go-fuzz' ]] || exit 1
+			[[ ! -e "${gateFail}/go-\${1:-}" ]] || exit 1
+			o=''; for a in "\$@"; do [[ "\${o}" != 1 ]] || : > "\${a}"; o=''; [[ "\${a}" != -o ]] || o=1; done
+		EOF
+		fGateStub "${gateDir}/bin/python3" python3 "printf 'pycache %s %s\n' \"\${PYTHONPYCACHEPREFIX:-unset}\" \"\$([[ -d \"\${PYTHONPYCACHEPREFIX:-}\" ]] && echo dir || echo nodir)\" >> '${gateCalls}'"
+		fAssert "the gate says nothing about lint tool versions that match the recorded set"  fGateNoDrift
+		gatePyCache="$(sed -n 's/^pycache \(.*\) dir$/\1/p' "${gateCalls}")"
+		fAssert "py_compile writes its cache to a folder of its own, removed afterwards" \
+			bash -c "[[ -n '${gatePyCache}' && ! -e '${gatePyCache}' ]]"
+		git init --quiet -b main "${gateDir}"
+		printf '%s\n' 1 2 3 4 5 6 7 8 > "${gateDir}/notes.txt"
+		git -C "${gateDir}" add --all
+		git -C "${gateDir}" commit --quiet -m init
+		git -C "${gateDir}" tag v9.8.7
+		echo two >> "${gateDir}/README.md"
+		git -C "${gateDir}" commit --quiet -m two -- README.md
+		echo edited >> "${gateDir}/README.md"
+		fGateOnly test
+		fAssert "a build names the commit it was built from, and -dirty for uncommitted source" \
+			fGateRanCalling 0 '^go build .* -X main\.version=9\.8\.7-1-g[0-9a-f]+-dirty -X main\.buildEpoch='
+		fAssert "and reads that after the remote sync, which can move HEAD" \
+			awk '/^fSection "0\/7  Remote sync"/{s=NR} /^go_version=/{g=NR} END{exit !(s && g > s)}' "${root}/cicd/cicd.bash"
+		git -C "${gateDir}" checkout --quiet -- README.md
+		## Stage 3 without --quick. 'go test -list' failing is swallowed there, so a target list
+		## that came back empty would pass having fuzzed nothing.
+		fGateOnly fuzz
+		fAssert "stage 3 runs the fuzz harness, fuzzes each target the module lists, and counts spawns" \
+			fGateRanCalling 0 '^fuzz\.bash' '^go test -run \^\$ -fuzz \^FuzzA\$ -fuzztime 5s -parallel [0-9]+ \.$' '^spawn-count\.bash'
+		: > "${gateFail}/go-fuzz"
+		fGateOnly fuzz
+		rm -f -- "${gateFail:?}/go-fuzz"
+		fAssert "and a crasher stops the run, naming the target"  fGateRanSaying 1 'fuzzing found a crasher in FuzzA'
+		: > "${gateFail}/fuzz"
+		fGateOnly fuzz
+		rm -f -- "${gateFail:?}/fuzz"
+		fAssert "and so does a failing fuzz harness"  fGateRanCalling 1 '^fuzz\.bash'
+		: > "${gateFail}/spawn-count"
+		fGateOnly fuzz
+		rm -f -- "${gateFail:?}/spawn-count"
+		fAssert "and a spawn count that rose"  fGateRanSaying 1 'spawn counts regressed'
+		fAssert "the module has at least five fuzz targets for stage 3 to find" \
+			bash -c "[[ \"\$(cd '${root}/src-go' && go test -list 'Fuzz.*' . | grep -c '^Fuzz')\" -ge 5 ]]"
+		## Stage 5 on a box with none of the shared dirs, then with the first one this box's target names.
+		mkdir -p "${gateDir}/home/.local/bin"
+		fGateOnly dogfood
+		fAssert "dogfood falls back to ~/.local/bin for the target this box runs, and only that one" \
+			bash -c "[[ '${gateRc}' == 0 && -f '${gateDir}/home/.local/bin/gitsby' && ! -e '${gateDir}/home/.local/bin/gitsby.exe' ]]"
+		fAssert "and says the other targets have nowhere to go" \
+			bash -c "grep -qF 'WARNING: no windows/amd64 dogfood dest exists/writable' '${gateOut}' && grep -qF 'WARNING: no darwin/arm64 dogfood dest exists/writable' '${gateOut}'"
+		# shellcheck disable=SC2016
+		gateDest="$(cd "${gateDir}" && HOME="${gateDir}/home" bash -c 'source cicd/config.bash && echo "${DOGFOOD_DESTS_LINUX_AMD64[0]}"')"
+		mkdir -p "${gateDest}"
+		rm -f -- "${gateDir:?}/home/.local/bin/gitsby"
+		fGateOnly dogfood
+		fAssert "a configured dest that exists wins over the fallback" \
+			bash -c "[[ '${gateRc}' == 0 && -f '${gateDest}/gitsby' && ! -e '${gateDir}/home/.local/bin/gitsby' ]]"
+		fGateOnly publish -m 'hands off'
+		fAssert "-m hands its message to the publisher"  fGateRanCalling 0 '^n8git_backup-and-publish --quiet -m hands off$'
+		fGateOnly publish --message='hands off'
+		fAssert "and so does --message="  fGateRanCalling 0 '^n8git_backup-and-publish --quiet -m hands off$'
+		## Stage 0 against a real origin: behind, behind with an edit in the tree, diverged, and gone.
+		git init --quiet --bare -b main "${gateOrigin}"
+		git -C "${gateDir}" remote add origin "${gateOrigin}"
+		git -C "${gateDir}" push --quiet -u origin main 2>/dev/null
+		git clone --quiet "${gateOrigin}" "${gateOther}" 2>/dev/null
+		fGateUpstream one
+		fGateOnly sync
+		fAssert "stage 0 fast-forwards a tree that is only behind" \
+			bash -c "[[ '${gateRc}' == 0 && \"\$(git -C '${gateDir}' rev-parse HEAD)\" == \"\$(git -C '${gateOther}' rev-parse HEAD)\" ]] && grep -qF 'fast-forwarding 1 commit(s) from origin' '${gateOut}'"
+		fAssert "under the 0/7 header"  grep -qxF '[ 0/7  Remote sync ]' "${gateOut}"
+		## The same file on both sides, far enough apart to merge. Without --autostash git refuses.
+		fGateUpstream two notes.txt
+		sed -i 's/^1$/edited/' "${gateDir}/notes.txt"
+		fGateOnly sync
+		fAssert "and carries an uncommitted edit across the fast-forward" \
+			bash -c "[[ '${gateRc}' == 0 && \"\$(git -C '${gateDir}' rev-parse HEAD)\" == \"\$(git -C '${gateOther}' rev-parse HEAD)\" && \"\$(head -n 1 '${gateDir}/notes.txt')\" == edited && \"\$(tail -n 1 '${gateDir}/notes.txt')\" == two ]]"
+		git -C "${gateDir}" commit --quiet -m local -- notes.txt
+		fGateUpstream three
+		fGateOnly sync
+		fAssert "a tree that diverged from origin stops the run"  fGateRanSaying 1 'diverged from origin: 1 local, 1 remote'
+		git -C "${gateDir}" remote set-url origin "${work}/gate-pipe-nowhere.git"
+		fGateOnly sync
+		fAssert "an origin it can't reach is a warning, not a stop"  fGateRanSaying 0 "WARNING: can't reach origin"
+		fGateOnly ''
+		fAssert "--no-sync skips it, and says so"  fGateRanSaying 0 '^remote sync skipped$'
 		gateDir="${work}/gate"
 
 		## The hook. Its stub cicd.bash logs where it ran, what it was given, the marker file it saw
@@ -4473,3 +5167,4 @@ echo "passed: ${pass}, failed: ${fail}"
 ##		- 20260916 JC: A Syntax: refusal defines each placeholder under it, checked on repo url, repo clone, br hotfix and raw. account list prints a missing token source as (none). 1016 -> 1021.
 ##		- 20260924 JC: The pre-push gate runs on pushes to main only. Its checks push to main, and a push of another branch is checked to go out ungated. 1027 -> 1028.
 ##		- 20260924 JC: A folder rule typed with backslashes reads as typed under shcl 3.0, where 2.x read `\t` as a tab. 1028 -> 1029.
+##		- 20260926 JC: A check for each closed backlog item that had none. Accounts and identity: the gh probe skipped where nothing reads it, repo connect's account and identity, account apply's global writes and credential username, a dead folder rule, ssh's '--'. Branches: release and the back-merge beside a tag with the branch's name, a merge whose branch is already gone from origin, prune's spawn count, origin/HEAD healed, a lone or unborn default branch, masked credentials in a step, the dropped aliases. Installers: bad checksum, no SHA256SUMS, no hash tool, a portal page, a bad redirect tag, joined options, end of input, the sudo mkdir, sums from the release's own generator. Pipeline: stage 0, stage 3, dogfood, the publish message, the real backlog gate, spawn-count's regression exit, the lint globs, the release dry run. The whole suite runs with XDG_CONFIG_HOME and APPDATA poisoned. The call-stack check looked for bash's text and now looks for a Go panic. Every new check fails against its fault. 1031 -> 1208.

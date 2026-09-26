@@ -50,6 +50,30 @@ To make using these icons easier if desired, add them to a clipboard or key macr
 	- Opened: 20260916-163000
 	- Origin: seen on b29w 2026-09-16, not traced to a commit. Confirmed.
 
+- 🔘 `account apply` writes `credential.https://github.com.username` from `ghAccount` for every account. An account with `host` set gets no username for its own host, so plain git there can push as whatever the credential manager holds. With both `ghAccount` and `user` set, the fragment names the first while gitsby's own runs use the second.
+	- Opened: 20260926-154915
+	- Origin: `writeAccountFragment`, read only. `selectAccount` already keys its helper on the account's host and login. Plausible.
+
+- 🔘 In `install.bash`, end of input at a terminal prompt exits 1 with no `Aborted.` and no closing blank line. The failing `read` ends the script under `set -e` before the answer is looked at. It is still a no, by accident.
+	- Opened: 20260926-154915
+	- Origin: seen while adding the installer checks. Confirmed: `script -qec "bash install.bash" /dev/null </dev/null` with the stub curl on PATH.
+
+- 🔘 `cicd/release.bash` is committed as mode 100644, though its Syntax line says to run it as `cicd/release.bash [VERSION]`. That gives "Permission denied".
+	- Opened: 20260926-154915
+	- Origin: seen while adding the dry-run checks. Confirmed.
+
+- 🔘 `release.bash --dry-run` still prints "tagged and pushed" and "Released v1.2.4" at the end, for steps it only announced.
+	- Opened: 20260926-154915
+	- Origin: seen while adding the dry-run checks. Confirmed.
+
+- 🔘 `install.bash` checks a tag read from the release redirect for its characters only, so `..` segments pass. A typed `--tag` gets the path check as well. Low exposure, since curl collapses dot segments before it reports the URL.
+	- Opened: 20260926-154915
+	- Origin: seen while adding the installer checks. Plausible: read.
+
+- 🔘 Two test.bash checks on the frozen `install.ps1`, "iex form reaches the plan" and "and refuses without a tty", ask the live GitHub API for the latest release. Several suite runs inside an hour use up the anonymous rate limit, and both go red. The suite's header says it never touches the network.
+	- Opened: 20260926-154915
+	- Origin: seen 2026-09-26 after about fifteen suite runs in an hour. Confirmed: the API answered 403 rate limit exceeded.
+
 ### Features and enhancements
 
 - 🔘 Move the shcl module from its pinned `dev` commit to the tagged 3.0 release.
@@ -1838,6 +1862,15 @@ To make using these icons easier if desired, add them to a clipboard or key macr
 		- Added next to the bash badge in the header block, linking to the PowerShell docs.
 
 #### Done - Features and enhancements
+
+- ✅ Every closed backlog item has a regression check, where one makes sense.
+	- Opened: 20260926-144000
+	- Closed: 20260926-154915
+	- Audited every closed item against test.bash, fuzz.bash, parity.bash, the Go tests and the lint gates. About sixty had no check that would fail if the fix were undone. The rest were covered, or were docs, decisions, frozen code, or need a live host or a Windows box.
+	- Added: 8 Go tests, and test.bash checks for the account and identity paths, branches and prune, the installers, and the pipeline itself. The pipeline gets its first runs of stage 0, stage 3, dogfood, the publish message, the real backlog gate, spawn-count and `release.bash --dry-run`.
+	- The suite now runs with a poisoned `XDG_CONFIG_HOME` and `APPDATA`, so a block that fakes HOME and forgets to clear them goes red on any box.
+	- "option typo prints no call stack" looked for text only the bash build printed. It now looks for a Go panic.
+	- Verified: test.bash 1031 -> 1208, every new check seen to fail against its fault. Six bugs found on the way are filed under Bugs.
 
 - ✅ The pre-push gate runs on every branch push, not just `main`.
 	- Opened: 20260924-092200

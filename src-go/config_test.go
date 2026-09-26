@@ -270,6 +270,21 @@ func TestExpandHome(t *testing.T) {
 	}
 }
 
+// With no home to be found, a '~' path became one rooted at the filesystem top.
+// USERPROFILE is where Windows looks once HOME is empty.
+func TestExpandHomeWithNoHome(t *testing.T) {
+	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
+	if home := homeDir(); home != "" {
+		t.Skipf("a home is still found here: %q", home)
+	}
+	for _, in := range []string{"~", "~/dev", "${HOME}/x", `%USERPROFILE%\x`} {
+		if got := expandHome(in); got != in {
+			t.Errorf("expandHome(%q) = %q, want it as typed", in, got)
+		}
+	}
+}
+
 // The key goes to a shell, so a home spelling goes in as the one the shell expands,
 // and a backslash as the slash the shell would otherwise eat.
 func TestSSHKeyArg(t *testing.T) {

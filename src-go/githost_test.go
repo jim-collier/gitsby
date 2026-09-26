@@ -11,6 +11,7 @@
 package main
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -203,6 +204,46 @@ func TestPrArgsPerTool(t *testing.T) {
 	tea.pr.tool, tea.pr.num = toolTea, "7"
 	if got := tea.prCleanArgs(); len(got) == 0 {
 		t.Error("tea prCleanArgs is empty, so 'pr ok' would merge and leave the branch standing")
+	}
+}
+
+// 'pr <n>' is the PR and its diff. gh takes a call for each; tea's detail view
+// carries the diff in one.
+func TestPrViewArgsPerTool(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		tool hostTool
+		want [][]string
+	}{
+		{"gh", toolGh, [][]string{{"pr", "view", "7"}, {"pr", "diff", "7"}}},
+		{"tea", toolTea, [][]string{{"pulls", "7", "--fields", teaDetailFields}}},
+	} {
+		a := newApp(newPrinter())
+		a.pr.tool, a.pr.num = tc.tool, "7"
+		if got := a.prViewArgs(); !slices.EqualFunc(got, tc.want, slices.Equal) {
+			t.Errorf("%s prViewArgs = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+	if !strings.Contains(teaDetailFields, "diff") {
+		t.Errorf("tea's detail fields %q leave out the diff", teaDetailFields)
+	}
+}
+
+// And the command runs every call, not just the first.
+func TestCmdPrViewRunsEachCall(t *testing.T) {
+	if !inPath("true") {
+		t.Skip("no 'true' to stand in for gh")
+	}
+	p, out, _ := testPrinter()
+	a := newApp(p)
+	a.pr.tool, a.pr.num, a.pr.cli = toolGh, "7", "true"
+	if err := a.cmdPrView(); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"true pr view 7 ...", "true pr diff 7 ..."} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("%q never ran %q", out, want)
+		}
 	}
 }
 

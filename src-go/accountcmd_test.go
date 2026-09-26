@@ -541,6 +541,48 @@ func TestAccountSetRefusesAKeyNothingReads(t *testing.T) {
 	}
 }
 
+// The syntax block nests two spaces a level. The suite matches its text with no
+// anchor on the leading spaces, so a flat wall of indent would still pass there.
+func TestAccountSetUsageNests(t *testing.T) {
+	depths := []struct {
+		prefix string
+		want   int
+	}{
+		{"Syntax:", 0},
+		{"Writes '<key>", 2},
+		{"<account>", 4},
+		{"<key>", 4},
+		{"<value>", 4},
+		{"Examples:", 2},
+		{"Bind an account", 4},
+		{"Or by a run", 4},
+		{meName + " account set ", 6},
+	}
+	seen := map[string]int{}
+	for _, line := range strings.Split(accountSetUsage().Error(), "\n") {
+		text := strings.TrimLeft(line, " ")
+		got, want, prefix := len(line)-len(text), 15, "" // unmatched is the key list, under the description column
+		for _, d := range depths {
+			if strings.HasPrefix(text, d.prefix) {
+				want, prefix = d.want, d.prefix
+				break
+			}
+		}
+		seen[prefix]++
+		if got != want {
+			t.Errorf("%q is indented %d, want %d", line, got, want)
+		}
+	}
+	for _, d := range depths {
+		if seen[d.prefix] == 0 {
+			t.Errorf("no line starts %q", d.prefix)
+		}
+	}
+	if seen[meName+" account set "] != 3 || seen[""] == 0 {
+		t.Errorf("example and key-list line counts = %v", seen)
+	}
+}
+
 // 'host' and 'user' are interpolated into the credential helper, which git hands
 // to a shell. The loader drops one carrying a shell character; refusing to WRITE
 // it is what stops the file and the behavior disagreeing.
@@ -1026,5 +1068,27 @@ func TestLockFix(t *testing.T) {
 		if got := lockFix(tc.goos, tc.lock); !slices.Equal(got, tc.want) {
 			t.Errorf("lockFix(%s, %s) = %q, want %q", tc.goos, tc.lock, got, tc.want)
 		}
+	}
+}
+
+// Every variable set here decides which account the rest of the run acts as, so
+// one that can't be set stops the run rather than leaving half an account applied.
+// A NUL byte is a value no process environment can hold.
+func TestSettingTheAccountEnvStopsOnFailure(t *testing.T) {
+	for _, name := range []string{"GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0", "GITSBY_TEST_ENV"} {
+		t.Setenv(name, "")
+		if err := os.Unsetenv(name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var ue *usageError
+	if err := setEnv("GITSBY_TEST_ENV", "a\x00b"); !errors.As(err, &ue) || !strings.Contains(err.Error(), "Couldn't set GITSBY_TEST_ENV") {
+		t.Errorf("setEnv with a NUL = %v, want a usage error naming it", err)
+	}
+	if err := gitConfigEnv("user.name", "a\x00b"); err == nil {
+		t.Error("gitConfigEnv with a NUL went on as if it had worked")
+	}
+	if count, set := os.LookupEnv("GIT_CONFIG_COUNT"); set {
+		t.Errorf("GIT_CONFIG_COUNT = %q after its value failed to set, so git reads a half-written entry", count)
 	}
 }

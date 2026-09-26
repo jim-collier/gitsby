@@ -96,6 +96,23 @@ func TestSSHConnectTarget(t *testing.T) {
 	}
 }
 
+// The login answered for one remote was handed back for the next one asked about.
+// An https remote has no ssh target, so nothing here runs ssh.
+func TestSSHLoginIsPerRemote(t *testing.T) {
+	t.Setenv("GIT_SSH_COMMAND", "ssh") // keeps the core.sshCommand lookup off this repo
+	a := newApp(newPrinter())
+	a.gh.sshLogins = map[string]string{"git@github.com:a/b.git": "alice"}
+	if got := a.sshLogin("git@github.com:a/b.git"); got != "alice" {
+		t.Errorf("sshLogin(seeded) = %q, want alice", got)
+	}
+	if got := a.sshLogin("https://github.com/c/d.git"); got != "?" {
+		t.Errorf("sshLogin(https) = %q, want ?", got)
+	}
+	if got := a.sshLogin("git@github.com:a/b.git"); got != "alice" {
+		t.Errorf("sshLogin(seeded) after another remote = %q, want alice", got)
+	}
+}
+
 // Only a mismatch both sides KNOW about counts: '?' means we couldn't tell, which
 // is not the same as being wrong.
 func TestIdentityMismatchText(t *testing.T) {

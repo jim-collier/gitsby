@@ -11,6 +11,7 @@ package main
 
 import (
 	"errors"
+	"io/fs"
 	"slices"
 	"strings"
 	"testing"
@@ -144,6 +145,22 @@ func TestWrappedErrorsKeepTheirFraming(t *testing.T) {
 	p, _, _ := testPrinter()
 	if code := reportExit(p, errors.Join(errDone)); code != 0 {
 		t.Errorf("wrapped errDone gave %d, want 0", code)
+	}
+}
+
+// A usage error built around a cause still answers errors.Is and errors.As for it,
+// and is still a usage error to anything asking.
+func TestUsageWrapfKeepsTheCause(t *testing.T) {
+	err := usageWrapf(fs.ErrPermission, "Couldn't run '%s'", "git")
+	if !errors.Is(err, fs.ErrPermission) {
+		t.Errorf("%v lost its cause", err)
+	}
+	var ue *usageError
+	if !errors.As(err, &ue) {
+		t.Errorf("%v is not a usage error", err)
+	}
+	if got, want := err.Error(), "Couldn't run 'git': "+fs.ErrPermission.Error(); got != want {
+		t.Errorf("message = %q, want %q", got, want)
 	}
 }
 
