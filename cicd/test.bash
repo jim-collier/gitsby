@@ -2796,12 +2796,12 @@ GHEOF
 		bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q -NoFetch -Config '${ac}/nested.shcl' account"
 	fAssertNotOut "a stacked folder list is not listed as ignored"  'account\[hn\]\.path\.' \
 		bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q -NoFetch -Config '${ac}/nested.shcl' account"
-	## 'account set' on a block-layout file edits the block and keeps the rest - comments included -
-	## where it was, in the format's own spacing.
+	## 'account set' on a block-layout file edits the block and keeps the rest as it was, comments
+	## included. A new key takes the indent of the lines around it.
 	cp "${ac}/hier.shcl" "${ac}/hier-set.shcl"
 	fAssertOut "'account set' names the block and the key it adds"  'add: +account\[hw\]\.host: gitea\.example' \
 		bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q -NoFetch -Config '${ac}/hier-set.shcl' account set hw host gitea.example 2>&1"
-	fAssertOut "and the block now holds it"  '^	host: gitea\.example$'  cat "${ac}/hier-set.shcl"
+	fAssertOut "and the block now holds it"  '^ +host: gitea\.example$'  cat "${ac}/hier-set.shcl"
 	fAssertOut "with the comment above it kept"  '^# blocks$'  cat "${ac}/hier-set.shcl"
 	fAssertOut "and an existing key is shown before and after"  'was: +ghaccount: hieracct' \
 		bash -c "cd '${acWork}' && env ${acEnv} '${gitsby}' -q -NoFetch -Config '${ac}/hier-set.shcl' account set hw ghaccount other 2>&1"
@@ -4246,11 +4246,16 @@ GHEOF
 		bash -c "cd '${fgRepo}' && PATH='${fgPath}' '${gitsby}' -q -NoFetch --config '${fg}/spaced.shcl' account set work protocol git 2>&1"
 	fAssertNotOut "and never reaches the file"  'protocol' \
 		cat "${fg}/spaced.shcl"
-	## Saves are canonical. The plan called a respacing of the whole file an edit of one line.
-	fAssertOut "an edit that respaces the file says so in the plan"  'also: +the rest of the file' \
+	## Lines an edit doesn't touch come back as they were. The plan speaks up only when the module
+	## can't manage that and writes the whole file in its own layout.
+	fAssertNotOut "an edit to a file spaced by hand says nothing about the rest of it"  'also: ' \
 		bash -c "cd '${fgRepo}' && PATH='${fgPath}' '${gitsby}' -q -NoFetch --config '${fg}/spaced.shcl' account set work host gitea.com 2>&1"
-	fAssertNotOut "and a file already spaced that way hears nothing of it"  'also: ' \
-		bash -c "cd '${fgRepo}' && PATH='${fgPath}' '${gitsby}' -q -NoFetch --config '${fg}/spaced.shcl' account set work host git.example.org 2>&1"
+	fAssertOut "and the file keeps its spacing"  '^    host: gitea\.com$'  cat "${fg}/spaced.shcl"
+	printf 'account.work.email: a@b.c\n' > "${fg}/dotted.shcl"
+	fAssertOut "a key added under a dotted line rewrites the file, and the plan says so"  'also: +the rest of the file' \
+		bash -c "cd '${fgRepo}' && PATH='${fgPath}' '${gitsby}' -q -NoFetch --config '${fg}/dotted.shcl' account set work host gitea.com 2>&1"
+	fAssertNotOut "and once in that layout it hears nothing of it"  'also: ' \
+		bash -c "cd '${fgRepo}' && PATH='${fgPath}' '${gitsby}' -q -NoFetch --config '${fg}/dotted.shcl' account set work host git.example.org 2>&1"
 	printf 'protocol: git\naccount: work\n\tprotocol: xyz\n' > "${fg}/badproto.shcl"
 	fAssertOut "account list names a protocol nothing acts on as ignored"  'account\[work\]\.protocol \(not https or ssh\)' \
 		bash -c "cd '${fgRepo}' && PATH='${fgPath}' '${gitsby}' -q -NoFetch --config '${fg}/badproto.shcl' account list 2>&1"

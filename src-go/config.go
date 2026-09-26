@@ -545,7 +545,10 @@ func (c *config) load(o options) error {
 		c.loadFlat(text)
 		return nil
 	}
-	c.loadDoc(shcl.Parse(text))
+	// The whole file, mark and all: the module takes the mark off for the read and
+	// keeps the text, so 'account set' writes back every line it didn't edit.
+	doc, _ := shcl.ParseKeepLines(string(data), shcl.Standard)
+	c.loadDoc(doc)
 	return nil
 }
 
