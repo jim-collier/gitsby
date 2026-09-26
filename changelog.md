@@ -41,7 +41,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - The identity block has a `Git host` line for hosts `gh` does not serve, naming the host and who its CLI holds a login for. Previously it simply printed nothing there.
 
-- `account set <account> <key> <value>` writes one key into an account's block of the accounts file, so the fixes the identity block suggests can be typed as a command rather than made by hand. It shows the edit before making it, refuses a key nothing reads instead of leaving a line that is silently dropped, and keeps the rest of the file - comments and order - as it was. It creates the file if there isn't one yet, with a header naming the keys.
+- `account set <account> <key> <value>` writes one key into an account's block of the accounts file, so the fixes the identity block suggests can be typed as a command rather than made by hand. It shows the edit before making it, refuses a key nothing reads instead of leaving a line that is silently dropped, and keeps every other line of the file as it was, spacing and comments included. It creates the file if there isn't one yet, with a header naming the keys.
 
 - The Windows binaries carry an icon and version details. Explorer shows the gitsby logo instead of the blank default, and Properties reads a version, description, copyright and file name off the file itself.
 

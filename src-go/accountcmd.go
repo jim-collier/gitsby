@@ -949,14 +949,14 @@ func (a *app) accountSetPlan() (accountSetTarget, error) {
 	default:
 		t.file, t.doc, t.read = a.cfg.file, a.cfg.doc, a.cfg.raw
 	}
-	// The module saves a document by rewriting it whole, and refuses to when the
-	// read dropped something the rewrite would then lose. Said here, before the
-	// plan, rather than after the confirmation.
+	// A line the read dropped can't be kept, so the save would be a whole-file
+	// rewrite that loses it, and the module refuses one. Said here, before the plan,
+	// rather than after the confirmation.
 	if lost := t.doc.LostCount(); lost > 0 {
 		return t, usagef("%d line(s) of %s couldn't be read, and a rewrite would drop them. Edit it by hand.", lost, nativePath(t.file))
 	}
 	// Taken before the edit, so only what the save changes besides the key counts.
-	t.reshapes = !t.creates && !t.converts && t.doc.ToCanonical() != t.read
+	tidy := t.doc.ToCanonical() == t.read
 	blocks, _ := acctBlocks(t.doc)
 	for _, b := range blocks {
 		if b.name == name {
@@ -980,13 +980,24 @@ func (a *app) accountSetPlan() (accountSetTarget, error) {
 			t.old = *read.Raw
 		}
 	}
+	// Made here rather than at the save, so a key the file can't hold is refused
+	// before the plan, and the plan knows whether the rest of the file comes back
+	// as written. A few edits can't keep it, such as a key added under a dotted
+	// line; those save the whole file in the module's own layout.
+	if !t.doc.SetString(t.path(), t.value) {
+		return t, usagef("'%s' isn't a setting the file can hold (%s).", t.disp+"."+t.field, t.doc.WriteReason(t.path()))
+	}
+	if _, kept := t.doc.ToTextKeepLines(); !kept && !tidy && !t.creates && !t.converts {
+		t.reshapes = true
+	}
 	return t, nil
 }
 
 // cmdAccountSet writes one key into one account block of the accounts file and
-// saves it through the module, which rewrites the file in its canonical shape:
-// tabs, lower-case keys, one blank line at most between blocks. Comments and
-// order come through; the spacing is the format's.
+// saves it through the module. Every line the edit didn't touch comes back as it
+// was. Where the module can't manage that, it writes the whole file in its own
+// layout - tabs, lower-case keys, one blank line at most between blocks - and the
+// plan has said so.
 func (a *app) cmdAccountSet() error {
 	if a.set == nil {
 		t, err := a.accountSetPlan()
@@ -996,9 +1007,6 @@ func (a *app) cmdAccountSet() error {
 		a.set = &t
 	}
 	t := *a.set
-	if !t.doc.SetString(t.path(), t.value) {
-		return usagef("'%s' isn't a setting the file can hold (%s).", t.disp+"."+t.field, t.doc.WriteReason(t.path()))
-	}
 	if t.creates {
 		dir := filepath.Dir(t.file)
 		if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -1032,7 +1040,7 @@ func (a *app) cmdAccountSet() error {
 	if now, err := os.ReadFile(t.file); err != nil || string(now) != t.read {
 		return changedRefusal(t.file, err)
 	}
-	if err := t.doc.SaveFile(t.file); err != nil {
+	if _, err := t.doc.SaveFileKeepLines(t.file); err != nil {
 		var refused *shcl.SaveRefused
 		if errors.As(err, &refused) {
 			return usagef("%d line(s) of %s couldn't be read, and a rewrite would drop them. Edit it by hand.", refused.Lost, nativePath(t.file))

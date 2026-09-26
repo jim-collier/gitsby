@@ -54,7 +54,7 @@ To make using these icons easier if desired, add them to a clipboard or key macr
 
 - 🔘 Move the shcl module from its pinned `dev` commit to the tagged 3.0 release.
 	- Opened: 20260924-132324
-	- The pin is `v2.0.0-20260925145050-0c9b75b16dbb` since 2026-09-25, which Go sorts below v2.0.0. Nothing asks for v2.0.0 on the new import path, so nothing picks it over the pin.
+	- The pin is `v2.0.0-20260926000044-f2a8ad2aed34` since 2026-09-25, shcl `dev` just ahead of the beta cut. Go sorts it below v2.0.0. Nothing asks for v2.0.0 on the new import path, so nothing picks it over the pin.
 	- Go refuses a v3 tag on a module named `.../v2`, so the tag should bring a `/v3` import path. Move the imports in the same commit.
 	- `release.bash` should refuse a pseudo-version for shcl, so a release cannot go out on a commit pin.
 	- shcl plans the `/v3` path for its 3.0.0 cut, so nothing to report there.
@@ -410,6 +410,8 @@ To make using these icons easier if desired, add them to a clipboard or key macr
 		- `protocol` takes any value at all. The two it honors are documented in the header of the file it writes, and anything else is quietly ignored later.
 		- Origin: 9282c09 for the refusals. The plan text is left over from the byte-for-byte decision that 8203670 reversed. Confirmed.
 		- Keep: saves stay canonical. The plan says so; nothing goes back to byte-for-byte.
+		- Reversed 20260925: shcl's 3.0 beta saves an edit and keeps every other line as written. `account set` uses it, and the `also:` line now shows only when the module falls back to a whole-file rewrite.
+			- Removed from test.bash: "an edit that respaces the file says so in the plan" and "and a file already spaced that way hears nothing of it". Both pinned the canonical rewrite. The same file now keeps its spacing with no `also:` line, and the plan line is checked on a dotted-line add instead.
 		- Fixed: `account set` settles its plan before anything prints, so a refusal comes alone, with no plan and no prompt. The file is read once, not twice with the prompt between. When a save changes more of the file than the key, the plan adds an `also:` line saying so. `protocol` takes `https` or `ssh` in any case and writes it lower case. Any other protocol already in a file, in an account or at the top, is listed as ignored.
 		- Sweep: no other plan decides a refusal. `protocol` was the only closed-set value the loader kept unchecked.
 		- Verified: 8 new checks in test.bash, 969 -> 977. Seven fail on `gover`, and a plan for a file already in the save's layout is a regression guard. The prompt check needs `script`. Three new Go tests, which don't build on `gover`. `TestAccountSetPreviewShowsTheRefusalsFirstLine` is gone, since a plan can't show a refusal now. The fuzz target's oracle expects nothing kept for a top-level protocol other than https or ssh. fuzz.bash 301/0, parity.bash 27/0. Linux only.

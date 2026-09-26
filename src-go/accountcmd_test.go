@@ -339,9 +339,7 @@ func TestAccountSetCreatesTheFile(t *testing.T) {
 	}
 }
 
-// One key changes; the comments, the other keys and the footer stay where they
-// were. The spacing is the format's own, which is the one thing a rewrite through
-// the module changes.
+// One key changes; every other line comes back as it was, spacing included.
 func TestAccountSetReplacesOneKey(t *testing.T) {
 	body := "# mine\n\naccount: work\n\tpath: /srv/work   # the tree\n\thost: github.com\n\temail: a@b.c\n\n" + shcl.GenBanner
 	a, file := setApp(t, body, "work", "host", "gitea.com")
@@ -355,7 +353,7 @@ func TestAccountSetReplacesOneKey(t *testing.T) {
 	if err := a.cmdAccountSet(); err != nil {
 		t.Fatalf("set: %v", err)
 	}
-	want := "# mine\n\naccount: work\n\tpath: /srv/work  # the tree\n\thost: gitea.com\n\temail: a@b.c\n\n" + shcl.GenBanner
+	want := strings.Replace(body, "github.com", "gitea.com", 1)
 	if got := readBack(t, file); got != want {
 		t.Errorf("got:\n%q\nwant:\n%q", got, want)
 	}
@@ -854,8 +852,8 @@ func TestAccountSetRefusesBeforeThePlan(t *testing.T) {
 	}
 }
 
-// The plan says when the save changes more than the key. A file already in the
-// layout every save writes gets no such line.
+// The save keeps every line it didn't edit, however it was typed. The plan says
+// when it can't, which is when the module writes the whole file in its own layout.
 func TestAccountSetPlanSaysWhenTheFileIsReshaped(t *testing.T) {
 	canon := "account: work\n\thost: github.com\n"
 	for _, tc := range []struct {
@@ -863,13 +861,17 @@ func TestAccountSetPlanSaysWhenTheFileIsReshaped(t *testing.T) {
 		want       bool
 	}{
 		{"canonical", canon, false},
-		{"spaces", "account: work\n    host: github.com\n", true},
-		{"key case", "account: work\n\tHost: github.com\n", true},
-		{"line ends", "account: work\r\n\thost: github.com\r\n", true},
-		{"mark", utf8BOM + canon, true},
+		{"spaces", "account: work\n    host: github.com\n", false},
+		{"key case", "account: work\n\tHost: github.com\n", false},
+		{"line ends", "account: work\r\n\thost: github.com\r\n", false},
+		{"mark", utf8BOM + canon, false},
+		{"comment spacing", "account: work\n\thost: github.com    # old\n", false},
+		// A key added under a dotted line is one the module can't keep lines for.
+		{"dotted, added", "account.work.email: a@b.c\n", true},
+		{"dotted, changed", "account.work.host: github.com\n", false},
 	} {
 		p, out, _ := testPrinter()
-		a, _ := setApp(t, tc.body, "work", "host", "gitea.com")
+		a, file := setApp(t, tc.body, "work", "host", "gitea.com")
 		a.out = p
 		if err := a.preflight(); err != nil {
 			t.Fatalf("%s: preflight: %v", tc.name, err)
@@ -880,6 +882,16 @@ func TestAccountSetPlanSaysWhenTheFileIsReshaped(t *testing.T) {
 		a.preview("account-set")
 		if got := strings.Contains(out.String(), "also:    the rest of the file"); got != tc.want {
 			t.Errorf("%s: plan line shown = %v, want %v:\n%s", tc.name, got, tc.want, out)
+		}
+		if err := a.cmdAccountSet(); err != nil {
+			t.Fatalf("%s: set: %v", tc.name, err)
+		}
+		got := readBack(t, file)
+		if want := strings.Replace(tc.body, "github.com", "gitea.com", 1); !tc.want && got != want {
+			t.Errorf("%s: got:\n%q\nwant:\n%q", tc.name, got, want)
+		}
+		if tc.want && got != "account:\n\twork:\n\t\temail: a@b.c\n\t\thost: gitea.com\n" {
+			t.Errorf("%s: got:\n%q", tc.name, got)
 		}
 	}
 }
